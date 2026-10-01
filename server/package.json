@@ -1,0 +1,22 @@
+{
+  "name": "server",
+  "type": "module",
+  "version": "1.0.50",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "bun run --watch src/index.ts",
+    "contract:emit": "prisma contract emit"
+  },
+  "dependencies": {
+    "@prisma/orm-postgres": "8.0.0-rc.11",
+    "dotenv": "^18.0.5",
+    "elysia": "latest"
+  },
+  "devDependencies": {
+    "@prisma/cli-engine": "0.4.0",
+    "@types/node": "^26.6.3",
+    "bun-types": "latest",
+    "prisma": "8.0.0-rc.15"
+  },
+  "module": "src/index.js"
+}
