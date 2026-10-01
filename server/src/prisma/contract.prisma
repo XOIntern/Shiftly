@@ -3,10 +3,14 @@
 model User {
   id        Int      @id @default(autoincrement())
   email     VarChar(100) @unique
-  username  String?
   password  VarChar(255)
-  name      String?
-  posts     Post[]
+  name      String
   createdAt TimestamptzString @default(now())
   updatedAt temporal.updatedAtString()
+
+  @@map("users")
+}
+
+model Profile{
+  
 }
