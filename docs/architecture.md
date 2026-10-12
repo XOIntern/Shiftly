@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Version | 0.1 (Draft) |
-| Source | Derived from [PRD.md](./PRD.md) v0.1 |
+| Source | Derived from PRD v0.1 |
 | Status | Awaiting review; some decisions still TBD (see section 10) |
 | Audience | Developers building Shiftly |
 
@@ -338,5 +338,5 @@ Decisions the PRD **has already locked** and are not being reopened: a determini
 
 ## 13. References
 
-- [PRD.md](./PRD.md): source of all requirements, rules C1–C7, user stories, and the Sept 17 discovery decisions.
+- PRD v0.1: source of all requirements, rules C1–C7, user stories, and the Sept 17 discovery decisions.
 - PRD appendix: interpretation of the discovery decisions that underpins the architectural choices in this document.
