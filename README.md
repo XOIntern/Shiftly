@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Shiftly
 
-## Getting Started
+A multi-client, multi-site web platform for roster and attendance management of outsourced workers — starting with the Nestle Group pilot.
 
-First, run the development server:
+## About
+
+Shiftly's target architecture stands on four pillars:
+
+1. A **deterministic Roster Engine** that auto-generates weekly draft rosters and refuses to publish rule-violating rosters (unmet requirements are reported as explicit deficits)
+2. **Site-scoping at the data level** — every non-HO user is bound to exactly one site, enforced server-side
+3. **Fully config-driven** rules and salary rates, changed by HO via configuration, with no code changes
+4. **An audit trail** for every sensitive decision (publishes, config changes, attendance corrections, force majeure)
+
+The full target architecture — modules, data model, rules C1–C7, and open decisions — is documented in [`docs/architecture.md`](./docs/architecture.md).
+
+## Tech stack
+
+| Layer | Choice | Status |
+|---|---|---|
+| Framework | Next.js 16 (App Router) | Scaffolded |
+| UI | React 19, Tailwind CSS 4 | Scaffolded |
+| Language | TypeScript | Scaffolded |
+| Runtime / package manager | Bun | Scaffolded |
+| Database | PostgreSQL (recommended) | TBD |
+| Authentication | Session-based (email + password) | TBD |
+| Hosting / deployment | — | TBD |
+
+## Getting started
+
+Prerequisites: [Bun](https://bun.sh) 1.4+.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to see the result. The app auto-reloads as you edit files under `app/`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Available scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Script | What it does |
+|---|---|
+| `bun dev` | Start the development server |
+| `bun run build` | Production build |
+| `bun run start` | Serve the production build |
+| `bun run lint` | Run ESLint |
 
-## Learn More
+## Notes for contributors
 
-To learn more about Next.js, take a look at the following resources:
+> ⚠️ This repo uses a newer Next.js with breaking API and convention changes. Read the bundled guides in `node_modules/next/dist/docs/` (after `bun install`) before writing route, layout, or server code — and heed deprecation notices. Do not rely on Next.js patterns from older versions.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The project is in an early scaffold stage. Auth, UI library, and container setup are being worked through the repository's issue tracker.
