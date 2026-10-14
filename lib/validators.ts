@@ -1,3 +1,4 @@
+import { ROLES } from "./scope";
 import { z } from "zod";
 
 const nameField = z.string().trim().min(1).max(200);
@@ -43,7 +44,7 @@ const userBaseSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.email(),
   password: z.string().min(8),
-  role: z.enum(["superadmin", "ho", "admin"]),
+  role: z.enum(ROLES),
   siteId: z.uuid().optional(),
   siteLocationId: z.uuid().optional(),
 });
