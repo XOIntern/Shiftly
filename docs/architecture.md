@@ -351,5 +351,5 @@ Decisions the PRD **has already locked** and are not being reopened: a determini
 
 ## 13. References
 
-- PRD v0.2: source of all requirements, rules C1–C7, user stories, the Sept 17 discovery decisions, and the Oct 2026 domain-model revision (no `client`; `site` 1:N `site_locations`; roles superadmin/HO/admin).
+- PRD v0.2 (not part of the repo's published tree): source of all requirements, rules C1–C7, user stories, the Sept 17 discovery decisions, and the Oct 2026 domain-model revision (no `client`; `site` 1:N `site_locations`; roles superadmin/HO/admin).
 - PRD appendix: interpretation of the discovery decisions that underpins the architectural choices in this document.
