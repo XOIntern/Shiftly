@@ -9,6 +9,8 @@ import {
   parseUserCreate,
   parseUserUpdate,
   userUpdateSchema,
+  locationCreateSchema,
+  locationUpdateSchema,
 } from "./validators";
 
 describe("clientCreateSchema", () => {
@@ -105,6 +107,86 @@ describe("siteUpdateSchema", () => {
       name: "HQ Plant",
       location: "Jakarta",
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("locationCreateSchema", () => {
+  test("accepts valid location input with a siteId", () => {
+    const result = locationCreateSchema.safeParse({
+      siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+      name: "Main Warehouse",
+      address: "Jl. Test 123",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts input without a siteId", () => {
+    const result = locationCreateSchema.safeParse({
+      name: "Main Warehouse",
+      address: "Jl. Test 123",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects an empty name", () => {
+    const result = locationCreateSchema.safeParse({
+      name: "",
+      address: "Jl. Test 123",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects an empty address", () => {
+    const result = locationCreateSchema.safeParse({
+      name: "Main Warehouse",
+      address: "",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-uuid siteId", () => {
+    const result = locationCreateSchema.safeParse({
+      siteId: "nope",
+      name: "Main Warehouse",
+      address: "Jl. Test 123",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("locationUpdateSchema", () => {
+  const base = {
+    id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+    name: "Main Warehouse",
+    address: "Jl. Test 123",
+    isActive: true,
+  };
+
+  test("accepts a valid update", () => {
+    const result = locationUpdateSchema.safeParse({
+      ...base,
+      siteId: "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts an update without a siteId", () => {
+    const result = locationUpdateSchema.safeParse(base);
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a missing isActive", () => {
+    const result = locationUpdateSchema.safeParse({
+      id: base.id,
+      name: base.name,
+      address: base.address,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-uuid id", () => {
+    const result = locationUpdateSchema.safeParse({ ...base, id: "not-a-uuid" });
     expect(result.success).toBe(false);
   });
 });

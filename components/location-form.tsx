@@ -1,0 +1,365 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { MapPinIcon, PencilIcon, TrashIcon } from "lucide-react";
+import { toast } from "sonner";
+
+import type { ActionState } from "@/lib/action-state";
+import { GENERIC_ERROR } from "@/lib/action-state";
+import {
+  createLocation,
+  deleteLocation,
+  toggleLocation,
+  updateLocation,
+} from "@/app/(dashboard)/locations/actions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+export type SiteOption = { id: string; name: string };
+
+// A location row the page hands the actions — siteName comes from the
+// required inner join, so it can't be null.
+export type LocationOption = {
+  id: string;
+  name: string;
+  siteId: string;
+  siteName: string;
+};
+
+// One row of the locations table — server-selectable fields only.
+export type LocationRow = {
+  id: string;
+  name: string;
+  address: string;
+  isActive: boolean;
+  siteId: string;
+  siteName: string;
+};
+
+type LocationFieldErrors = Record<string, string>;
+
+type SelectOption = {
+  label: string;
+  value: string | null;
+  disabled?: boolean;
+};
+
+function showFailure(
+  result: ActionState,
+  setErrors: (value: LocationFieldErrors | undefined) => void,
+  setMessage: (value: string) => void,
+) {
+  if (result.fieldErrors) setErrors(result.fieldErrors);
+  if (result.message) setMessage(result.message);
+}
+
+function LocationForm({
+  sites,
+  location,
+  onSaved,
+}: {
+  sites: SiteOption[];
+  location?: LocationRow;
+  onSaved: () => void;
+}) {
+  const [siteId, setSiteId] = useState<string | null>(
+    location?.siteId ?? null,
+  );
+  const [name, setName] = useState(location?.name ?? "");
+  const [address, setAddress] = useState(location?.address ?? "");
+  const [fieldErrors, setFieldErrors] = useState<LocationFieldErrors>();
+  const [message, setMessage] = useState<string>();
+  const [pending, startTransition] = useTransition();
+
+  const selectItems: SelectOption[] = location
+    ? sites.map((site) => ({ label: site.name, value: site.id }))
+    : [
+        { label: "Select a site", value: null, disabled: true },
+        ...sites.map((site) => ({ label: site.name, value: site.id })),
+      ];
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+
+    setFieldErrors(undefined);
+    setMessage(undefined);
+    startTransition(async () => {
+      // Edits never send a siteId — a ho's updates are pinned to their own
+      // site and a superadmin edit without a siteId keeps the current one.
+      const result = location
+        ? await updateLocation(location.id, {
+            name,
+            address,
+            isActive: location.isActive,
+          })
+        : await createLocation({
+            siteId: siteId ?? "",
+            name,
+            address,
+          });
+
+      if (result.ok) {
+        onSaved();
+        return;
+      }
+      showFailure(result, setFieldErrors, setMessage);
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <FieldGroup className="gap-4">
+        {message ? <FieldError>{message}</FieldError> : null}
+        <Field data-invalid={fieldErrors?.name ? "true" : undefined}>
+          <FieldLabel htmlFor="location-name">Location name</FieldLabel>
+          <Input
+            id="location-name"
+            name="name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            aria-invalid={fieldErrors?.name ? true : undefined}
+            maxLength={200}
+            required
+          />
+          {fieldErrors?.name ? (
+            <FieldError errors={[{ message: fieldErrors.name }]} />
+          ) : null}
+        </Field>
+        <Field data-invalid={fieldErrors?.address ? "true" : undefined}>
+          <FieldLabel htmlFor="location-address">Address</FieldLabel>
+          <Input
+            id="location-address"
+            name="address"
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            aria-invalid={fieldErrors?.address ? true : undefined}
+            maxLength={200}
+            required
+          />
+          {fieldErrors?.address ? (
+            <FieldError errors={[{ message: fieldErrors.address }]} />
+          ) : null}
+        </Field>
+        {/* Edits are name/address only: ho updates are pinned to their own
+            site and a superadmin edit keeps the current one. */}
+        {location ? null : (
+          <Field data-invalid={fieldErrors?.siteId ? "true" : undefined}>
+            <FieldLabel htmlFor="location-site">Site</FieldLabel>
+            <Select
+              items={selectItems}
+              value={siteId}
+              onValueChange={(value) => setSiteId(value as string | null)}
+            >
+              <SelectTrigger id="location-site" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {selectItems.map((item) => (
+                    <SelectItem
+                      key={item.value ?? "placeholder"}
+                      value={item.value}
+                      disabled={item.disabled}
+                    >
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {sites.length === 0 ? (
+              <FieldDescription>
+                No sites yet — create one before adding its first location.
+              </FieldDescription>
+            ) : null}
+            {fieldErrors?.siteId ? (
+              <FieldError errors={[{ message: fieldErrors.siteId }]} />
+            ) : null}
+          </Field>
+        )}
+        <DialogFooter>
+          <Button type="submit" disabled={pending}>
+            {pending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </FieldGroup>
+    </form>
+  );
+}
+
+export function CreateLocationButton({ sites }: { sites: SiteOption[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button />}>
+        <MapPinIcon data-icon="inline-start" />
+        Add location
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New location</DialogTitle>
+          <DialogDescription>
+            Locations are the specific workplaces inside a site that workers
+            and their admins get bound to.
+          </DialogDescription>
+        </DialogHeader>
+        <LocationForm sites={sites} onSaved={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function EditLocationButton({
+  location,
+  sites,
+}: {
+  location: LocationRow;
+  sites: SiteOption[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Edit ${location.name}`}
+          />
+        }
+      >
+        <PencilIcon />
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit location</DialogTitle>
+          <DialogDescription>
+            Update the location&apos;s name or address.
+          </DialogDescription>
+        </DialogHeader>
+        <LocationForm
+          sites={sites}
+          location={location}
+          onSaved={() => setOpen(false)}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function ToggleLocationButton({
+  location,
+}: {
+  location: LocationRow;
+}) {
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={pending}
+      onClick={() => {
+        startTransition(async () => {
+          const result = await toggleLocation(location.id);
+          if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
+        });
+      }}
+    >
+      {location.isActive ? "Deactivate" : "Activate"}
+    </Button>
+  );
+}
+
+export function DeleteLocationButton({
+  location,
+}: {
+  location: LocationRow;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  function handleConfirm() {
+    startTransition(async () => {
+      const result = await deleteLocation(location.id);
+      if (result.ok) {
+        setOpen(false);
+        return;
+      }
+      toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Delete ${location.name}`}
+          />
+        }
+      >
+        <TrashIcon />
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete location</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently deletes “{location.name}”. Locations referenced
+            by users cannot be deleted.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={pending}
+            onClick={handleConfirm}
+          >
+            {pending ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}

@@ -41,6 +41,12 @@ const hoNavMain = [
     icon: <Building2Icon />,
   },
   {
+    // Interim: Task 5 drops Clients, Task 6 finalizes the HO/nav split.
+    title: "Locations",
+    url: "/locations",
+    icon: <Building2Icon />,
+  },
+  {
     title: "Sites",
     url: "/sites",
     icon: <BuildingIcon />,

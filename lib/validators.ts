@@ -21,6 +21,17 @@ export const siteUpdateSchema = siteCreateSchema.extend({
   isActive: z.boolean(),
 });
 
+export const locationCreateSchema = z.object({
+  siteId: z.uuid().optional(),
+  name: nameField,
+  address: z.string().trim().min(1).max(200),
+});
+
+export const locationUpdateSchema = locationCreateSchema.extend({
+  id: z.uuid(),
+  isActive: z.boolean(),
+});
+
 // Role/binding invariants (docs/architecture.md v0.2 §6): superadmin is
 // global (neither binding), ho binds exactly one site and never a
 // site_location, admin binds exactly one site_location and never a site.
@@ -130,6 +141,8 @@ export type ClientCreateInput = z.infer<typeof clientCreateSchema>;
 export type ClientUpdateInput = z.infer<typeof clientUpdateSchema>;
 export type SiteCreateInput = z.infer<typeof siteCreateSchema>;
 export type SiteUpdateInput = z.infer<typeof siteUpdateSchema>;
+export type LocationCreateInput = z.infer<typeof locationCreateSchema>;
+export type LocationUpdateInput = z.infer<typeof locationUpdateSchema>;
 export type UserCreateInput = z.infer<typeof userCreateSchema>;
 export type UserUpdateInput = z.infer<typeof userUpdateSchema>;
 export type UserPasswordInput = z.infer<typeof userPasswordSchema>;

@@ -35,11 +35,21 @@ describe("mapDbError", () => {
     expect(result).toBe("A site with this name already exists for this client");
   });
 
+  test("location-name kind: 23505 maps to the location name message", () => {
+    const result = mapDbError(pgError("23505"), { kind: "location-name" });
+    expect(result).toBe("Location name already exists");
+  });
+
   test("any kind: 23503 maps to the reference message", () => {
-    for (const kind of ["name", "email", "site-name"] as const) {
+    for (const kind of ["name", "email", "site-name", "location-name"] as const) {
       const result = mapDbError(pgError("23503"), { kind });
       expect(result).toBe("Some records still reference this item");
     }
+  });
+
+  test("wrapped 23505 location-name kind: maps through the cause chain", () => {
+    const result = mapDbError(drizzleWrappedError(pgError("23505")), { kind: "location-name" });
+    expect(result).toBe("Location name already exists");
   });
 
   test("wrapped 23505 name kind: maps through the cause chain", () => {

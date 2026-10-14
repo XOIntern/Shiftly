@@ -1,10 +1,17 @@
-export type DbErrorKind = "name" | "email" | "site-name";
+export type DbErrorKind = "name" | "email" | "site-name" | "location-name";
 
 const DUPLICATE_MESSAGES: Record<DbErrorKind, string> = {
   name: "A client with this name already exists",
   email: "Email already in use",
   "site-name": "A site with this name already exists for this client",
+  "location-name": "Location name already exists",
 };
+
+// Both codes mean "still referenced" to a user: 23503 is the generic FK
+// violation, while Postgres raises 23001 (restrict_violation) specifically
+// for ON DELETE RESTRICT constraints (verified against the dev DB — see
+// lib/location-fk.test.ts).
+const REFERENCE_CODES = new Set(["23503", "23001"]);
 
 // Drizzle 0.45 wraps the driver's PG error as `cause` (DrizzleQueryError),
 // so the code may be a level or two below the error object we receive. Walk
@@ -40,6 +47,6 @@ export function mapDbError(err: unknown, { kind }: { kind: DbErrorKind }): strin
   if (!code) return null;
 
   if (code === "23505") return DUPLICATE_MESSAGES[kind];
-  if (code === "23503") return "Some records still reference this item";
+  if (REFERENCE_CODES.has(code)) return "Some records still reference this item";
   return null;
 }
