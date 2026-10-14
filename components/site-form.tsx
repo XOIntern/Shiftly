@@ -30,40 +30,20 @@ import {
 } from "@/components/ui/dialog";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
-export type ClientOption = { id: string; name: string };
 
 // One row of the sites table — server-selectable fields only.
 export type SiteRow = {
   id: string;
-  clientId: string;
-  clientName: string;
   name: string;
-  location: string;
   isActive: boolean;
 };
 
 type SiteFieldErrors = Record<string, string>;
-
-type SelectOption = {
-  label: string;
-  value: string | null;
-  disabled?: boolean;
-};
 
 function showFailure(
   result: ActionState,
@@ -75,27 +55,16 @@ function showFailure(
 }
 
 function SiteForm({
-  clients,
   site,
   onSaved,
 }: {
-  clients: ClientOption[];
   site?: SiteRow;
   onSaved: () => void;
 }) {
-  const [clientId, setClientId] = useState<string | null>(site?.clientId ?? null);
   const [name, setName] = useState(site?.name ?? "");
-  const [location, setLocation] = useState(site?.location ?? "");
   const [fieldErrors, setFieldErrors] = useState<SiteFieldErrors>();
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
-
-  const selectItems: SelectOption[] = [
-    ...(site
-      ? []
-      : [{ label: "Select a client", value: null, disabled: true }]),
-    ...clients.map((client) => ({ label: client.name, value: client.id })),
-  ];
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -105,13 +74,8 @@ function SiteForm({
     setMessage(undefined);
     startTransition(async () => {
       const result = site
-        ? await updateSite(site.id, {
-            name,
-            location,
-            clientId: clientId ?? "",
-            isActive: site.isActive,
-          })
-        : await createSite(clientId ?? "", name, location);
+        ? await updateSite(site.id, { name, isActive: site.isActive })
+        : await createSite(name);
 
       if (result.ok) {
         onSaved();
@@ -140,54 +104,6 @@ function SiteForm({
             <FieldError errors={[{ message: fieldErrors.name }]} />
           ) : null}
         </Field>
-        <Field data-invalid={fieldErrors?.location ? "true" : undefined}>
-          <FieldLabel htmlFor="site-location">Location</FieldLabel>
-          <Input
-            id="site-location"
-            name="location"
-            value={location}
-            onChange={(event) => setLocation(event.target.value)}
-            aria-invalid={fieldErrors?.location ? true : undefined}
-            maxLength={200}
-            required
-          />
-          {fieldErrors?.location ? (
-            <FieldError errors={[{ message: fieldErrors.location }]} />
-          ) : null}
-        </Field>
-        <Field data-invalid={fieldErrors?.clientId ? "true" : undefined}>
-          <FieldLabel htmlFor="site-client">Client</FieldLabel>
-          <Select
-            items={selectItems}
-            value={clientId}
-            onValueChange={(value) => setClientId(value as string | null)}
-          >
-            <SelectTrigger id="site-client" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {selectItems.map((item) => (
-                  <SelectItem
-                    key={item.value ?? "placeholder"}
-                    value={item.value}
-                    disabled={item.disabled}
-                  >
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          {clients.length === 0 ? (
-            <FieldDescription>
-              No clients yet — create one before adding its first site.
-            </FieldDescription>
-          ) : null}
-          {fieldErrors?.clientId ? (
-            <FieldError errors={[{ message: fieldErrors.clientId }]} />
-          ) : null}
-        </Field>
         <DialogFooter>
           <Button type="submit" disabled={pending}>
             {pending ? "Saving…" : "Save"}
@@ -198,7 +114,7 @@ function SiteForm({
   );
 }
 
-export function CreateSiteButton({ clients }: { clients: ClientOption[] }) {
+export function CreateSiteButton() {
   const [open, setOpen] = useState(false);
 
   return (
@@ -214,19 +130,13 @@ export function CreateSiteButton({ clients }: { clients: ClientOption[] }) {
             Sites are the operational locations workers get rostered at.
           </DialogDescription>
         </DialogHeader>
-        <SiteForm clients={clients} onSaved={() => setOpen(false)} />
+        <SiteForm onSaved={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );
 }
 
-export function EditSiteButton({
-  site,
-  clients,
-}: {
-  site: SiteRow;
-  clients: ClientOption[];
-}) {
+export function EditSiteButton({ site }: { site: SiteRow }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -246,10 +156,10 @@ export function EditSiteButton({
         <DialogHeader>
           <DialogTitle>Edit site</DialogTitle>
           <DialogDescription>
-            Update the site&apos;s details or move it to another client.
+            Update the site&apos;s name or change its active state.
           </DialogDescription>
         </DialogHeader>
-        <SiteForm clients={clients} site={site} onSaved={() => setOpen(false)} />
+        <SiteForm site={site} onSaved={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );
@@ -307,8 +217,8 @@ export function DeleteSiteButton({ site }: { site: SiteRow }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete site</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently deletes “{site.name}”. Sites referenced by users
-            cannot be deleted.
+            This permanently deletes “{site.name}”. Sites that still have
+            locations or bound users cannot be deleted.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

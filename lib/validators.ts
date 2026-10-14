@@ -2,18 +2,8 @@ import { z } from "zod";
 
 const nameField = z.string().trim().min(1).max(200);
 
-export const clientCreateSchema = z.object({
-  name: nameField,
-});
-
-export const clientUpdateSchema = clientCreateSchema.extend({
-  id: z.uuid(),
-});
-
 export const siteCreateSchema = z.object({
-  clientId: z.uuid(),
   name: nameField,
-  location: z.string().trim().min(1).max(200),
 });
 
 export const siteUpdateSchema = siteCreateSchema.extend({
@@ -137,8 +127,6 @@ export function parseUserUpdate(
   });
 }
 
-export type ClientCreateInput = z.infer<typeof clientCreateSchema>;
-export type ClientUpdateInput = z.infer<typeof clientUpdateSchema>;
 export type SiteCreateInput = z.infer<typeof siteCreateSchema>;
 export type SiteUpdateInput = z.infer<typeof siteUpdateSchema>;
 export type LocationCreateInput = z.infer<typeof locationCreateSchema>;

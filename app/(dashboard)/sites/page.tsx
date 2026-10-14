@@ -1,8 +1,8 @@
-import { asc, eq } from "drizzle-orm";
+import { asc } from "drizzle-orm";
 
-import { client, site } from "@/drizzle/schema";
+import { site } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { requireHO } from "@/lib/session";
+import { requireSuperadmin } from "@/lib/session";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -24,35 +24,24 @@ import {
   DeleteSiteButton,
   EditSiteButton,
   ToggleSiteButton,
-  type ClientOption,
 } from "@/components/site-form";
 
-// Deliberate block: the page queries master data behind the HO session check,
-// so there is no static shell worth shipping first. See:
+// Deliberate block: the page queries master data behind the superadmin session
+// check, so there is no static shell worth shipping first. See:
 // https://nextjs.org/docs/messages/blocking-prerender-dynamic
 export const instant = false;
 
 export default async function SitesPage() {
-  await requireHO();
+  await requireSuperadmin();
 
-  const [sites, clients] = await Promise.all([
-    db
-      .select({
-        id: site.id,
-        name: site.name,
-        location: site.location,
-        isActive: site.isActive,
-        clientId: site.clientId,
-        clientName: client.name,
-      })
-      .from(site)
-      .innerJoin(client, eq(site.clientId, client.id))
-      .orderBy(asc(client.name), asc(site.name)),
-    db
-      .select({ id: client.id, name: client.name })
-      .from(client)
-      .orderBy(asc(client.name)),
-  ]);
+  const sites = await db
+    .select({
+      id: site.id,
+      name: site.name,
+      isActive: site.isActive,
+    })
+    .from(site)
+    .orderBy(asc(site.name));
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
@@ -60,11 +49,11 @@ export default async function SitesPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Sites</h1>
           <p className="max-w-md text-sm text-muted-foreground">
-            Client and site master data. Every non-HO user is bound to exactly
-            one site; queries are scoped at the data level.
+            Site master data. Locations hang off sites here, and queries are
+            scoped at the data level.
           </p>
         </div>
-        <CreateSiteButton clients={clients satisfies ClientOption[]} />
+        <CreateSiteButton />
       </div>
       <Card>
         <CardHeader>
@@ -78,8 +67,6 @@ export default async function SitesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="min-w-[160px]">Name</TableHead>
-                <TableHead className="min-w-[160px]">Client</TableHead>
-                <TableHead className="min-w-[160px]">Location</TableHead>
                 <TableHead className="min-w-[100px]">Status</TableHead>
                 <TableHead className="min-w-[180px] text-right">
                   Actions
@@ -91,8 +78,6 @@ export default async function SitesPage() {
                 return (
                   <TableRow key={site.id}>
                     <TableCell className="font-medium">{site.name}</TableCell>
-                    <TableCell>{site.clientName}</TableCell>
-                    <TableCell>{site.location}</TableCell>
                     <TableCell>
                       {site.isActive ? (
                         <Badge variant="secondary">Active</Badge>
@@ -108,7 +93,7 @@ export default async function SitesPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <ToggleSiteButton site={site} />
-                        <EditSiteButton site={site} clients={clients} />
+                        <EditSiteButton site={site} />
                         <DeleteSiteButton site={site} />
                       </div>
                     </TableCell>
@@ -118,10 +103,10 @@ export default async function SitesPage() {
               {sites.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={3}
                     className="h-24 text-center text-muted-foreground"
                   >
-                    No sites yet — add the first one for a client.
+                    No sites yet — add the first one.
                   </TableCell>
                 </TableRow>
               ) : null}

@@ -5,24 +5,20 @@ import { eq } from "drizzle-orm";
 
 import { db } from "./db";
 import { pgErrorCode } from "./db-errors";
-import { client, site, siteLocation, user } from "../drizzle/schema";
+import { site, siteLocation, user } from "../drizzle/schema";
 
 // Real dev DB (docker shiftly-postgres :5433): proves the site_location ->
 // user FK is enforced with ON DELETE RESTRICT by hitting the constraint the
 // way a live delete would, then cleaning every row up.
 describe("site_location delete FK restrict", () => {
   test("deleting a location bound to a user violates the FK (23503)", async () => {
-    const clientId = randomUUID();
     const siteId = randomUUID();
     const locationId = randomUUID();
     const userId = randomUUID();
 
-    await db.insert(client).values({ id: clientId, name: `fk-loc-client-${clientId}` });
     await db.insert(site).values({
       id: siteId,
-      clientId,
-      name: `fk-loc-site-${clientId}`,
-      location: "Jakarta",
+      name: `fk-loc-site-${siteId}`,
     });
     await db.insert(siteLocation).values({
       id: locationId,
@@ -57,6 +53,5 @@ describe("site_location delete FK restrict", () => {
     await db.delete(user).where(eq(user.id, userId));
     await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
     await db.delete(site).where(eq(site.id, siteId));
-    await db.delete(client).where(eq(client.id, clientId));
   });
 });

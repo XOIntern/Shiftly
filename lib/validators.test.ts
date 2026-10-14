@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  clientCreateSchema,
-  clientUpdateSchema,
   siteCreateSchema,
   siteUpdateSchema,
   userCreateSchema,
@@ -13,88 +11,28 @@ import {
   locationUpdateSchema,
 } from "./validators";
 
-describe("clientCreateSchema", () => {
+describe("siteCreateSchema", () => {
   test("accepts a valid name", () => {
-    expect(clientCreateSchema.safeParse({ name: "Acme Corp" }).success).toBe(true);
+    const result = siteCreateSchema.safeParse({ name: "HQ Plant" });
+    expect(result.success).toBe(true);
   });
 
   test("rejects an empty name", () => {
-    expect(clientCreateSchema.safeParse({ name: "" }).success).toBe(false);
+    const result = siteCreateSchema.safeParse({ name: "" });
+    expect(result.success).toBe(false);
   });
 
   test("rejects a name over 200 chars", () => {
-    expect(clientCreateSchema.safeParse({ name: "x".repeat(201) }).success).toBe(false);
-  });
-});
-
-describe("clientUpdateSchema", () => {
-  test("accepts a valid id and name", () => {
-    const result = clientUpdateSchema.safeParse({
-      id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      name: "Acme Corp",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("rejects a non-uuid id", () => {
-    const result = clientUpdateSchema.safeParse({ id: "not-a-uuid", name: "Acme Corp" });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects an empty name", () => {
-    const result = clientUpdateSchema.safeParse({
-      id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      name: "",
-    });
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("siteCreateSchema", () => {
-  test("accepts valid site input", () => {
-    const result = siteCreateSchema.safeParse({
-      clientId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      name: "HQ Plant",
-      location: "Jakarta",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("rejects an empty name", () => {
-    const result = siteCreateSchema.safeParse({
-      clientId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      name: "",
-      location: "Jakarta",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects an empty location", () => {
-    const result = siteCreateSchema.safeParse({
-      clientId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      name: "HQ Plant",
-      location: "",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects a non-uuid clientId", () => {
-    const result = siteCreateSchema.safeParse({
-      clientId: "nope",
-      name: "HQ Plant",
-      location: "Jakarta",
-    });
+    const result = siteCreateSchema.safeParse({ name: "x".repeat(201) });
     expect(result.success).toBe(false);
   });
 });
 
 describe("siteUpdateSchema", () => {
-  test("accepts valid site update with isActive", () => {
+  test("accepts a valid update with isActive", () => {
     const result = siteUpdateSchema.safeParse({
       id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      clientId: "8d2a9e1b-3c7f-4a2b-b1d9-6f5e4a3b2c10",
       name: "HQ Plant",
-      location: "Jakarta",
       isActive: false,
     });
     expect(result.success).toBe(true);
@@ -103,9 +41,16 @@ describe("siteUpdateSchema", () => {
   test("rejects missing isActive", () => {
     const result = siteUpdateSchema.safeParse({
       id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      clientId: "8d2a9e1b-3c7f-4a2b-b1d9-6f5e4a3b2c10",
       name: "HQ Plant",
-      location: "Jakarta",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-uuid id", () => {
+    const result = siteUpdateSchema.safeParse({
+      id: "not-a-uuid",
+      name: "HQ Plant",
+      isActive: true,
     });
     expect(result.success).toBe(false);
   });
