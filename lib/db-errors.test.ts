@@ -1,18 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { mapDbError } from "./db-errors";
 
-function pgError(code: string, constraint?: string): { code: string; constraint?: string } {
-  return { code, ...(constraint ? { constraint } : {}) };
+// Synthetic errors shaped like real ones (a real PG error from the driver is
+// an Error with these extra fields, and drizzle nests them via `cause`).
+type FakePgError = Error & { code?: string; constraint?: string; cause?: FakePgError };
+
+function pgError(code: string, constraint?: string): FakePgError {
+  return { code, ...(constraint ? { constraint } : {}) } as FakePgError;
 }
 
 // Mimics drizzle 0.45's DrizzleQueryError: the driver's PG error arrives as
 // err.cause, one or more levels below the error mapDbError receives.
-function drizzleWrappedError(cause: unknown, causeChainDepth = 1): { cause: unknown } {
-  let wrapped: unknown = { ...cause };
+function drizzleWrappedError(cause: FakePgError, causeChainDepth = 1): FakePgError {
+  let wrapped: FakePgError = { ...cause };
   for (let i = 0; i < causeChainDepth; i++) {
-    wrapped = { message: "something failed", cause: wrapped };
+    wrapped = { message: "something failed", cause: wrapped } as FakePgError;
   }
-  return wrapped as { cause: unknown };
+  return wrapped;
 }
 
 describe("mapDbError", () => {
