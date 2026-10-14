@@ -119,9 +119,19 @@ function LocationForm({
 
     setFieldErrors(undefined);
     setMessage(undefined);
+
+    // Pre-submit site guard (issue #18): a location must bind a site; a
+    // missing pick surfaces the local field error and skips the server
+    // action entirely. Edits never carry a siteId, so they need no guard.
+    if (!location && !siteId) {
+      setFieldErrors({ siteId: "Site is required" });
+      return;
+    }
+
     startTransition(async () => {
       // Edits never send a siteId — a ho's updates are pinned to their own
       // site and a superadmin edit without a siteId keeps the current one.
+      // Unselected selects submit undefined, never "".
       const result = location
         ? await updateLocation(location.id, {
             name,
@@ -129,7 +139,7 @@ function LocationForm({
             isActive: location.isActive,
           })
         : await createLocation({
-            siteId: siteId ?? "",
+            siteId: siteId ?? undefined,
             name,
             address,
           });

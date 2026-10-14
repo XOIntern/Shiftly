@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { createUser, setActive, updateUser } from "@/app/(dashboard)/users/actions";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import type { ActionState } from "@/lib/action-state";
+import type { Role } from "@/lib/scope";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,7 +35,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export type Role = "superadmin" | "ho" | "admin";
+// Role comes from lib/scope (single source of truth, shared with the
+// actions); the dialog only renders the select from it.
 
 export type SiteOption = { id: string; name: string };
 
@@ -141,6 +143,23 @@ function UserForm({
 
     setFieldErrors(undefined);
     setMessage(undefined);
+
+    // Pre-submit binding guard: a role that must carry a binding and has
+    // none never reaches the server action — the roundtrip would answer
+    // with a form-level refine error instead of a field error. Unselected
+    // selects must not submit at all.
+    const bindingErrors: Record<string, string> = {};
+    if (role === "ho" && !site) {
+      bindingErrors.siteId = "Site is required";
+    }
+    if (role === "admin" && !location) {
+      bindingErrors.siteLocationId = "Location is required";
+    }
+    if (Object.keys(bindingErrors).length > 0) {
+      setFieldErrors(bindingErrors);
+      return;
+    }
+
     startTransition(async () => {
       let result: ActionState;
       if (user) {
@@ -148,9 +167,11 @@ function UserForm({
           name,
           role: role ?? user.role,
           // Only the binding the final role owns goes out; unrendered
-          // selects stay out of the payload.
-          ...(role === "ho" ? { siteId: site } : {}),
-          ...(role === "admin" ? { siteLocationId: location } : {}),
+          // selects stay out of the payload (undefined, never "").
+          ...(role === "ho" ? { siteId: site ?? undefined } : {}),
+          ...(role === "admin"
+            ? { siteLocationId: location ?? undefined }
+            : {}),
         });
       } else {
         const createRole = role ?? "admin";
@@ -159,8 +180,10 @@ function UserForm({
           email,
           password,
           role: createRole,
-          ...(createRole === "ho" ? { siteId: site } : {}),
-          ...(createRole === "admin" ? { siteLocationId: location } : {}),
+          ...(createRole === "ho" ? { siteId: site ?? undefined } : {}),
+          ...(createRole === "admin"
+            ? { siteLocationId: location ?? undefined }
+            : {}),
         });
       }
 

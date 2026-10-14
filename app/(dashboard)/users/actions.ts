@@ -9,7 +9,7 @@ import { hashPassword } from "better-auth/crypto";
 import { account, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/lib/db-errors";
-import { canManageUser, type Role } from "@/lib/scope";
+import { canManageActorTarget, type Role } from "@/lib/scope";
 import { requireHO, type SessionUser } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
 import {
@@ -26,24 +26,9 @@ import {
   userPasswordSchema,
 } from "@/lib/validators";
 
-// Call-site guard for canManageUser: a malformed admin row (siteLocationId
-// unresolvable) has no real site, so only a superadmin may touch it — it
-// must not pass through canManageUser's null === null match for an equally
-// malformed ho actor.
-function canManage(
-  actor: { role: Role; siteId: string | null },
-  targetRole: Role,
-  targetSiteId: string | null,
-): boolean {
-  if (targetRole === "admin" && targetSiteId === null) {
-    return actor.role === "superadmin";
-  }
-  return canManageUser(actor, { role: targetRole, targetSiteId });
-}
-
 // Loads a management target and applies the shared permission gate. The
-// target's site for canManageUser is the bound location's site (admins
-// only); every other role targets no site.
+// target's site for the gate comes from the bound location (admins only);
+// every other role targets no site.
 async function loadManagedTarget(
   actor: SessionUser,
   id: string,
@@ -74,9 +59,12 @@ async function loadManagedTarget(
     return { ok: false, message: "User not found." };
   }
 
-  const targetSiteId =
-    target.role === "admin" ? (target.locationSiteId ?? null) : null;
-  if (!canManage(actor, target.role, targetSiteId)) {
+  if (
+    !canManageActorTarget(actor, {
+      role: target.role,
+      locationSiteId: target.locationSiteId,
+    })
+  ) {
     return { ok: false, message: "You cannot manage this user" };
   }
 

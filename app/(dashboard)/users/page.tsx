@@ -3,8 +3,8 @@ import { alias } from "drizzle-orm/pg-core";
 
 import { site, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { requireHO, type SessionUser } from "@/lib/session";
-import { canManageUser } from "@/lib/scope";
+import { requireHO } from "@/lib/session";
+import { canManageActorTarget, userScopeFilter, type Role } from "@/lib/scope";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -26,7 +26,6 @@ import {
   EditUserButton,
   ToggleUserButton,
   type LocationOption,
-  type Role,
   type SiteOption,
   type UserFormData,
   type UserRow,
@@ -68,20 +67,9 @@ function bindingLabel(row: {
     : null;
 }
 
-// Same call-site shape as the actions: a malformed admin row (no resolvable
-// site) is superadmin-only, and an ho actor without a site manages nobody.
-function canManageRow(
-  actor: SessionUser,
-  row: { role: Role; locationSiteId: string | null },
-): boolean {
-  const targetSiteId = row.role === "admin" ? (row.locationSiteId ?? null) : null;
-  if (row.role === "admin" && targetSiteId === null) {
-    return actor.role === "superadmin";
-  }
-  if (actor.role === "ho" && actor.siteId === null) return false;
-  return canManageUser(actor, { role: row.role, targetSiteId });
-}
-
+// Management rights over a resolved row come from the shared lib/scope
+// gate (canManageActorTarget) — the page no longer keeps its own copy of the
+// malformed-admin rule.
 export default async function UsersPage() {
   // Server-side HO guard; the actions repeat it for direct calls.
   const actor = await requireHO();
@@ -105,6 +93,10 @@ export default async function UsersPage() {
       .leftJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
       .leftJoin(site, eq(user.siteId, site.id))
       .leftJoin(locationSite, eq(siteLocation.siteId, locationSite.id))
+      // Listing scoping (issue #18): an ho sees only users bound to its own
+      // site — site-bound rows plus admins of the site's locations; a
+      // superadmin gets undefined (= no WHERE) so drizzle filters nothing.
+      .where(userScopeFilter(actor))
       .orderBy(asc(user.role), asc(user.name)),
     db.select({ id: site.id, name: site.name }).from(site).orderBy(asc(site.name)),
     db
@@ -144,7 +136,7 @@ export default async function UsersPage() {
       siteId: row.userSiteId,
       siteLocationId: row.userSiteLocationId,
     } satisfies UserFormData,
-    canManage: canManageRow(actor, row),
+    canManage: canManageActorTarget(actor, row),
   }));
 
   return (

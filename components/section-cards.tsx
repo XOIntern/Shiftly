@@ -88,7 +88,7 @@ export function SectionCards() {
             3
           </CardTitle>
           <CardAction>
-            <Badge variant="secondary">Nestle pilot</Badge>
+            <Badge variant="secondary">Pilot onboarding</Badge>
           </CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1.5 text-sm">
