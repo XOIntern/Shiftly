@@ -24,22 +24,21 @@ System context:
 
 ```mermaid
 graph LR
-    PC["Client Pic (e.g. Nestle)<br/>submits MP requirements,<br/>views roster & recap (read-only)"]
+    C["Client (e.g. Nestle)<br/>conveys MP requirements<br/>via manual channels (no access)"]
     AS["Sodexo Site Admin<br/>roster, attendance, force majeure<br/>limited to 1 site"]
     HO["Sodexo HO<br/>master data, configuration,<br/>cross-site monitoring"]
 
     S(("Shiftly"))
 
-    PC -->|weekly & daily MP requirements| S
-    S -->|published roster, attendance recap| PC
-    AS -->|manage roster & attendance| S
+    C -.->|weekly & daily MP requirements<br/>by email/WhatsApp| AS
+    AS -->|manage roster & attendance,<br/>enter MP requirements| S
     HO -->|configuration & master data| S
     S -->|dashboard & reports| HO
 
     S ---|roster & attendance| W["Worker<br/>(never logs in at all)"]
 ```
 
-Workers are **never** users of the system. All input (roster and attendance) is performed by site admins.
+Workers are **never** users of the system. All input (roster and attendance) is performed by site admins. Clients have **no access** to the application.
 
 ---
 
@@ -106,9 +105,9 @@ graph TB
 
 | # | Module | Responsibilities | Primary users |
 |---|---|---|---|
-| 1 | Auth & RBAC | Login sessions, 3 roles (Site Admin, HO, Client Pic), binding users to sites | All |
+| 1 | Auth & RBAC | Login sessions, 2 roles (Site Admin, HO), binding users to sites | All |
 | 2 | Master Data | Client, site (with location/city), department, shift definitions, worker (qualifications, PKWT/PKWTT, active status), CSV/Excel import | HO, Site Admin |
-| 3 | Request Management | Weekly & daily MP requirements from the client, request status, notifications to site admins | Client Pic, Site Admin |
+| 3 | Request Management | Weekly & daily MP requirements entered by the site admin on behalf of the client, request status | Site Admin |
 | 4 | Rules & Configuration | Global roster rule parameters (C1–C7) + per-site overrides, change history | HO |
 | 5 | Roster Engine | Auto-generate drafts, real-time validation, block publishing while violations exist, explicit deficits, publish auditing | Site Admin |
 | 6 | Attendance | Daily per-shift attendance input (present/leave/sick/absent), bulk input, corrections with a trail, attendance without a roster as an exception | Site Admin |
@@ -249,18 +248,18 @@ Schema design notes:
 
 | Role | Scope | Rights |
 |---|---|---|
-| Site Admin | Exactly one site | Manage their site's roster, attendance, workers; receive MP requests |
+| Site Admin | Exactly one site | Manage their site's roster, attendance, workers; enter MP requirements on behalf of the client |
 | Sodexo HO | All sites & clients | Master data, rule & rate configuration, monitoring, reporting |
-| Client Pic | Sites contracted by that client | View-only: published rosters, attendance recaps |
+
+Note: the client (e.g. Nestle) has no access to the application; MP requirements arrive via manual channels (email/WhatsApp) and are entered by the Site Admin.
 
 ### 7.2 Enforcement at the data level
 
-The principle from PRD US-12: site-scoping is enforced **at the data/authorization level, not by hiding UI**. The intended implementation (target architecture):
+The principle from PRD US-11: site-scoping is enforced **at the data/authorization level, not by hiding UI**. The intended implementation (target architecture):
 
 1. Every user session carries its site scope (one site, or "all" for HO only).
 2. All access to operational data (workers, roster, attendance, MP requests, site configuration) goes through a single data-access layer that **must** inject the site filter from the session. Domain modules have no query path that bypasses it.
-3. Client Pic is additionally restricted to operational fields only: no personal data beyond name, department, shift; **no salary data of any kind**.
-4. Session-based authentication (email + password) on the server; optional MFA in a later phase. **TBD** until the auth decision.
+3. Session-based authentication (email + password) on the server; optional MFA in a later phase. **TBD** until the auth decision.
 
 ---
 
@@ -283,7 +282,7 @@ per-worker override  →  site rate  →  location rate  →  global default
 
 ```mermaid
 flowchart LR
-    A["Client Pic submits<br/>weekly MP requirements"] --> B["Site Admin<br/>generates draft roster"]
+    A["Site Admin inputs weekly<br/>MP requirements (from client)"] --> B["Site Admin<br/>generates draft roster"]
     B --> C["Edit + real-time validation"]
     C -->|violations remain| C
     C -->|valid| D["Publish roster<br/>(audit trail)"]
@@ -291,7 +290,7 @@ flowchart LR
     E --> F["Recap & reports"]
     E --> G["Salary estimation<br/>(attendance x rate)"]
 
-    H["Client's daily request"] -.->|same validation| D
+    H["Client's daily request<br/>(entered by Site Admin)"] -.->|same validation| D
     I["Force majeure:<br/>worker suddenly absent"] -.->|"valid replacement candidate<br/>(qualified, lowest load)"| D
 ```
 
@@ -322,7 +321,7 @@ Decisions the PRD **has already locked** and are not being reopened: a determini
 | Scale | ~7 departments x 200 workers per site; multi-site correct in the schema from day one |
 | Weak networks | Daily operational pages are payload-efficient (not a PWA/offline in v1; re-evaluated in v2.0) |
 | 3-shift operations | No maintenance windows during operational hours without notice |
-| Sensitive data security | Rates/salary editable by HO only, always audited, never shown in the client portal; worker personal data (NIK, etc.) access is restricted |
+| Sensitive data security | Rates/salary editable by HO only, always audited, not exposed externally; worker personal data (NIK, etc.) access is restricted |
 
 ---
 
