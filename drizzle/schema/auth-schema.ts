@@ -1,5 +1,17 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  timestamp,
+  boolean,
+  index,
+  pgEnum,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+import { site } from "./master-data";
+
+export const userRoleEnum = pgEnum("user_role", ["ho", "site_admin"]);
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -7,6 +19,11 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
+  role: userRoleEnum("role").notNull().default("site_admin"),
+  siteId: uuid("site_id").references(() => site.id, {
+    onDelete: "restrict",
+  }),
+  isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
