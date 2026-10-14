@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/site-header";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
+import { Toaster } from "@/components/ui/sonner";
 import {
   Sidebar,
   SidebarContent,
@@ -161,6 +162,7 @@ export default async function DashboardLayout({
         <SiteHeader />
         {children}
       </SidebarInset>
+      <Toaster />
     </SidebarProvider>
   );
 }
