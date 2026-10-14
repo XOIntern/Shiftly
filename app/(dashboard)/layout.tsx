@@ -1,8 +1,7 @@
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { auth } from "@/lib/auth";
+import { getUser, type SessionUser } from "@/lib/session";
 import { SiteHeader } from "@/components/site-header";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -18,9 +17,56 @@ import {
   SidebarMenuItem,
   SidebarProvider,
 } from "@/components/ui/sidebar";
-import { BuildingIcon, CalendarRangeIcon, ClockIcon, LayoutDashboardIcon, SettingsIcon, UsersIcon } from "lucide-react";
+import {
+  Building2Icon,
+  BuildingIcon,
+  CalendarRangeIcon,
+  ClockIcon,
+  LayoutDashboardIcon,
+  SettingsIcon,
+  UserIcon,
+  UsersIcon,
+} from "lucide-react";
 
-const navMain = [
+const hoNavMain = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: <LayoutDashboardIcon />,
+  },
+  {
+    title: "Clients",
+    url: "/clients",
+    icon: <Building2Icon />,
+  },
+  {
+    title: "Sites",
+    url: "/sites",
+    icon: <BuildingIcon />,
+  },
+  {
+    title: "Users",
+    url: "/users",
+    icon: <UserIcon />,
+  },
+  {
+    title: "Roster",
+    url: "/roster",
+    icon: <CalendarRangeIcon />,
+  },
+  {
+    title: "Attendance",
+    url: "/attendance",
+    icon: <ClockIcon />,
+  },
+  {
+    title: "Workers",
+    url: "/workers",
+    icon: <UsersIcon />,
+  },
+];
+
+const siteAdminNavMain = [
   {
     title: "Dashboard",
     url: "/dashboard",
@@ -40,11 +86,6 @@ const navMain = [
     title: "Workers",
     url: "/workers",
     icon: <UsersIcon />,
-  },
-  {
-    title: "Sites",
-    url: "/sites",
-    icon: <BuildingIcon />,
   },
 ];
 
@@ -68,14 +109,16 @@ export default async function DashboardLayout({
 }) {
   // Server-side session guard: every route in this group is auth-only.
   // Site-level scoping of data lands later with that module.
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) redirect("/login");
+  const user: SessionUser | null = await getUser();
+  if (!user) redirect("/login");
 
-  const user = {
-    name: session.user.name,
-    email: session.user.email,
-    avatar: session.user.image ?? null,
+  const displayName = {
+    name: user.name,
+    email: user.email,
+    avatar: null,
   };
+
+  const navMain = user.role === "ho" ? hoNavMain : siteAdminNavMain;
 
   return (
     <SidebarProvider
@@ -111,7 +154,7 @@ export default async function DashboardLayout({
           <NavSecondary items={navSecondary} className="mt-auto" />
         </SidebarContent>
         <SidebarFooter>
-          <NavUser user={user} />
+          <NavUser user={displayName} />
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
