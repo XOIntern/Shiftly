@@ -9,8 +9,9 @@ export type SessionUser = {
   id: string;
   name: string;
   email: string;
-  role: "ho" | "site_admin";
+  role: "superadmin" | "ho" | "admin";
   siteId: string | null;
+  siteLocationId: string | null;
   isActive: boolean;
 };
 
@@ -18,10 +19,16 @@ export async function getUser(): Promise<SessionUser | null> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return null;
 
-  // Role/site/isActive are read fresh from the DB on every request —
-  // the session snapshot is stale once an HO edits a user's role or site.
+  // Role/site/siteLocation/isActive are read fresh from the DB on every
+  // request — the session snapshot is stale once an HO edits a user's
+  // role or site.
   const [row] = await db
-    .select({ role: user.role, siteId: user.siteId, isActive: user.isActive })
+    .select({
+      role: user.role,
+      siteId: user.siteId,
+      siteLocationId: user.siteLocationId,
+      isActive: user.isActive,
+    })
     .from(user)
     .where(eq(user.id, session.user.id))
     .limit(1);
@@ -39,6 +46,7 @@ export async function getUser(): Promise<SessionUser | null> {
     email: session.user.email,
     role: row.role,
     siteId: row.siteId,
+    siteLocationId: row.siteLocationId,
     isActive: row.isActive,
   };
 }
@@ -51,6 +59,13 @@ export async function requireUser(): Promise<SessionUser> {
 
 export async function requireHO(): Promise<SessionUser> {
   const user = await requireUser();
-  if (user.role !== "ho") redirect("/dashboard");
+  // superadmin has access to everything.
+  if (user.role !== "ho" && user.role !== "superadmin") redirect("/dashboard");
+  return user;
+}
+
+export async function requireSuperadmin(): Promise<SessionUser> {
+  const user = await requireUser();
+  if (user.role !== "superadmin") redirect("/dashboard");
   return user;
 }

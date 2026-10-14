@@ -21,40 +21,71 @@ export const siteUpdateSchema = siteCreateSchema.extend({
   isActive: z.boolean(),
 });
 
+// Role/binding invariants (docs/architecture.md v0.2 §6): superadmin is
+// global (neither binding), ho binds exactly one site and never a
+// site_location, admin binds exactly one site_location and never a site.
+const roleBindingValid = (user: {
+  role: string;
+  siteId?: string;
+  siteLocationId?: string;
+}) =>
+  user.role === "superadmin"
+    ? user.siteId === undefined && user.siteLocationId === undefined
+    : user.role === "ho"
+      ? user.siteId !== undefined && user.siteLocationId === undefined
+      : user.siteLocationId !== undefined && user.siteId === undefined;
+
+const bindingMessage =
+  "superadmin carries no bindings; ho requires siteId and forbids siteLocationId; admin requires siteLocationId and forbids siteId";
+
 const userBaseSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.email(),
   password: z.string().min(8),
-  role: z.enum(["ho", "site_admin"]),
+  role: z.enum(["superadmin", "ho", "admin"]),
   siteId: z.uuid().optional(),
+  siteLocationId: z.uuid().optional(),
 });
 
-export const userCreateSchema = userBaseSchema.refine(
-  (user) => (user.role === "ho" ? user.siteId === undefined : user.siteId !== undefined),
-  {
-    message: "site_admin requires a siteId; ho must not have one",
-  },
-);
+export const userCreateSchema = userBaseSchema.refine(roleBindingValid, {
+  message: bindingMessage,
+});
 
 // createUser's parse: validates the creation input against userCreateSchema.
-// A ho creation must never carry a site, but dialogs can send siteId: null
-// (the site select only renders for site_admin); ho has it fully stripped
-// so the "ho must not have one" refine passes. site_admin keeps its input
-// untouched — a null/absent siteId surfaces as a per-field siteId error.
+// Dialogs send binding keys their role does not own (nulls from unrendered
+// selects, stale fields from a role switch): those keys are stripped before
+// validation so the role refine judges only the bindings the role owns
+// (per issue #11's refines). ho keeps siteId — a null/absent one surfaces
+// as a per-field siteId error — and strips siteLocationId; admin keeps
+// siteLocationId and strips siteId; superadmin gets both stripped.
+const keptBindings = (
+  role: string,
+  input: {
+    siteId?: string | null;
+    siteLocationId?: string | null;
+  },
+) =>
+  role === "ho"
+    ? { siteId: input.siteId }
+    : role === "admin"
+      ? { siteLocationId: input.siteLocationId }
+      : {};
+
 export function parseUserCreate(input: {
   name: string;
   email: string;
   password: string;
   role: string;
   siteId?: string | null;
+  siteLocationId?: string | null;
 }) {
-  const isHo = input.role === "ho";
+  const role = input.role;
   return userCreateSchema.safeParse({
     name: input.name,
     email: input.email,
     password: input.password,
-    role: input.role,
-    ...(isHo ? {} : { siteId: input.siteId }),
+    role,
+    ...keptBindings(role, input),
   });
 }
 
@@ -64,30 +95,34 @@ export const userPasswordSchema = z.object({
 
 // Same field rules as userCreateSchema minus the password (edits use
 // resetPassword for that) and minus email (email edits need Better Auth
-// semantics and are out of scope for updateUser), with the
-// ho↔site_admin siteId refine kept.
+// semantics and are out of scope for updateUser), with the same
+// role/binding refine kept.
 export const userUpdateSchema = userBaseSchema
   .omit({ password: true, email: true })
   .extend({ id: z.uuid() })
-  .refine((user) => (user.role === "ho" ? user.siteId === undefined : user.siteId !== undefined), {
-    message: "site_admin requires a siteId; ho must not have one",
-  });
+  .refine(roleBindingValid, { message: bindingMessage });
 
-// updateUser's parse: validates an {id, name, role, siteId?} edit against
-// userUpdateSchema. A stale siteId sent along with role "ho" is stripped
-// before validation ("moving a user to ho clears siteId") so the refine
-// cannot reject a role switch for carrying a now-irrelevant site.
-// site_admin edits never get stripped — a missing siteId still fails.
+// updateUser's parse: validates an {id, name, role, bindings?} edit against
+// userUpdateSchema. Stripping follows the same per-role rule as
+// parseUserCreate (switching a user to superadmin clears both bindings;
+// a ho edit never carries a siteLocationId), so the refine cannot reject a
+// role switch for carrying now-irrelevant bindings. admin edits never get
+// their siteLocationId stripped — a missing one still fails.
 export function parseUserUpdate(
   id: string,
-  input: { name: string; role: string; siteId?: string | null },
+  input: {
+    name: string;
+    role: string;
+    siteId?: string | null;
+    siteLocationId?: string | null;
+  },
 ) {
-  const isHo = input.role === "ho";
+  const role = input.role;
   return userUpdateSchema.safeParse({
     id,
     name: input.name,
-    role: input.role,
-    ...(isHo ? {} : { siteId: input.siteId }),
+    role,
+    ...keptBindings(role, input),
   });
 }
 

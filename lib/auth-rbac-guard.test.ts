@@ -119,6 +119,42 @@ describe("auth rbac guards (final review C1 + I2)", () => {
     await cleanup(userId);
   });
 
+  test("T3 audit: update-user cannot self-promote to superadmin with a location", async () => {
+    const userId = await createUser({ isActive: true }); // role "admin"
+    const signedIn = await signIn(userId);
+    expect(signedIn?.headers).toBeTruthy();
+
+    // The self-promotion vector the redesign hardens: a DB admin posting
+    // {role: 'superadmin', siteLocationId:<uuid>} to /api/auth/update-user.
+    // The cast mirrors the raw HTTP body: both fields are `input: false`,
+    // so the inferred client type no longer includes them — that is the
+    // guard.
+    const promoteBody = {
+      role: "superadmin",
+      siteLocationId: randomUUID(),
+    } as unknown as { name?: string };
+    const promoted = await auth.api
+      .updateUser({
+        body: promoteBody,
+        headers: signedIn!.headers,
+      })
+      .then(() => ({ accepted: true, error: null as string | null }))
+      .catch((err: unknown) => ({
+        accepted: false,
+        error: (err as { status?: string }).status,
+      }));
+
+    expect(promoted.accepted).toBe(false);
+    expect(promoted.error).toBe("BAD_REQUEST");
+
+    // Fresh DB row still shows the original role and no binding.
+    const [row] = await db.select().from(user).where(eq(user.id, userId));
+    expect(row.role).toBe("admin");
+    expect(row.siteLocationId).toBeNull();
+
+    await cleanup(userId);
+  });
+
   test("I2: sign-in for a deactivated user is refused and mints no session", async () => {
     const userId = await createUser({ isActive: false });
     expect(await signIn(userId)).toBeNull();
