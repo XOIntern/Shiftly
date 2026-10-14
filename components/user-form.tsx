@@ -120,6 +120,7 @@ function UserForm({
     <form onSubmit={handleSubmit}>
       <FieldGroup className="gap-4">
         {message ? <FieldError>{message}</FieldError> : null}
+        {fieldErrors?.form ? <FieldError>{fieldErrors.form}</FieldError> : null}
         <Field data-invalid={fieldErrors?.name ? "true" : undefined}>
           <FieldLabel htmlFor={nameId}>Name</FieldLabel>
           <Input
@@ -176,7 +177,12 @@ function UserForm({
           <Select
             items={roleItems}
             value={role}
-            onValueChange={(value) => setRole(value as string | null)}
+            onValueChange={(value) => {
+              setRole(value as string | null);
+              // ho users never carry a site; drop a stale site selection so
+              // the refine can't reject the switch for a now-irrelevant site.
+              if (value === "ho") setSite(null);
+            }}
           >
             <SelectTrigger id={roleId} className="w-full">
               <SelectValue />

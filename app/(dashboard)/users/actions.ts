@@ -16,9 +16,9 @@ import {
   setCredentialPassword,
 } from "@/lib/credential-store";
 import {
+  parseUserUpdate,
   userCreateSchema,
   userPasswordSchema,
-  userUpdateSchema,
 } from "@/lib/validators";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
@@ -99,12 +99,7 @@ export async function updateUser(
 ): Promise<ActionState> {
   await requireHO();
 
-  const parsed = userUpdateSchema.safeParse({
-    id,
-    name: input.name,
-    role: input.role,
-    ...(input.siteId ? { siteId: input.siteId } : {}),
-  });
+  const parsed = parseUserUpdate(id, input);
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
