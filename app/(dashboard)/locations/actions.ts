@@ -11,7 +11,7 @@ import { requireHO, type SessionUser } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { locationCreateSchema, locationUpdateSchema } from "@/lib/validators";
-import { locationOwnedByActor } from "@/lib/location-scope";
+import { locationMutationWhere, locationOwnedByActor } from "@/lib/location-scope";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -101,7 +101,10 @@ export async function updateLocation(
         siteId: parsed.data.siteId,
         isActive: parsed.data.isActive,
       })
-      .where(eq(siteLocation.id, parsed.data.id))
+      // Weld (issue #17 Task 2): the ownership predicate rides inside the
+      // mutating WHERE, so the check above is redundancy, not the last
+      // line of defense.
+      .where(locationMutationWhere(actor, parsed.data.id))
       .returning({ id: siteLocation.id });
     if (updated.length === 0) {
       return { ok: false, message: "Location not found." };
@@ -129,7 +132,7 @@ export async function toggleLocation(id: string): Promise<ActionState> {
     const toggled = await db
       .update(siteLocation)
       .set({ isActive: sql`not ${siteLocation.isActive}` })
-      .where(eq(siteLocation.id, id))
+      .where(locationMutationWhere(actor, id))
       .returning({ isActive: siteLocation.isActive });
     if (toggled.length === 0) {
       return { ok: false, message: "Location not found." };
@@ -167,7 +170,11 @@ export async function deleteLocation(id: string): Promise<ActionState> {
   }
 
   try {
-    await db.delete(siteLocation).where(eq(siteLocation.id, id));
+    await db
+      .delete(siteLocation)
+      // Weld (issue #17 Task 2): same ownership-in-WHERE as update/toggle,
+      // with the bound-users pre-check above intact for its message.
+      .where(locationMutationWhere(actor, id));
   } catch (err) {
     return dbResult(err);
   }

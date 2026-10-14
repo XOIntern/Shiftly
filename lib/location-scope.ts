@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { siteLocation } from "../drizzle/schema";
 import { db } from "./db";
@@ -29,4 +29,16 @@ export async function locationOwnedByActor(
     .limit(1);
 
   return !!row && row.siteId === actor.siteId;
+}
+
+// The weld (issue #17 Task 2): the WHERE a by-id mutation uses carries the
+// ownership predicate inside the statement itself, so the check-then-write
+// (TOCTOU) window closes even without the pre-check above. For an ho that
+// means `id = ? AND site_id = actor.siteId`; superadmin keeps the plain
+// `id = ?`. An unbound ho gets `WHERE false` — fail closed on a row it
+// cannot scope to.
+export function locationMutationWhere(actor: ScopedActor, id: string) {
+  if (actor.role === "superadmin") return eq(siteLocation.id, id);
+  if (!actor.siteId) return sql`false`;
+  return and(eq(siteLocation.id, id), eq(siteLocation.siteId, actor.siteId));
 }

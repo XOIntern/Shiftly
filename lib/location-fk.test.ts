@@ -1,11 +1,12 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { db } from "./db";
 import { pgErrorCode } from "./db-errors";
-import { locationOwnedByActor } from "./location-scope";
+import { locationMutationWhere, locationOwnedByActor } from "./location-scope";
+import { deleteSiteGuarded } from "./site-delete";
 import { site, siteLocation, user } from "../drizzle/schema";
 
 // Real dev DB (docker shiftly-postgres :5433): proves the site_location ->
@@ -157,5 +158,308 @@ describe("location ownership guard (review Critical: by-id scoping)", () => {
     expect(
       await locationOwnedByActor({ role: "ho", siteId: null }, locationId),
     ).toBe(false);
+  });
+});
+
+// Issue #17 Task 2: the ownership predicate must ride INSIDE the mutating
+// statement's WHERE (the weld) so the check-then-write (TOCTOU) window is
+// closed for good. The seam still stands — locationOwnedByActor keeps
+// running first for its friendly message and clean test seam — but even a
+// write that reaches the DB with only a raw id cannot touch a foreign row.
+//
+// Seam: these are the exact statements each action performs (update with
+// re-parent, toggle with `not isActive`, delete), executed through
+// locationMutationWhere — the helper the actions all delegate to — because
+// the server actions themselves need a live request via requireHO().
+describe("ho ownership weld in the mutating WHERE (issue #17 Task 2)", () => {
+  test("foreign-site ho: welded update/toggle/delete probes touch nothing; the row stays put", async () => {
+    const siteAId = randomUUID();
+    const siteBId = randomUUID();
+    const locationId = randomUUID();
+    const hoId = randomUUID();
+
+    try {
+      await db.insert(site).values([
+        { id: siteAId, name: `weld-site-a-${siteAId}` },
+        { id: siteBId, name: `weld-site-b-${siteBId}` },
+      ]);
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId: siteBId,
+        name: "Foreign Warehouse",
+        address: "Jl. Weld 789",
+      });
+      await db.insert(user).values({
+        id: hoId,
+        name: "Weld HO",
+        email: `weld-${hoId}@shiftly.test`,
+        emailVerified: true,
+        role: "ho",
+        siteId: siteAId,
+      });
+      const [ho] = await db.select().from(user).where(eq(user.id, hoId));
+
+      // Seam unchanged: the pre-check still denies foreign rows.
+      expect(await locationOwnedByActor(ho, locationId)).toBe(false);
+
+      // The weld: one transaction playing the actions' writes exactly —
+      // re-parenting update, isActive toggle, delete — all through the
+      // welded WHERE.
+      const probe = await db.transaction(async (tx) => {
+        const reParented = await tx
+          .update(siteLocation)
+          .set({ name: "Hijacked", siteId: siteAId })
+          .where(locationMutationWhere(ho, locationId))
+          .returning({ id: siteLocation.id });
+        const toggled = await tx
+          .update(siteLocation)
+          .set({ isActive: sql`not ${siteLocation.isActive}` })
+          .where(locationMutationWhere(ho, locationId))
+          .returning({ id: siteLocation.id });
+        const deleted = await tx
+          .delete(siteLocation)
+          .where(locationMutationWhere(ho, locationId))
+          .returning({ id: siteLocation.id });
+        return { reParented, toggled, deleted };
+      });
+
+      expect(probe.reParented).toHaveLength(0);
+      expect(probe.toggled).toHaveLength(0);
+      expect(probe.deleted).toHaveLength(0);
+
+      // Site B's location: not deleted, not toggled, not re-parented.
+      const [row] = await db
+        .select()
+        .from(siteLocation)
+        .where(eq(siteLocation.id, locationId));
+      expect(row).toBeTruthy();
+      expect(row.siteId).toBe(siteBId);
+      expect(row.name).toBe("Foreign Warehouse");
+      expect(row.isActive).toBe(true);
+    } finally {
+      await db.delete(user).where(eq(user.id, hoId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteAId));
+      await db.delete(site).where(eq(site.id, siteBId));
+    }
+  });
+
+  test("unbound ho: the welded WHERE fails closed even against an existing row", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `weld-unbound-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Unbound Ho Target",
+      });
+      const toggled = await db
+        .update(siteLocation)
+        .set({ isActive: sql`not ${siteLocation.isActive}` })
+        .where(locationMutationWhere({ role: "ho", siteId: null }, locationId))
+        .returning({ id: siteLocation.id });
+      expect(toggled).toHaveLength(0);
+      const [row] = await db
+        .select()
+        .from(siteLocation)
+        .where(eq(siteLocation.id, locationId));
+      expect(row.isActive).toBe(true);
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("positive control: the weld lets an ho toggle/delete under their own site", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `weld-own-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Own Weld Warehouse",
+      });
+      const ho = { role: "ho" as const, siteId };
+
+      const probe = await db.transaction(async (tx) => {
+        const toggled = await tx
+          .update(siteLocation)
+          .set({ isActive: sql`not ${siteLocation.isActive}` })
+          .where(locationMutationWhere(ho, locationId))
+          .returning({ isActive: siteLocation.isActive });
+        const deleted = await tx
+          .delete(siteLocation)
+          .where(locationMutationWhere(ho, locationId))
+          .returning({ id: siteLocation.id });
+        return { toggled, deleted };
+      });
+
+      expect(probe.toggled).toEqual([{ isActive: false }]);
+      expect(probe.deleted).toHaveLength(1);
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("positive control: superadmin's welded WHERE stays eq(id)-only", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `weld-sa-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Superadmin Weld Target",
+      });
+      // superadmin is unbound and unscoped — eq(id) matches regardless of
+      // any site predicate; the actions' own zero-row handling covers
+      // nonexistent ids.
+      const toggled = await db
+        .update(siteLocation)
+        .set({ isActive: sql`not ${siteLocation.isActive}` })
+        .where(
+          locationMutationWhere({ role: "superadmin", siteId: null }, locationId),
+        )
+        .returning({ id: siteLocation.id });
+      expect(toggled).toHaveLength(1);
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+});
+
+// Issue #17 Task 2: deleteSite must run its three relation guards and the
+// DELETE inside ONE transaction, so a site can never lose rows while a
+// guard race is mid-flight (no partial writes). deleteSiteGuarded is the
+// exported testable helper mirroring the locationOwnedByActor seam — the
+// action delegates to it within db.transaction.
+describe("deleteSite transactional guards (issue #17 Task 2)", () => {
+  test("(a) site with a location is refused; the location row stays intact", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `del-site-a-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Blocking Location",
+      });
+
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
+      expect(result).toEqual({
+        ok: false,
+        message: "Locations still exist under this site",
+      });
+
+      // No partial writes: both rows survive.
+      const [loc] = await db
+        .select()
+        .from(siteLocation)
+        .where(eq(siteLocation.id, locationId));
+      expect(loc).toBeTruthy();
+      const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
+      expect(siteRow).toBeTruthy();
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("(b) user bound directly to the site", async () => {
+    const siteId = randomUUID();
+    const userId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `del-site-b-${siteId}` });
+      await db.insert(user).values({
+        id: userId,
+        name: "Site Bound Ho",
+        email: `del-site-b-${userId}@shiftly.test`,
+        emailVerified: true,
+        role: "ho",
+        siteId,
+      });
+
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
+      expect(result).toEqual({
+        ok: false,
+        message: "Users are still bound to this site",
+      });
+      const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
+      expect(siteRow).toBeTruthy();
+    } finally {
+      await db.delete(user).where(eq(user.id, userId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("user bound via a location under the site: the locations guard answers first", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+    const userId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `del-site-c-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Occupied Location",
+      });
+      await db.insert(user).values({
+        id: userId,
+        name: "Location Bound Admin",
+        email: `del-site-c-${userId}@shiftly.test`,
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locationId,
+      });
+
+      // Guard order (a) before (c) means a user bound through a location
+      // under the site is answered by the locations guard — the joined
+      // (c) query stays as the belt-and-braces backstop the issue pins.
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
+      expect(result).toEqual({
+        ok: false,
+        message: "Locations still exist under this site",
+      });
+      const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
+      expect(siteRow).toBeTruthy();
+    } finally {
+      await db.delete(user).where(eq(user.id, userId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("positive control: an empty site deletes in one transaction", async () => {
+    const siteId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `del-site-ok-${siteId}` });
+
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
+      expect(result).toEqual({ ok: true });
+
+      const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
+      expect(siteRow).toBeUndefined();
+    } finally {
+      await db.delete(site).where(eq(site.id, siteId));
+    }
   });
 });
