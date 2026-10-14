@@ -2,21 +2,23 @@
 
 | | |
 |---|---|
-| Version | 0.1 (Draft) |
-| Source | Derived from PRD v0.1 |
+| Version | 0.2 (Draft) |
+| Source | Derived from PRD v0.2 |
 | Status | Awaiting review; some decisions still TBD (see section 10) |
 | Audience | Developers building Shiftly |
 
 > This document describes the **target architecture** (nothing is implemented yet; the repo is still a scaffold). All decisions that are not yet final are marked **TBD** so they are not mistaken for agreed-upon choices.
+>
+> **Revision (Oct 2026):** the `client` entity was removed. The domain model is now `site` 1:N `site_locations`, with three roles — **superadmin** (full access), **HO** (one site), **admin** (one site_location). Operational data (departments, workers, MP requests, rates) lives at the location level.
 
 ---
 
 ## 1. Overview
 
-Shiftly is a **multi-client & multi-site** web platform for roster and attendance management of Sodexo outsourced workers, starting with the Nestle Group pilot. The architecture stands on four pillars:
+Shiftly is a **multi-site & multi-location** web platform for roster and attendance management of Sodexo outsourced workers, starting with the Nestle pilot (Nestle, Google, Huawei are `site` rows in the data model). The architecture stands on four pillars:
 
 1. A **deterministic Roster Engine** that auto-generates weekly draft rosters in compliance with all configurable work rules, and **refuses to publish rosters that violate rules** (unmet requirements are reported as explicit deficits, not silently violated).
-2. **Site-scoping at the data level**: every non-HO user is bound to exactly one site, and all queries are automatically scoped to that site on the server.
+2. **Scope-based isolation at the data level**: the superadmin has full access, each HO is bound to exactly one site (covering all its site_locations), each Admin to one site_location — and all queries are automatically scoped to the session's bound site/location on the server.
 3. **Fully config-driven**: roster rules and salary rate structures are changed via configuration by HO, with no code changes.
 4. **An audit trail** for sensitive decisions: roster publishing, configuration changes, attendance corrections, force majeure handling.
 
@@ -24,21 +26,23 @@ System context:
 
 ```mermaid
 graph LR
-    C["Client (e.g. Nestle)<br/>conveys MP requirements<br/>via manual channels (no access)"]
-    AS["Sodexo Site Admin<br/>roster, attendance, force majeure<br/>limited to 1 site"]
-    HO["Sodexo HO<br/>master data, configuration,<br/>cross-site monitoring"]
+    SA["Sodexo Superadmin<br/>global: creates sites,<br/>assigns HO per site"]
+    HO["Sodexo HO<br/>one site: creates site_locations,<br/>assigns Admin per location"]
+    AS["Sodexo Admin<br/>roster, attendance, force majeure<br/>limited to 1 site_location"]
 
     S(("Shiftly"))
 
-    C -.->|weekly & daily MP requirements<br/>by email/WhatsApp| AS
+    SA -->|manage sites & HO accounts,<br/>full access to everything| S
+    HO -->|manage locations & Admin accounts,<br/>per-site configuration| S
     AS -->|manage roster & attendance,<br/>enter MP requirements| S
-    HO -->|configuration & master data| S
-    S -->|dashboard & reports| HO
+    S -->|dashboard & reports| HO & SA
 
     S ---|roster & attendance| W["Worker<br/>(never logs in at all)"]
 ```
 
-Workers are **never** users of the system. All input (roster and attendance) is performed by site admins. Clients have **no access** to the application.
+Workers are **never** users of the system. All input (roster and attendance) is performed by the Admin of the location. Clients (Nestle, Google, Huawei, …) have **no access** to the application — their MP requirements arrive via manual channels (email/WhatsApp) and are entered by the Admin.
+
+The operational hierarchy: a **site** (e.g. Nestle) is managed by exactly **1 HO**; a site contains many **site_locations** (1:N); each site_location is managed by its own **Admin**.
 
 ---
 
@@ -68,7 +72,7 @@ graph TB
         UI["UI Layer<br/>(RSC + client components,<br/>responsive, payload-efficient)"]
         subgraph "Domain Modules"
             AUTH["1. Auth & RBAC"]
-            MD["2. Master Data<br/>(client, site, department,<br/>shift, worker)"]
+            MD["2. Master Data<br/>(site, site_location,<br/>department, shift, worker)"]
             REQ["3. Request Management<br/>(weekly & daily MP requirements)"]
             RULES["4. Rules & Configuration<br/>(rules engine config)"]
             ROSTER["5. Roster Engine<br/>(generate + validate + publish)"]
@@ -76,7 +80,7 @@ graph TB
             REP["7. Reporting & Dashboard"]
             PAY["8. Payroll Config & Estimation"]
         end
-        SVC["Cross-module services:<br/>site-scoping guard · audit trail ·<br/>CSV/Excel export/import"]
+        SVC["Cross-module services:<br/>scope guard (location/site) · audit trail ·<br/>CSV/Excel export/import"]
     end
     DB[("PostgreSQL<br/>(TBD)")]
     FILES["Worker import &<br/>report export (CSV/Excel)"]
@@ -96,7 +100,7 @@ graph TB
 ### Separation principles
 
 - **Pure domain logic**: the generator, rule validator, and salary estimation calculations are written as pure functions (data in, results out), decoupled from UI and database. This is a prerequisite for the correctness and performance evaluation in section 5.
-- **Site-scoping as a data-access layer**: not the "manual filter on every page" pattern, but a single centralized mechanism that forces all domain queries through the user's site scope (section 7).
+- **Scope-based isolation as a data-access layer**: not the "manual filter on every page" pattern, but a single centralized mechanism that forces all domain queries through the session's scope (location for Admin, site for HO, everything for superadmin) (section 7).
 - **Configuration as data**: rules (C1–C7) and salary rates are stored as configuration rows, read by the engine at runtime, not hardcoded constants.
 
 ---
@@ -105,14 +109,14 @@ graph TB
 
 | # | Module | Responsibilities | Primary users |
 |---|---|---|---|
-| 1 | Auth & RBAC | Login sessions, 2 roles (Site Admin, HO), binding users to sites | All |
-| 2 | Master Data | Client, site (with location/city), department, shift definitions, worker (qualifications, PKWT/PKWTT, active status), CSV/Excel import | HO, Site Admin |
-| 3 | Request Management | Weekly & daily MP requirements entered by the site admin on behalf of the client, request status | Site Admin |
+| 1 | Auth & RBAC | Login sessions, 3 roles (Superadmin, HO, Admin), binding users to sites/locations | All |
+| 2 | Master Data | Site, site_location (location/city), department, shift definitions, worker (qualifications, PKWT/PKWTT, active status), user accounts per scope, CSV/Excel import | Superadmin (sites, HO accounts), HO (locations, Admin accounts), Admin (workers) |
+| 3 | Request Management | Weekly & daily MP requirements entered by the admin on behalf of the client, request status | Admin, HO |
 | 4 | Rules & Configuration | Global roster rule parameters (C1–C7) + per-site overrides, change history | HO |
-| 5 | Roster Engine | Auto-generate drafts, real-time validation, block publishing while violations exist, explicit deficits, publish auditing | Site Admin |
-| 6 | Attendance | Daily per-shift attendance input (present/leave/sick/absent), bulk input, corrections with a trail, attendance without a roster as an exception | Site Admin |
-| 7 | Reporting & Dashboard | MP realization vs. requirement, workers approaching limits, attendance recap, export | HO |
-| 8 | Payroll Config & Estimation | Rate structure per shift/site/location/worker, salary estimation calculated from attendance, export | HO |
+| 5 | Roster Engine | Auto-generate drafts, real-time validation, block publishing while violations exist, explicit deficits, publish auditing | Admin |
+| 6 | Attendance | Daily per-shift attendance input (present/leave/sick/absent), bulk input, corrections with a trail, attendance without a roster as an exception | Admin |
+| 7 | Reporting & Dashboard | MP realization vs. requirement, workers approaching limits, attendance recap, export (per-location & cross-site views) | HO, Superadmin |
+| 8 | Payroll Config & Estimation | Rate structure per shift/site/location/worker, salary estimation calculated from attendance, export | HO, Superadmin |
 
 Module dependencies flow one way (the table above is ordered from upstream to downstream): Rules and Master Data feed the Roster Engine; the published output becomes the basis for Attendance; Attendance feeds Salary Estimation and Reporting. This direction is enforced so upstream modules never depend on downstream ones.
 
@@ -160,7 +164,7 @@ graph LR
 | C6 | Mandatory break duration | 4 consecutive days |
 | C7 | Workers only assigned within their department/qualification | active |
 
-Global configuration can be overridden per site. Only HO may change it, every change is logged (old value → new value), and changes only apply to rosters created afterward (not retroactive).
+Global configuration can be overridden per site. Only HO (or superadmin) may change it, every change is logged (old value → new value), and changes only apply to rosters created afterward (not retroactive).
 
 ### 5.3 Evaluation strategy (engine acceptance criteria)
 
@@ -169,7 +173,7 @@ Global configuration can be overridden per site. Only HO may change it, every ch
 | Correctness | 0 violations in a simulation of 7 departments x up to 200 workers/department x 12 weeks, including full load |
 | Coverage | >= 95% of MP requirements met; the remainder reported as an accurate deficit |
 | Fairness | Difference in work-day distribution between workers within one department <= 2 days/month |
-| Performance | Weekly roster generation for 1 site (worst case ~1,400 workers) < 30 seconds |
+| Performance | Weekly roster generation for one site_location (worst case ~1,400 workers) < 30 seconds |
 
 Because the engine is a pure function, all targets above are tested via unit/property tests without requiring UI or a database.
 
@@ -181,13 +185,14 @@ Core entities (from PRD 4.1):
 
 ```mermaid
 erDiagram
-    CLIENT ||--o{ SITE : "owns"
-    SITE ||--o{ DEPARTMENT : "owns"
-    SITE ||--o{ SHIFT_DEFINITION : "owns"
-    SITE ||--o{ ROSTER_PLAN : "owns"
-    SITE ||--o{ MP_REQUEST : "receives"
-    SITE ||--o{ RULE_CONFIG : "overrides"
-    SITE ||--o{ RATE_CONFIG : "overrides"
+    SITE ||--o{ SITE_LOCATION : "has (1:N)"
+    SITE_LOCATION ||--o{ DEPARTMENT : "owns"
+    SITE_LOCATION ||--o{ SHIFT_DEFINITION : "owns"
+    SITE_LOCATION ||--o{ ROSTER_PLAN : "owns"
+    SITE_LOCATION ||--o{ MP_REQUEST : "receives"
+    SITE ||--o{ RULE_CONFIG : "site-level overrides (HO)"
+    SITE ||--o{ RATE_CONFIG : "site-level rates"
+    SITE_LOCATION ||--o{ RATE_CONFIG : "location rates"
     DEPARTMENT ||--o{ WORKER : "houses"
     WORKER ||--o{ ROSTER_ASSIGNMENT : "assigned"
     WORKER ||--o{ ATTENDANCE_RECORD : "recorded"
@@ -195,14 +200,19 @@ erDiagram
     ROSTER_PLAN ||--o{ ROSTER_ASSIGNMENT : "contains"
     SHIFT_DEFINITION ||--o{ ROSTER_ASSIGNMENT : "defines"
     SHIFT_DEFINITION ||--o{ RATE_CONFIG : "rate per shift"
-    USER }o--|| SITE : "bound to 1 site (except HO)"
+    USER }o--o| SITE : "HO bound to 1 site"
+    USER }o--o| SITE_LOCATION : "Admin bound to 1 location"
     USER ||--o{ AUDIT_LOG : "performs"
 
-    CLIENT {
-        string name "e.g. Nestle Group"
-    }
     SITE {
-        string location "city/physical, e.g. Jakarta vs Bogor"
+        string name "e.g. Nestle, Google, Huawei"
+    }
+    SITE_LOCATION {
+        string name "physical location/city, e.g. Jakarta vs Bogor"
+        string address
+    }
+    USER {
+        string role "superadmin | ho | admin (superadmin unbound)"
     }
     MP_REQUEST {
         string type "weekly | daily"
@@ -234,31 +244,35 @@ erDiagram
 
 Schema design notes:
 
-- **Multi-site from day one**: even though the pilot is a single site, every operational table carries a site reference so data isolation never depends on a "one site" assumption.
+- **No client entity**: the earlier Client → Site hierarchy was removed (Oct 2026 revision). What used to be "the client" (Nestle Group) is now a **site**; what used to be "a site with a city" is now a **site_location**. Client companies remain external counterparties — they convey MP requirements manually — but are not tables in the system.
+- **Site is framework, location is operations**: a `SITE` carries its name and its HO binding; departments, shift definitions, workers, MP requests, and location rates all live under `SITE_LOCATION`.
+- **Multi-site & multi-location from day one**: every operational table carries a `site_location` reference (its site is derivable through it), so data isolation never depends on a "single site" assumption.
+- **User bindings**: `role` ∈ (superadmin, ho, admin). The HO carries exactly one `siteId`; the Admin carries exactly one `siteLocationId`; the superadmin is bound to nothing and has full access.
 - **Versioned RosterPlan**: publishing creates a new version recorded in the audit trail; post-publish edits produce the next version.
 - **AttendanceRecord without a roster**: attendance for a worker without a roster entry remains possible, flagged as an exception (dispensation) with a trail.
-- **Hierarchical RuleConfig**: a global row as the base, per-site rows as overrides. The same resolution pattern is used by RateConfig (section 8).
+- **Hierarchical RuleConfig**: a global row as the base, per-site rows as overrides (managed by HO). The same resolution pattern is used by RateConfig (section 8).
 - Configuration changes are **not retroactive**: a published roster stores the configuration context in effect when it was created.
 
 ---
 
-## 7. Auth, RBAC, and Site-Scoping
+## 7. Auth, RBAC, and Scope-Based Isolation
 
 ### 7.1 Roles
 
-| Role | Scope | Rights |
-|---|---|---|
-| Site Admin | Exactly one site | Manage their site's roster, attendance, workers; enter MP requirements on behalf of the client |
-| Sodexo HO | All sites & clients | Master data, rule & rate configuration, monitoring, reporting |
+| Role | Binding | Access scope | Rights |
+|---|---|---|---|
+| Superadmin | — (unbound) | All sites & all their site_locations | Create sites, create HO accounts, global rule & rate configuration, full monitoring |
+| HO | Exactly one site | All site_locations of that site | Create site_locations & Admin accounts for their site, per-site rule & rate overrides, monitoring & reporting within the site |
+| Admin | Exactly one site_location | Only that location | Manage their location's roster, attendance, workers; enter MP requirements on behalf of the client |
 
-Note: the client (e.g. Nestle) has no access to the application; MP requirements arrive via manual channels (email/WhatsApp) and are entered by the Site Admin.
+Note: the client (e.g. Nestle) has no access to the application; MP requirements arrive via manual channels (email/WhatsApp) and are entered by the Admin. 1 site : 1 HO and 1 site_location : 1 Admin are the intended bindings.
 
 ### 7.2 Enforcement at the data level
 
-The principle from PRD US-11: site-scoping is enforced **at the data/authorization level, not by hiding UI**. The intended implementation (target architecture):
+The principle from PRD US-11: scoping is enforced **at the data/authorization level, not by hiding UI**. The intended implementation (target architecture):
 
-1. Every user session carries its site scope (one site, or "all" for HO only).
-2. All access to operational data (workers, roster, attendance, MP requests, site configuration) goes through a single data-access layer that **must** inject the site filter from the session. Domain modules have no query path that bypasses it.
+1. Every user session carries its scope: superadmin = "all", HO = one site (covering all of its site_locations), Admin = one site_location.
+2. All access to operational data (workers, roster, attendance, MP requests, site configuration) goes through a single data-access layer that **must** inject the location filter (for Admin) or the site filter (for HO) from the session; superadmin bypasses filters. Domain modules have no query path that bypasses it.
 3. Session-based authentication (email + password) on the server; optional MFA in a later phase. **TBD** until the auth decision.
 
 ---
@@ -268,12 +282,12 @@ The principle from PRD US-11: site-scoping is enforced **at the data/authorizati
 Rate resolution is hierarchical, from most specific wins:
 
 ```
-per-worker override  →  site rate  →  location rate  →  global default
+per-worker override  →  location rate  →  site rate  →  global default
 ```
 
-- Rates are defined **per shift** (shifts 1, 2, 3 differ) and can vary by site and location/city.
+- Rates are defined **per shift** (shifts 1, 2, 3 differ) and can vary by location/city within a site (e.g. Nestle Jakarta vs Nestle Bogor) and by site.
 - Salary estimate = recorded work hours/days (from attendance and published rosters) x the rate at the highest applicable resolution.
-- Attendance changes (corrections, force majeure) automatically update estimates; recaps are available per worker, department, shift, site, and period, with Excel/CSV export for the existing payroll process.
+- Attendance changes (corrections, force majeure) automatically update estimates; recaps are available per worker, department, shift, location, site, and period, with Excel/CSV export for the existing payroll process.
 - Architectural boundary: Shiftly stops at **estimation**. No deductions (BPJS, PPh21), no payslips, no payroll bookkeeping.
 
 ---
@@ -282,15 +296,15 @@ per-worker override  →  site rate  →  location rate  →  global default
 
 ```mermaid
 flowchart LR
-    A["Site Admin inputs weekly<br/>MP requirements (from client)"] --> B["Site Admin<br/>generates draft roster"]
+    A["Admin inputs weekly<br/>MP requirements (from client)"] --> B["Admin<br/>generates draft roster"]
     B --> C["Edit + real-time validation"]
     C -->|violations remain| C
     C -->|valid| D["Publish roster<br/>(audit trail)"]
-    D --> E["Daily attendance<br/>entered by site admin"]
+    D --> E["Daily attendance<br/>entered by admin"]
     E --> F["Recap & reports"]
     E --> G["Salary estimation<br/>(attendance x rate)"]
 
-    H["Client's daily request<br/>(entered by Site Admin)"] -.->|same validation| D
+    H["Client's daily request<br/>(entered by Admin)"] -.->|same validation| D
     I["Force majeure:<br/>worker suddenly absent"] -.->|"valid replacement candidate<br/>(qualified, lowest load)"| D
 ```
 
@@ -308,7 +322,7 @@ Two side paths (daily requests, force majeure) modify the running-day roster and
 | 4 | ORM/schema migration tooling | TBD (follows the DB choice) | Alongside #1 |
 | 5 | Background job strategy (e.g. v1.1 notifications) | TBD | Before v1.1 |
 
-Decisions the PRD **has already locked** and are not being reopened: a deterministic engine (not generative AI), site-scoping at the data level, all rules config-driven, no worker self-service, no payslips/deductions.
+Decisions the PRD **has already locked** and are not being reopened: a deterministic engine (not generative AI), scope-based isolation at the data level (location for Admin, site for HO, full access for superadmin), the **Oct 2026 domain-model revision** (no client entity; `site` 1:N `site_locations`; roles superadmin/HO/admin; departments, workers, MP requests, and rates at the location level), all rules config-driven, no worker self-service, no payslips/deductions.
 
 ---
 
@@ -318,7 +332,7 @@ Decisions the PRD **has already locked** and are not being reopened: a determini
 |---|---|
 | Daily operational pages | Per-shift attendance loads in < 2 seconds for ~200 workers; pagination and no heavy assets |
 | Engine performance | Roster generation < 30 seconds for a full site (~1,400 workers) |
-| Scale | ~7 departments x 200 workers per site; multi-site correct in the schema from day one |
+| Scale | ~7 departments x 200 workers per site_location; multi-site & multi-location correct in the schema from day one |
 | Weak networks | Daily operational pages are payload-efficient (not a PWA/offline in v1; re-evaluated in v2.0) |
 | 3-shift operations | No maintenance windows during operational hours without notice |
 | Sensitive data security | Rates/salary editable by HO only, always audited, not exposed externally; worker personal data (NIK, etc.) access is restricted |
@@ -329,7 +343,7 @@ Decisions the PRD **has already locked** and are not being reopened: a determini
 
 | Phase | What it affects in the architecture |
 |---|---|
-| MVP (4–6 weeks) | Modules 1–6 plus rate configuration; site-scoping and the multi-site schema **from the first commit**; engine + validator as pure functions so they can be verified before the Nestle pilot |
+| MVP (4–6 weeks) | Modules 1–6 plus rate configuration; scope-based isolation and the multi-site/multi-location schema **from the first commit**; engine + validator as pure functions so they can be verified before the Nestle pilot |
 | v1.1 | Daily requests, force majeure, dashboard/export, full audit trail, salary estimation: no core schema changes, only new flows on top of the MVP foundation |
 | v2.0 | New-site onboarding purely via master data (no new deployment); notifications (email/WA), API integration, PWA/offline: connection points are prepared through module separation, but not built in the MVP |
 
@@ -337,5 +351,5 @@ Decisions the PRD **has already locked** and are not being reopened: a determini
 
 ## 13. References
 
-- PRD v0.1: source of all requirements, rules C1–C7, user stories, and the Sept 17 discovery decisions.
+- PRD v0.2: source of all requirements, rules C1–C7, user stories, the Sept 17 discovery decisions, and the Oct 2026 domain-model revision (no `client`; `site` 1:N `site_locations`; roles superadmin/HO/admin).
 - PRD appendix: interpretation of the discovery decisions that underpins the architectural choices in this document.
