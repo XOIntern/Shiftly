@@ -5,6 +5,7 @@ import { PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/lib/action-state";
+import { GENERIC_ERROR } from "@/lib/action-state";
 import { createSite, deleteSite, toggleSite, updateSite } from "@/app/(dashboard)/sites/actions";
 import {
   AlertDialog,
@@ -63,8 +64,6 @@ type SelectOption = {
   value: string | null;
   disabled?: boolean;
 };
-
-const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 function showFailure(
   result: ActionState,

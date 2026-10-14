@@ -9,23 +9,15 @@ import { db } from "@/lib/db";
 import { mapDbError } from "@/lib/db-errors";
 import { requireHO } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
+import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { siteCreateSchema, siteUpdateSchema } from "@/lib/validators";
-
-function fieldErrorsFrom(error: z.ZodError): Record<string, string> {
-  const fieldErrors: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = issue.path.join(".") || "form";
-    fieldErrors[key] ??= issue.message;
-  }
-  return fieldErrors;
-}
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
 function dbResult(err: unknown): ActionState {
   const mapped = mapDbError(err, { kind: "site-name" });
   if (mapped) return { ok: false, message: mapped };
-  return { ok: false, message: "Something went wrong. Please try again." };
+  return { ok: false, message: GENERIC_ERROR };
 }
 
 export async function createSite(

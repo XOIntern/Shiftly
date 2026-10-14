@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { createUser, setActive, updateUser } from "@/app/(dashboard)/users/actions";
 import type { ActionState } from "@/lib/action-state";
+import { GENERIC_ERROR } from "@/lib/action-state";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -45,8 +46,6 @@ export type UserRow = {
   siteName: string | null;
   isActive: boolean;
 };
-
-const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 const roleItems = [
   { label: "Head office", value: "ho" },
