@@ -1,7 +1,10 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { eq } from "drizzle-orm";
 import * as schema from "../drizzle/schema";
 import { db } from "./db";
+
+const { user } = schema;
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
@@ -14,19 +17,46 @@ export const auth = betterAuth({
   },
   user: {
     additionalFields: {
+      // All additional fields are guarded with `input: false`: provisioning
+      // writes rows directly (app/(dashboard)/users/actions.ts,
+      // scripts/seed-admin.ts) and reads happen fresh from the DB
+      // (lib/session.ts). `input: true` here would let any logged-in user
+      // grant themselves `role: "ho"` via /api/auth/update-user
+      // (Better Auth 1.7.7 dist/db/schema.mjs parseInputData copies every
+      // body key whose field is not `input: false`).
       role: {
         type: "string",
-        input: true,
-        required: false, // optional at input; DB default 'site_admin' applies
+        input: false,
+        required: false, // DB default 'site_admin' applies
       },
       siteId: {
         type: "string",
-        input: true,
-        required: false, // optional at input; NULL = HO
+        input: false,
+        required: false, // NULL = HO
       },
       isActive: {
         type: "boolean",
         input: false,
+      },
+    },
+  },
+  // Deactivated users must not be able to mint new sessions: if the
+  // created-session payload is for an inactive user, return `false` so
+  // createWithHooks skips the insert and sign-in fails with
+  // UNAUTHORIZED (dist/db/with-hooks.mjs — `if (result === false) return null;`,
+  // dist/api/routes/sign-in.mjs — null session → FAILED_TO_CREATE_SESSION).
+  databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          if (!session.userId) return true;
+          const [row] = await db
+            .select({ isActive: user.isActive })
+            .from(user)
+            .where(eq(user.id, session.userId))
+            .limit(1);
+          return row?.isActive === true;
+        },
       },
     },
   },
