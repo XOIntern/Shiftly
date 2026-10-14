@@ -19,7 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Toaster } from "@/components/ui/sonner";
 import {
   CreateSiteButton,
   DeleteSiteButton,
@@ -130,7 +129,6 @@ export default async function SitesPage() {
           </Table>
         </CardContent>
       </Card>
-      <Toaster />
     </div>
   );
 }

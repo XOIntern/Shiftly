@@ -8,13 +8,8 @@ import { site, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError } from "@/lib/db-errors";
 import { requireHO } from "@/lib/session";
+import type { ActionState } from "@/lib/action-state";
 import { siteCreateSchema, siteUpdateSchema } from "@/lib/validators";
-
-type ActionState = {
-  ok: boolean;
-  message?: string;
-  fieldErrors?: Record<string, string>;
-};
 
 function fieldErrorsFrom(error: z.ZodError): Record<string, string> {
   const fieldErrors: Record<string, string> = {};

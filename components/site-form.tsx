@@ -4,12 +4,8 @@ import { useState, useTransition } from "react";
 import { PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  createSite,
-  deleteSite,
-  toggleSite,
-  updateSite,
-} from "@/app/(dashboard)/sites/actions";
+import type { ActionState } from "@/lib/action-state";
+import { createSite, deleteSite, toggleSite, updateSite } from "@/app/(dashboard)/sites/actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,12 +57,6 @@ export type SiteRow = {
 };
 
 type SiteFieldErrors = Record<string, string>;
-
-type ActionState = {
-  ok: boolean;
-  message?: string;
-  fieldErrors?: Record<string, string>;
-};
 
 type SelectOption = {
   label: string;
