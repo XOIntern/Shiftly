@@ -4,7 +4,15 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Shiftly design-system tokens (v2.0.0 brand palette).
+ * Brand: blue #3246C8 (primary), teal #1EBEB4 (secondary accent, decorative only),
+ * neutral ink #171717 on white/zinc surfaces. Raw teal is decorative/chart-only
+ * and must never appear as text or icon stroke on light backgrounds.
+ */
+
 @theme inline {
+  /* shadcn semantic slots */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
@@ -39,87 +47,221 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-border-strong: var(--border-strong);
+  --color-focus: var(--focus);
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-inverse: var(--foreground-inverse);
+  --color-background-alt: var(--background-alt);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-border: var(--warning-border);
+  --color-error: var(--error);
+  --color-error-bg: var(--error-bg);
+  --color-error-border: var(--error-border);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-info-border: var(--info-border);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-50: var(--primary-50);
+  --color-primary-100: var(--primary-100);
+  --color-primary-200: var(--primary-200);
+  --color-primary-300: var(--primary-300);
+  --color-primary-400: var(--primary-400);
+  --color-primary-500: var(--primary-500);
+  --color-primary-600: var(--primary-600);
+  --color-primary-700: var(--primary-700);
+  --color-primary-800: var(--primary-800);
+  --color-primary-900: var(--primary-900);
+  --color-accent-teal-50: var(--accent-teal-50);
+  --color-accent-teal-100: var(--accent-teal-100);
+  --color-accent-teal-200: var(--accent-teal-200);
+  --color-accent-teal-500: var(--accent-teal-500);
+  --color-accent-teal-700: var(--accent-teal-700);
+  --color-accent-teal-800: var(--accent-teal-800);
+  --color-accent-teal-900: var(--accent-teal-900);
+
+  /* Radius scale, pinned (§5.1). Tailwind steps → spec values:
+     sm/xs accents 4/6px, buttons and inputs 8px, cards and dialogs 16px,
+     major containers 20px, large sections 24px, badges 6px (not pills). */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-4xl: 6px;
+}
+
+/* Elevation tinted toward the brand blue hue; motion easing. */
+@theme {
+  --shadow-xs: 0 1px 2px rgb(23 35 90 / 0.04);
+  --shadow-sm: 0 2px 6px rgb(23 35 90 / 0.06);
+  --shadow-md: 0 6px 18px rgb(23 35 90 / 0.08);
+  --shadow-lg: 0 12px 32px rgb(23 35 90 / 0.1);
+  --shadow-xl: 0 20px 48px rgb(23 35 90 / 0.12);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Canvas, ink, and interactive anchor (§2.2, §2.7) */
+  --background: #ffffff;
+  --foreground: #171717;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #3246c8;
+  --primary-foreground: #ffffff;
+  --primary-hover: #2a3bb8;
+  --primary-active: #232fa5;
+  --secondary: #f3f4fc;
+  --secondary-foreground: #171717;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f3f4fc;
+  --accent-foreground: #171717;
+  --destructive: #a52d3d;
+  --border: #e4e4e7;
+  --input: #d4d4d8;
+  --ring: #3246c8;
+
+  /* Surfaces and text beyond the shadcn slots (§2.2) */
+  --background-alt: #f4f4f5;
+  --surface: #ffffff;
+  --surface-muted: #f4f4f5;
+  --foreground-secondary: #52525b;
+  --foreground-muted: #71717a;
+  --foreground-inverse: #ffffff;
+  --border-strong: #d4d4d8;
+  --focus: #3246c8;
+
+  /* Blue scale (§2.3), anchored at #3246C8 */
+  --primary-50: #f3f4fc;
+  --primary-100: #e6e9f8;
+  --primary-200: #ccd1f1;
+  --primary-300: #adb5e9;
+  --primary-400: #8490de;
+  --primary-500: #3246c8;
+  --primary-600: #2b3db0;
+  --primary-700: #253498;
+  --primary-800: #1e2a7d;
+  --primary-900: #172266;
+
+  /* Teal scale (§2.4). 500 is decorative/chart-only; text uses 700/800. */
+  --accent-teal-50: #f2fbfa;
+  --accent-teal-100: #e4f7f6;
+  --accent-teal-200: #c0edea;
+  --accent-teal-500: #1ebeb4;
+  --accent-teal-700: #18928a;
+  --accent-teal-800: #147a72;
+  --accent-teal-900: #10615b;
+
+  /* Semantic statuses (§2.5) */
+  --success: #147a72;
+  --success-bg: #e4f7f6;
+  --success-border: #c0edea;
+  --warning: #805000;
+  --warning-bg: #fff3d6;
+  --warning-border: #eacb83;
+  --error: #a52d3d;
+  --error-bg: #fdecef;
+  --error-border: #f1b9c2;
+  --info: #253498;
+  --info-bg: #f3f4fc;
+  --info-border: #ccd1f1;
+
+  /* Charts (§11.1) */
+  --chart-1: #3246c8;
+  --chart-2: #1ebeb4;
+  --chart-3: #8490de;
+  --chart-4: #147a72;
+  --chart-5: #a1a1aa;
+
+  /* Sidebar (§6.10) */
+  --sidebar: #ffffff;
+  --sidebar-foreground: #52525b;
+  --sidebar-primary: #3246c8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f3f4fc;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: #3246c8;
+
+  /* Layout (§11.1) */
+  --container-max: 1440px;
+  --topbar-height: 72px;
+  --sidebar-width: 256px;
+  --sidebar-collapsed-width: 72px;
+
+  /* Motion (§8) */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-medium: 240ms;
+  --duration-slow: 320ms;
+
+  /* The one sanctioned gradient — hero/empty states only (§2.8) */
+  --gradient-hero: linear-gradient(110deg, #e6e9f8 0%, #ffffff 55%, #e4f7f6 100%);
 }
 
+/*
+ * Dark mode is derived: the spec leaves it as an open question and defines no
+ * dark tokens. Surfaces are neutral derivatives of the ink #171717; accent
+ * values reuse documented light-family values (#1E2A7D, #8490DE, #18928A,
+ * #EACB83, #F1B9C2) chosen for ≥3:1 on dark surfaces.
+ */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: #171717;
+  --foreground: #ffffff;
+  --card: #1c1c1f;
+  --card-foreground: #ffffff;
+  --popover: #1c1c1f;
+  --popover-foreground: #ffffff;
+  --primary: #3246c8;
+  --primary-foreground: #ffffff;
+  --secondary: #232326;
+  --secondary-foreground: #ffffff;
+  --muted: #232326;
+  --muted-foreground: #a1a1aa;
+  --accent: #1e2a7d;
+  --accent-foreground: #ffffff;
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --ring: #8490de;
+
+  --chart-1: #8490de;
+  --chart-2: #1ebeb4;
+  --chart-3: #adb5e9;
+  --chart-4: #18928a;
+  --chart-5: #a1a1aa;
+
+  --sidebar: #1c1c1f;
+  --sidebar-foreground: #a1a1aa;
+  --sidebar-primary: #3246c8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1e2a7d;
+  --sidebar-accent-foreground: #ffffff;
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: #8490de;
+
+  /* Text-role semantics get documented lighter values for ≥3:1 on ink */
+  --success: #18928a;
+  --warning: #eacb83;
+  --error: #f1b9c2;
+  --info: #8490de;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
   body {
     @apply bg-background text-foreground;
@@ -129,5 +271,124 @@
   }
   html {
     @apply font-sans;
+  }
+
+  /* Focus: 2px solid brand outline with 2px offset on actions (§6.1). */
+  :is(
+    button,
+    a[href],
+    [role="button"],
+    [role="tab"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="switch"],
+    [role="slider"]
+  ):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    --tw-ring-shadow: 0 0 #0000;
+  }
+}
+
+/* Type scale (§3.2). Weights 400 unless noted; sizes in px as specified. */
+@utility type-display {
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+@utility type-h1 {
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+}
+@utility type-h2 {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+}
+@utility type-h3 {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+@utility type-h4 {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+}
+@utility type-h5 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+@utility type-h6 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+@utility type-body-lg {
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+@utility type-body {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+@utility type-body-sm {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+@utility type-caption {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+@utility type-button-lg {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+@utility type-button {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+@utility type-button-sm {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+@utility type-overline {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+@utility page-title {
+  font-size: clamp(2.125rem, 4vw, 3.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
