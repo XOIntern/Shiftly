@@ -6,10 +6,22 @@ const DUPLICATE_MESSAGES: Record<DbErrorKind, string> = {
   "site-name": "A site with this name already exists for this client",
 };
 
-function pgErrorCode(err: unknown): string | undefined {
-  if (typeof err === "object" && err !== null && "code" in err) {
-    return String((err as { code: unknown }).code);
+// Drizzle 0.45 wraps the driver's PG error as `cause` (DrizzleQueryError),
+// so the code may be a level or two below the error object we receive. Walk
+// the cause chain, bounded by depth and a visited guard against cycles.
+const MAX_CAUSE_DEPTH = 4;
+
+function pgErrorCode(err: unknown, depth = 0, seen = new Set<object>()): string | undefined {
+  if (typeof err !== "object" || err === null || depth > MAX_CAUSE_DEPTH || seen.has(err as object)) {
+    return undefined;
   }
+  seen.add(err as object);
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === "string") return code;
+
+  const cause = (err as { cause?: unknown }).cause;
+  if (cause) return pgErrorCode(cause, depth + 1, seen);
+
   return undefined;
 }
 

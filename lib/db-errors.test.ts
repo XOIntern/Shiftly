@@ -5,6 +5,16 @@ function pgError(code: string, constraint?: string): { code: string; constraint?
   return { code, ...(constraint ? { constraint } : {}) };
 }
 
+// Mimics drizzle 0.45's DrizzleQueryError: the driver's PG error arrives as
+// err.cause, one or more levels below the error mapDbError receives.
+function drizzleWrappedError(cause: unknown, causeChainDepth = 1): { cause: unknown } {
+  let wrapped: unknown = { ...cause };
+  for (let i = 0; i < causeChainDepth; i++) {
+    wrapped = { message: "something failed", cause: wrapped };
+  }
+  return wrapped as { cause: unknown };
+}
+
 describe("mapDbError", () => {
   test("name kind: 23505 maps to the client name message", () => {
     const result = mapDbError(pgError("23505"), { kind: "name" });
@@ -26,6 +36,39 @@ describe("mapDbError", () => {
       const result = mapDbError(pgError("23503"), { kind });
       expect(result).toBe("Some records still reference this item");
     }
+  });
+
+  test("wrapped 23505 name kind: maps through the cause chain", () => {
+    const result = mapDbError(drizzleWrappedError(pgError("23505")), { kind: "name" });
+    expect(result).toBe("A client with this name already exists");
+  });
+
+  test("wrapped 23505 email kind: maps through the cause chain", () => {
+    const result = mapDbError(drizzleWrappedError(pgError("23505")), { kind: "email" });
+    expect(result).toBe("Email already in use");
+  });
+
+  test("wrapped 23505 site-name kind: maps through the cause chain", () => {
+    const result = mapDbError(drizzleWrappedError(pgError("23505")), { kind: "site-name" });
+    expect(result).toBe("A site with this name already exists for this client");
+  });
+
+  test("wrapped 23503 maps through the cause chain", () => {
+    const result = mapDbError(drizzleWrappedError(pgError("23503")), { kind: "name" });
+    expect(result).toBe("Some records still reference this item");
+  });
+
+  test("wrapped errors two levels deep still map", () => {
+    const result = mapDbError(drizzleWrappedError(pgError("23505"), 2), { kind: "email" });
+    expect(result).toBe("Email already in use");
+  });
+
+  describe("real drizzle DrizzleQueryError instance", () => {
+    test("wraps the PG driver error so a mapped message comes out", async () => {
+      const { DrizzleQueryError } = await import("drizzle-orm");
+      const err = new DrizzleQueryError("INSERT INTO ...", [], pgError("23505"));
+      expect(mapDbError(err, { kind: "email" })).toBe("Email already in use");
+    });
   });
 
   test("other PG codes map to null", () => {
