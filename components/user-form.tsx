@@ -5,8 +5,8 @@ import { PencilIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { createUser, setActive, updateUser } from "@/app/(dashboard)/users/actions";
-import type { ActionState } from "@/lib/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
+import type { ActionState } from "@/lib/action-state";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,52 +34,105 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+export type Role = "superadmin" | "ho" | "admin";
+
 export type SiteOption = { id: string; name: string };
+
+// siteName can be null only through the left join that produces the list;
+// the select label falls back to the bare location name.
+export type LocationOption = {
+  id: string;
+  name: string;
+  siteId: string;
+  siteName: string | null;
+};
 
 // One row of the users table — server-selectable fields only.
 export type UserRow = {
   id: string;
   name: string;
   email: string;
-  role: "ho" | "site_admin";
-  siteId: string | null;
-  siteName: string | null;
+  role: Role;
+  binding: string | null;
   isActive: boolean;
 };
 
-const roleItems = [
-  { label: "Head office", value: "ho" },
-  { label: "Site admin", value: "site_admin" },
+// Edit dialog data — the raw bindings the form pre-fills from.
+export type UserFormData = {
+  id: string;
+  name: string;
+  role: Role;
+  siteId: string | null;
+  siteLocationId: string | null;
+};
+
+const roleItemsAll: { label: string; value: Role }[] = [
+  { label: "Superadmin", value: "superadmin" },
+  { label: "Head Office (HO)", value: "ho" },
+  { label: "Admin", value: "admin" },
 ];
 
 function UserForm({
+  mode,
+  actorRole,
   user,
   sites,
+  locations,
   onSaved,
 }: {
+  mode: "create" | "edit";
+  actorRole: Role;
   // Present for edits, absent for creates.
-  user?: UserRow;
+  user?: UserFormData;
   sites: SiteOption[];
+  locations: LocationOption[];
   onSaved: () => void;
 }) {
   const nameId = useId();
   const emailId = useId();
   const passwordId = useId();
   const roleId = useId();
-  const siteId = useId();
+  const siteFieldId = useId();
+  const locationFieldId = useId();
 
   const [name, setName] = useState(user?.name ?? "");
-  const [email, setEmail] = useState(user?.email ?? "");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<string | null>(user?.role ?? null);
+  // ho actors force the admin role; a superadmin actor starts unassigned.
+  const [role, setRole] = useState<Role | null>(
+    user?.role ?? (actorRole === "ho" ? "admin" : null),
+  );
   const [site, setSite] = useState<string | null>(user?.siteId ?? null);
+  const [location, setLocation] = useState<string | null>(
+    user?.siteLocationId ?? null,
+  );
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>();
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
 
+  // Role items follow the actor: a superadmin picks any of the three roles,
+  // an ho actor provisions admins only.
+  const roleItems =
+    actorRole === "superadmin"
+      ? roleItemsAll
+      : roleItemsAll.filter((item) => item.value === "admin");
+
+  // An ho actor cannot change a binding on edit (the action pins it), so
+  // the location select renders disabled there; creation keeps it editable
+  // because choosing the location is the point.
+  const locationLocked = mode === "edit" && actorRole === "ho";
+
   const siteItems: { label: string; value: string | null; disabled?: boolean }[] = [
     { label: "Select a site", value: null, disabled: true },
     ...sites.map(({ id, name }) => ({ label: name, value: id })),
+  ];
+
+  const locationItems: { label: string; value: string | null; disabled?: boolean }[] = [
+    { label: "Select a location", value: null, disabled: true },
+    ...locations.map(({ id, name, siteName }) => ({
+      label: siteName ? `${name} (${siteName})` : name,
+      value: id,
+    })),
   ];
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -94,18 +147,20 @@ function UserForm({
         result = await updateUser(user.id, {
           name,
           role: role ?? user.role,
-          siteId: site,
+          // Only the binding the final role owns goes out; unrendered
+          // selects stay out of the payload.
+          ...(role === "ho" ? { siteId: site } : {}),
+          ...(role === "admin" ? { siteLocationId: location } : {}),
         });
       } else {
-        const createRole = role ?? "site_admin";
+        const createRole = role ?? "admin";
         result = await createUser({
           name,
           email,
           password,
           role: createRole,
-          // ho never carries a site in the create payload; a null siteId
-          // would otherwise hit the schema's siteId uuid rule invisibly.
-          ...(createRole === "ho" ? {} : { siteId: site }),
+          ...(createRole === "ho" ? { siteId: site } : {}),
+          ...(createRole === "admin" ? { siteLocationId: location } : {}),
         });
       }
 
@@ -138,7 +193,7 @@ function UserForm({
             <FieldError errors={[{ message: fieldErrors.name }]} />
           ) : null}
         </Field>
-        {!user ? (
+        {mode === "create" ? (
           <>
             <Field data-invalid={fieldErrors?.email ? "true" : undefined}>
               <FieldLabel htmlFor={emailId}>Email</FieldLabel>
@@ -179,11 +234,14 @@ function UserForm({
           <Select
             items={roleItems}
             value={role}
+            disabled={actorRole === "ho"}
             onValueChange={(value) => {
-              setRole(value as string | null);
-              // ho users never carry a site; drop a stale site selection so
-              // the refine can't reject the switch for a now-irrelevant site.
-              if (value === "ho") setSite(null);
+              setRole(value as Role | null);
+              // A role switch swaps the binding widget; drop the stale
+              // selections so the refine can't reject the move for a
+              // now-irrelevant binding.
+              setSite(null);
+              setLocation(null);
             }}
           >
             <SelectTrigger id={roleId} className="w-full">
@@ -203,15 +261,17 @@ function UserForm({
             <FieldError errors={[{ message: fieldErrors.role }]} />
           ) : null}
         </Field>
-        {role === "site_admin" ? (
+        {role === "ho" && actorRole === "superadmin" ? (
+          // Site binding for ho users — only a superadmin actor manages
+          // ho users, so only their dialog renders this select.
           <Field data-invalid={fieldErrors?.siteId ? "true" : undefined}>
-            <FieldLabel htmlFor={siteId}>Site</FieldLabel>
+            <FieldLabel htmlFor={siteFieldId}>Site</FieldLabel>
             <Select
               items={siteItems}
               value={site}
               onValueChange={(value) => setSite(value as string | null)}
             >
-              <SelectTrigger id={siteId} className="w-full">
+              <SelectTrigger id={siteFieldId} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -230,11 +290,52 @@ function UserForm({
             </Select>
             {sites.length === 0 ? (
               <FieldDescription>
-                No sites yet — create one before adding a site admin.
+                No sites yet — create one before adding a head-office user.
               </FieldDescription>
             ) : null}
             {fieldErrors?.siteId ? (
               <FieldError errors={[{ message: fieldErrors.siteId }]} />
+            ) : null}
+          </Field>
+        ) : null}
+        {role === "admin" ? (
+          <Field data-invalid={fieldErrors?.siteLocationId ? "true" : undefined}>
+            <FieldLabel htmlFor={locationFieldId}>Location</FieldLabel>
+            <Select
+              items={locationItems}
+              value={location}
+              disabled={locationLocked}
+              onValueChange={(value) => setLocation(value as string | null)}
+            >
+              <SelectTrigger id={locationFieldId} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {locationItems.map((item) => (
+                    <SelectItem
+                      key={item.value ?? "placeholder"}
+                      value={item.value}
+                      disabled={item.disabled}
+                    >
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {locationLocked ? (
+              <FieldDescription>
+                The location is fixed after creation.
+              </FieldDescription>
+            ) : null}
+            {locations.length === 0 ? (
+              <FieldDescription>
+                No locations yet — create one before adding an admin.
+              </FieldDescription>
+            ) : null}
+            {fieldErrors?.siteLocationId ? (
+              <FieldError errors={[{ message: fieldErrors.siteLocationId }]} />
             ) : null}
           </Field>
         ) : null}
@@ -248,7 +349,15 @@ function UserForm({
   );
 }
 
-export function CreateUserButton({ sites }: { sites: SiteOption[] }) {
+export function CreateUserButton({
+  actorRole,
+  sites,
+  locations,
+}: {
+  actorRole: Role;
+  sites: SiteOption[];
+  locations: LocationOption[];
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -261,22 +370,32 @@ export function CreateUserButton({ sites }: { sites: SiteOption[] }) {
         <DialogHeader>
           <DialogTitle>New user</DialogTitle>
           <DialogDescription>
-            Head-office users run the whole system; site admins only see their
-            one site.
+            Superadmins run the whole system; head-office users bind one
+            site; admins bind one site location.
           </DialogDescription>
         </DialogHeader>
-        <UserForm sites={sites} onSaved={() => setOpen(false)} />
+        <UserForm
+          mode="create"
+          actorRole={actorRole}
+          sites={sites}
+          locations={locations}
+          onSaved={() => setOpen(false)}
+        />
       </DialogContent>
     </Dialog>
   );
 }
 
 export function EditUserButton({
+  actorRole,
   user,
   sites,
+  locations,
 }: {
-  user: UserRow;
+  actorRole: Role;
+  user: UserFormData;
   sites: SiteOption[];
+  locations: LocationOption[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -297,10 +416,17 @@ export function EditUserButton({
         <DialogHeader>
           <DialogTitle>Edit user</DialogTitle>
           <DialogDescription>
-            Change the role or site binding of “{user.name}”.
+            Change the role or binding of “{user.name}”.
           </DialogDescription>
         </DialogHeader>
-        <UserForm user={user} sites={sites} onSaved={() => setOpen(false)} />
+        <UserForm
+          mode="edit"
+          actorRole={actorRole}
+          user={user}
+          sites={sites}
+          locations={locations}
+          onSaved={() => setOpen(false)}
+        />
       </DialogContent>
     </Dialog>
   );

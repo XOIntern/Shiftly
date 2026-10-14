@@ -1,8 +1,10 @@
 import { asc, eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
-import { site, user } from "@/drizzle/schema";
+import { site, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { requireHO } from "@/lib/session";
+import { requireHO, type SessionUser } from "@/lib/session";
+import { canManageUser } from "@/lib/scope";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -23,7 +25,10 @@ import {
   CreateUserButton,
   EditUserButton,
   ToggleUserButton,
+  type LocationOption,
+  type Role,
   type SiteOption,
+  type UserFormData,
   type UserRow,
 } from "@/components/user-form";
 import { ResetPasswordButton } from "@/components/user-reset-password";
@@ -33,19 +38,55 @@ import { ResetPasswordButton } from "@/components/user-reset-password";
 // https://nextjs.org/docs/messages/blocking-prerender-dynamic
 export const instant = false;
 
+// Second site join: admins get their site through the bound location, while
+// ho rows carry it directly on user.siteId — the alias labels both paths.
+const locationSite = alias(site, "location_site");
+
 function RoleBadge({ role }: { role: UserRow["role"] }) {
-  return role === "ho" ? (
+  return role === "superadmin" ? (
+    <Badge>Superadmin</Badge>
+  ) : role === "ho" ? (
     <Badge>Head office</Badge>
   ) : (
-    <Badge variant="secondary">Site admin</Badge>
+    <Badge variant="secondary">Admin</Badge>
   );
+}
+
+function bindingLabel(row: {
+  role: Role;
+  siteName: string | null;
+  locationName: string | null;
+  locationSiteName: string | null;
+}): string | null {
+  if (row.role === "superadmin") return null;
+  if (row.role === "ho") return row.siteName;
+  // Admins read "location (site)"; a malformed binding has no label.
+  return row.locationName
+    ? row.locationSiteName
+      ? `${row.locationName} (${row.locationSiteName})`
+      : row.locationName
+    : null;
+}
+
+// Same call-site shape as the actions: a malformed admin row (no resolvable
+// site) is superadmin-only, and an ho actor without a site manages nobody.
+function canManageRow(
+  actor: SessionUser,
+  row: { role: Role; locationSiteId: string | null },
+): boolean {
+  const targetSiteId = row.role === "admin" ? (row.locationSiteId ?? null) : null;
+  if (row.role === "admin" && targetSiteId === null) {
+    return actor.role === "superadmin";
+  }
+  if (actor.role === "ho" && actor.siteId === null) return false;
+  return canManageUser(actor, { role: row.role, targetSiteId });
 }
 
 export default async function UsersPage() {
   // Server-side HO guard; the actions repeat it for direct calls.
-  await requireHO();
+  const actor = await requireHO();
 
-  const [rows, sites] = await Promise.all([
+  const [rows, allSites, allLocations] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -53,17 +94,58 @@ export default async function UsersPage() {
         email: user.email,
         role: user.role,
         isActive: user.isActive,
-        siteId: user.siteId,
+        userSiteId: user.siteId,
+        userSiteLocationId: user.siteLocationId,
         siteName: site.name,
+        locationName: siteLocation.name,
+        locationSiteId: siteLocation.siteId,
+        locationSiteName: locationSite.name,
       })
       .from(user)
+      .leftJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
       .leftJoin(site, eq(user.siteId, site.id))
+      .leftJoin(locationSite, eq(siteLocation.siteId, locationSite.id))
       .orderBy(asc(user.role), asc(user.name)),
+    db.select({ id: site.id, name: site.name }).from(site).orderBy(asc(site.name)),
     db
-      .select({ id: site.id, name: site.name })
-      .from(site)
-      .orderBy(asc(site.name)),
+      .select({
+        id: siteLocation.id,
+        name: siteLocation.name,
+        siteId: siteLocation.siteId,
+        siteName: site.name,
+      })
+      .from(siteLocation)
+      .leftJoin(site, eq(siteLocation.siteId, site.id))
+      .orderBy(asc(site.name), asc(siteLocation.name)),
   ]);
+
+  // An ho provisions into its own site only: locations are pre-filtered so
+  // the form can't offer a cross-site selection (the action re-checks it).
+  // ho users are managed by superadmins alone, so ho never needs sites.
+  const locations: LocationOption[] =
+    actor.role === "ho"
+      ? allLocations.filter((location) => location.siteId === actor.siteId)
+      : allLocations;
+  const sites: SiteOption[] = actor.role === "ho" ? [] : allSites;
+
+  const entries = rows.map((row) => ({
+    user: {
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      binding: bindingLabel(row),
+      isActive: row.isActive,
+    } satisfies UserRow,
+    form: {
+      id: row.id,
+      name: row.name,
+      role: row.role,
+      siteId: row.userSiteId,
+      siteLocationId: row.userSiteLocationId,
+    } satisfies UserFormData,
+    canManage: canManageRow(actor, row),
+  }));
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
@@ -71,11 +153,15 @@ export default async function UsersPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
           <p className="max-w-md text-sm text-muted-foreground">
-            Head-office and site-admin accounts. Site admins only access the
-            site they are bound to.
+            Head-office, admin, and superadmin accounts. Admins only access
+            the site location they are bound to.
           </p>
         </div>
-        <CreateUserButton sites={sites satisfies SiteOption[]} />
+        <CreateUserButton
+          actorRole={actor.role}
+          sites={sites}
+          locations={locations}
+        />
       </div>
       <Card>
         <CardHeader>
@@ -91,7 +177,7 @@ export default async function UsersPage() {
                 <TableHead className="min-w-[180px]">Name</TableHead>
                 <TableHead className="min-w-[220px]">Email</TableHead>
                 <TableHead className="min-w-[130px]">Role</TableHead>
-                <TableHead className="min-w-[160px]">Site</TableHead>
+                <TableHead className="min-w-[180px]">Binding</TableHead>
                 <TableHead className="min-w-[110px]">Status</TableHead>
                 <TableHead className="min-w-[180px] text-right">
                   Actions
@@ -99,12 +185,17 @@ export default async function UsersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableRowCells row={row} sites={sites} />
+              {entries.map((entry) => (
+                <TableRow key={entry.user.id}>
+                  <TableRowCells
+                    entry={entry}
+                    actorRole={actor.role}
+                    sites={sites}
+                    locations={locations}
+                  />
                 </TableRow>
               ))}
-              {rows.length === 0 && (
+              {entries.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-muted-foreground">
                     No users yet.
@@ -121,7 +212,18 @@ export default async function UsersPage() {
 
 // Kept inline to avoid re-mapping — a locally declared sub-render keeps the
 // row bodies readable without inventing new abstractions.
-function TableRowCells({ row, sites }: { row: UserRow; sites: SiteOption[] }) {
+function TableRowCells({
+  entry,
+  actorRole,
+  sites,
+  locations,
+}: {
+  entry: { user: UserRow; form: UserFormData; canManage: boolean };
+  actorRole: Role;
+  sites: SiteOption[];
+  locations: LocationOption[];
+}) {
+  const { user: row, form, canManage } = entry;
   return (
     <>
       <TableCell className="font-medium">{row.name}</TableCell>
@@ -129,7 +231,7 @@ function TableRowCells({ row, sites }: { row: UserRow; sites: SiteOption[] }) {
       <TableCell>
         <RoleBadge role={row.role} />
       </TableCell>
-      <TableCell>{row.siteName ?? "—"}</TableCell>
+      <TableCell>{row.binding ?? "—"}</TableCell>
       <TableCell>
         {row.isActive ? (
           <Badge variant="secondary">Active</Badge>
@@ -141,9 +243,18 @@ function TableRowCells({ row, sites }: { row: UserRow; sites: SiteOption[] }) {
       </TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-1">
-          <ToggleUserButton user={row} />
-          <EditUserButton user={row} sites={sites} />
-          <ResetPasswordButton user={row} />
+          {canManage ? (
+            <>
+              <ToggleUserButton user={row} />
+              <EditUserButton
+                actorRole={actorRole}
+                user={form}
+                sites={sites}
+                locations={locations}
+              />
+              <ResetPasswordButton user={row} />
+            </>
+          ) : null}
         </div>
       </TableCell>
     </>
