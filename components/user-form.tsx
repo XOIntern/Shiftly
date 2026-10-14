@@ -98,12 +98,15 @@ function UserForm({
           siteId: site,
         });
       } else {
+        const createRole = role ?? "site_admin";
         result = await createUser({
           name,
           email,
           password,
-          role: role ?? "site_admin",
-          siteId: site,
+          role: createRole,
+          // ho never carries a site in the create payload; a null siteId
+          // would otherwise hit the schema's siteId uuid rule invisibly.
+          ...(createRole === "ho" ? {} : { siteId: site }),
         });
       }
 

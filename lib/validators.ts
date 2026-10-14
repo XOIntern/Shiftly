@@ -36,6 +36,28 @@ export const userCreateSchema = userBaseSchema.refine(
   },
 );
 
+// createUser's parse: validates the creation input against userCreateSchema.
+// A ho creation must never carry a site, but dialogs can send siteId: null
+// (the site select only renders for site_admin); ho has it fully stripped
+// so the "ho must not have one" refine passes. site_admin keeps its input
+// untouched — a null/absent siteId surfaces as a per-field siteId error.
+export function parseUserCreate(input: {
+  name: string;
+  email: string;
+  password: string;
+  role: string;
+  siteId?: string | null;
+}) {
+  const isHo = input.role === "ho";
+  return userCreateSchema.safeParse({
+    name: input.name,
+    email: input.email,
+    password: input.password,
+    role: input.role,
+    ...(isHo ? {} : { siteId: input.siteId }),
+  });
+}
+
 export const userPasswordSchema = z.object({
   newPassword: z.string().min(8),
 });
