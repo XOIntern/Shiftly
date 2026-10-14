@@ -1,8 +1,9 @@
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { auth } from "../lib/auth";
+import { hashPassword } from "better-auth/crypto";
 import { db } from "../lib/db";
-import { user } from "../drizzle/schema";
+import { account, user } from "../drizzle/schema";
 
 export type SeedResult = "created" | "exists" | "error-missing-env" | "error-weak-password";
 
@@ -13,12 +14,33 @@ export async function seedAdmin(env: { email: string; password: string }): Promi
   const existing = await db.select().from(user).where(eq(user.email, env.email));
   if (existing.length > 0) return "exists";
 
-  const res = await auth.api.signUpEmail({
-    body: { email: env.email, password: env.password, name: "Admin" },
-  });
-  if (!res) return "error-missing-env"; // user creation failed
+  // `auth.api.signUpEmail` is disabled (disableSignUp: true in lib/auth.ts),
+  // so bootstrap admins by replicating what Better Auth's sign-up route does:
+  // a credential account linked to the user, with the password hashed in
+  // Better Auth's storage format (`salt:hex-key`, scrypt N=16384 r=16 p=1
+  // dkLen=64) via the same `hashPassword` Better Auth itself uses
+  // (lib better-auth default: dist/context/create-context.mjs:183).
+  const passwordHash = await hashPassword(env.password);
+  const userId = randomUUID();
 
-  await db.update(user).set({ emailVerified: true }).where(eq(user.email, env.email));
+  await db.transaction(async (tx) => {
+    await tx.insert(user).values({
+      id: userId,
+      name: "Admin",
+      email: env.email,
+      emailVerified: true,
+      role: "ho",
+      isActive: true,
+    });
+    await tx.insert(account).values({
+      id: randomUUID(),
+      accountId: userId,
+      providerId: "credential",
+      userId,
+      password: passwordHash,
+    });
+  });
+
   return "created";
 }
 
