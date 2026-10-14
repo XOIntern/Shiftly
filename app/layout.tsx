@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Shiftly",
   description:
-    "Roster and attendance management for outsourced workers across multiple sites and clients.",
+    "Roster and attendance management for outsourced workers across multiple sites.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -32,7 +32,7 @@ describe("mapDbError", () => {
 
   test("site-name kind: 23505 maps to the site name message", () => {
     const result = mapDbError(pgError("23505"), { kind: "site-name" });
-    expect(result).toBe("A site with this name already exists for this client");
+    expect(result).toBe("A site with this name already exists");
   });
 
   test("location-name kind: 23505 maps to the location name message", () => {
@@ -64,7 +64,7 @@ describe("mapDbError", () => {
 
   test("wrapped 23505 site-name kind: maps through the cause chain", () => {
     const result = mapDbError(drizzleWrappedError(pgError("23505")), { kind: "site-name" });
-    expect(result).toBe("A site with this name already exists for this client");
+    expect(result).toBe("A site with this name already exists");
   });
 
   test("wrapped 23503 maps through the cause chain", () => {

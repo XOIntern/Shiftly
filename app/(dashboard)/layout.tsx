@@ -29,6 +29,32 @@ import {
   UsersIcon,
 } from "lucide-react";
 
+// Nav keyed by the exact `user.role` values in the schema:
+// superadmin manages master data, ho manages locations + operations scope,
+// admin is operations-only (no master-data views).
+const superadminNavMain = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: <LayoutDashboardIcon />,
+  },
+  {
+    title: "Sites",
+    url: "/sites",
+    icon: <BuildingIcon />,
+  },
+  {
+    title: "Locations",
+    url: "/locations",
+    icon: <Building2Icon />,
+  },
+  {
+    title: "Users",
+    url: "/users",
+    icon: <UserIcon />,
+  },
+];
+
 const hoNavMain = [
   {
     title: "Dashboard",
@@ -36,15 +62,9 @@ const hoNavMain = [
     icon: <LayoutDashboardIcon />,
   },
   {
-    // Interim: Task 5 drops Clients, Task 6 finalizes the HO/nav split.
     title: "Locations",
     url: "/locations",
     icon: <Building2Icon />,
-  },
-  {
-    title: "Sites",
-    url: "/sites",
-    icon: <BuildingIcon />,
   },
   {
     title: "Users",
@@ -68,7 +88,7 @@ const hoNavMain = [
   },
 ];
 
-const siteAdminNavMain = [
+const adminNavMain = [
   {
     title: "Dashboard",
     url: "/dashboard",
@@ -120,7 +140,9 @@ export default async function DashboardLayout({
     avatar: null,
   };
 
-  const navMain = user.role === "ho" ? hoNavMain : siteAdminNavMain;
+  const navMain = { superadmin: superadminNavMain, ho: hoNavMain, admin: adminNavMain }[
+    user.role
+  ];
 
   return (
     <SidebarProvider
