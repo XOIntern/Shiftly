@@ -82,7 +82,7 @@ export function NavUser({ user }: { user: NavUserUser }) {
             sideOffset={4}
           >
             <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={handleSignOut}>
+              <DropdownMenuItem onClick={handleSignOut}>
                 <LogOutIcon
                 />
                 Log out
