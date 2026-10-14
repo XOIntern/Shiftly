@@ -1,7 +1,6 @@
 "use server";
 
 import { count, eq } from "drizzle-orm";
-import type { ZodError } from "zod";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 
@@ -10,23 +9,15 @@ import { client, site } from "@/drizzle/schema";
 import { mapDbError } from "@/lib/db-errors";
 import { requireHO } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
+import { fieldErrorsFrom } from "@/lib/action-state";
 import { clientCreateSchema, clientUpdateSchema } from "@/lib/validators";
-
-function fieldErrorsFromZod(error: ZodError<unknown>): Record<string, string> {
-  const fieldErrors: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = issue.path.join(".") || "form";
-    fieldErrors[key] ??= issue.message;
-  }
-  return fieldErrors;
-}
 
 export async function createClient(formState: ActionState, name: string): Promise<ActionState> {
   await requireHO();
 
   const parsed = clientCreateSchema.safeParse({ name });
   if (!parsed.success) {
-    return { ok: false, fieldErrors: fieldErrorsFromZod(parsed.error) };
+    return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
   try {
@@ -46,7 +37,7 @@ export async function renameClient(id: string, name: string): Promise<ActionStat
 
   const parsed = clientUpdateSchema.safeParse({ id, name });
   if (!parsed.success) {
-    return { ok: false, fieldErrors: fieldErrorsFromZod(parsed.error) };
+    return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
   try {

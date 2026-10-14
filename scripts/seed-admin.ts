@@ -11,7 +11,11 @@ export async function seedAdmin(env: { email: string; password: string }): Promi
   if (!env.email || !env.password) return "error-missing-env";
   if (env.password.length < 8) return "error-weak-password";
 
-  const existing = await db.select().from(user).where(eq(user.email, env.email));
+  // Normalize to lowercase so the unique email matches what Better Auth's
+  // sign-in compares against (`email.toLowerCase()` in sign-in.mjs) even
+  // when ADMIN_EMAIL comes in mixed case.
+  const email = env.email.toLowerCase();
+  const existing = await db.select().from(user).where(eq(user.email, email));
   if (existing.length > 0) return "exists";
 
   // `auth.api.signUpEmail` is disabled (disableSignUp: true in lib/auth.ts),
@@ -27,7 +31,7 @@ export async function seedAdmin(env: { email: string; password: string }): Promi
     await tx.insert(user).values({
       id: userId,
       name: "Admin",
-      email: env.email,
+      email,
       emailVerified: true,
       role: "ho",
       isActive: true,

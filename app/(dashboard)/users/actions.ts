@@ -8,9 +8,13 @@ import { hashPassword } from "better-auth/crypto";
 
 import { account, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { mapDbError } from "@/lib/db-errors";
+import { mapDbError, pgErrorCode } from "@/lib/db-errors";
 import { requireHO } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
+import {
+  fieldErrorsFrom,
+  GENERIC_ERROR,
+} from "@/lib/action-state";
 import {
   deleteUserSessions,
   setCredentialPassword,
@@ -20,17 +24,6 @@ import {
   parseUserUpdate,
   userPasswordSchema,
 } from "@/lib/validators";
-
-const GENERIC_ERROR = "Something went wrong. Please try again.";
-
-function fieldErrorsFrom(error: z.ZodError): Record<string, string> {
-  const fieldErrors: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = issue.path.join(".") || "form";
-    fieldErrors[key] ??= issue.message;
-  }
-  return fieldErrors;
-}
 
 export async function createUser(input: {
   name: string;
@@ -80,12 +73,12 @@ export async function createUser(input: {
       });
     });
   } catch (err) {
-    const mapped = mapDbError(err, { kind: "email" });
-    if (mapped) return { ok: false, fieldErrors: { email: mapped } };
-    // The only other FK here is siteId → site.
-    if ((err as { code?: string }).code === "23503") {
+    if (pgErrorCode(err) === "23503") {
+      // The only FK here is siteId → site.
       return { ok: false, fieldErrors: { siteId: "Selected site no longer exists" } };
     }
+    const mapped = mapDbError(err, { kind: "email" });
+    if (mapped) return { ok: false, fieldErrors: { email: mapped } };
     throw err;
   }
 
@@ -118,8 +111,8 @@ export async function updateUser(
       return { ok: false, message: "User not found." };
     }
   } catch (err) {
-    // The only FK here is siteId → site.
-    if ((err as { code?: string }).code === "23503") {
+    if (pgErrorCode(err) === "23503") {
+      // The only FK here is siteId → site.
       return { ok: false, fieldErrors: { siteId: "Selected site no longer exists" } };
     }
     const mapped = mapDbError(err, { kind: "email" });
@@ -185,10 +178,10 @@ export async function setActive(
     return { ok: false, message: GENERIC_ERROR };
   }
 
-  // Killing the target's Better Auth sessions only matters on deactivation.
-  if (!isActive) {
-    await deleteUserSessions(id);
-  }
+  // Sessions must be wiped in both directions: on deactivation, to kill
+  // live logins; on reactivation, so tokens minted while the user was
+  // inactive (e.g. if they lapsed mid-session) can't resurrect.
+  await deleteUserSessions(id);
 
   revalidatePath("/users");
   return { ok: true };

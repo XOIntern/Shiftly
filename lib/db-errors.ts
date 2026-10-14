@@ -11,7 +11,14 @@ const DUPLICATE_MESSAGES: Record<DbErrorKind, string> = {
 // the cause chain, bounded by depth and a visited guard against cycles.
 const MAX_CAUSE_DEPTH = 4;
 
-function pgErrorCode(err: unknown, depth = 0, seen = new Set<object>()): string | undefined {
+// Walks the cause chain and returns the first string `code` found (or
+// undefined), so server actions can distinguish specific codes
+// (e.g. FK violation 23503) that mapDbError doesn't special-case per field.
+export function pgErrorCode(
+  err: unknown,
+  depth = 0,
+  seen = new Set<object>(),
+): string | undefined {
   if (typeof err !== "object" || err === null || depth > MAX_CAUSE_DEPTH || seen.has(err as object)) {
     return undefined;
   }
