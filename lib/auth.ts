@@ -21,18 +21,26 @@ export const auth = betterAuth({
       // writes rows directly (app/(dashboard)/users/actions.ts,
       // scripts/seed-admin.ts) and reads happen fresh from the DB
       // (lib/session.ts). `input: true` here would let any logged-in user
-      // grant themselves `role: "ho"` via /api/auth/update-user
+      // grant themselves `role: "superadmin"` via /api/auth/update-user
       // (Better Auth 1.7.7 dist/db/schema.mjs parseInputData copies every
       // body key whose field is not `input: false`).
       role: {
         type: "string",
         input: false,
-        required: false, // DB default 'site_admin' applies
+        required: false, // DB default 'admin' applies
       },
+      // Scope matrix (docs/architecture.md v0.2 §6): superadmin NULL/NULL
+      // (global), ho siteId set / siteLocationId NULL (site only), admin
+      // siteId NULL / siteLocationId set (location only).
       siteId: {
         type: "string",
         input: false,
-        required: false, // NULL = HO
+        required: false, // superadmin: NULL (global); ho: the user's site
+      },
+      siteLocationId: {
+        type: "string",
+        input: false,
+        required: false, // superadmin/ho: NULL; admin: the user's site_location
       },
       isActive: {
         type: "boolean",

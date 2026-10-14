@@ -28,7 +28,7 @@ async function createUserWithCredential({
     name: "Credential Store Test",
     email: TEST_EMAIL,
     emailVerified: true,
-    role: "site_admin",
+    role: "admin",
     isActive: true,
   });
   await db.insert(account).values({

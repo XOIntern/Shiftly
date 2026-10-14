@@ -33,7 +33,7 @@ export async function seedAdmin(env: { email: string; password: string }): Promi
       name: "Admin",
       email,
       emailVerified: true,
-      role: "ho",
+      role: "superadmin",
       isActive: true,
     });
     await tx.insert(account).values({

@@ -21,7 +21,7 @@ async function createUser({ isActive }: { isActive: boolean }): Promise<string> 
     name: "Auth Guard Test",
     email: `auth-guard-${userId}@shiftly.test`,
     emailVerified: true,
-    role: "site_admin",
+    role: "admin",
     isActive,
   });
   await db.insert(account).values({
@@ -112,7 +112,7 @@ describe("auth rbac guards (final review C1 + I2)", () => {
 
     // DB row is unchanged for the guarded fields; only the name changed.
     const [row] = await db.select().from(user).where(eq(user.id, userId));
-    expect(row.role).toBe("site_admin");
+    expect(row.role).toBe("admin");
     expect(row.isActive).toBe(true);
     expect(row.name).toBe("Renamed While Guarded");
 
