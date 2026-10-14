@@ -16,8 +16,8 @@ import {
   setCredentialPassword,
 } from "@/lib/credential-store";
 import {
+  parseUserCreate,
   parseUserUpdate,
-  userCreateSchema,
   userPasswordSchema,
 } from "@/lib/validators";
 
@@ -41,7 +41,7 @@ export async function createUser(input: {
 }): Promise<ActionState> {
   await requireHO();
 
-  const parsed = userCreateSchema.safeParse(input);
+  const parsed = parseUserCreate(input);
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }

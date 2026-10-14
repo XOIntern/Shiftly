@@ -6,6 +6,7 @@ import {
   siteUpdateSchema,
   userCreateSchema,
   userPasswordSchema,
+  parseUserCreate,
   parseUserUpdate,
   userUpdateSchema,
 } from "./validators";
@@ -269,5 +270,56 @@ describe("parseUserUpdate", () => {
   test("rejects site_admin without a siteId (does not strip)", () => {
     const parsed = parseUserUpdate(id, { name: "X", role: "site_admin" });
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe("parseUserCreate", () => {
+  const base = {
+    name: "Admin",
+    email: "admin@shiftly.test",
+    password: "longenough1",
+    role: "ho",
+  };
+  const siteUuid = "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02";
+
+  test("normalizes a ho creation with a null siteId (strips the key)", () => {
+    const parsed = parseUserCreate({ ...base, siteId: null });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.siteId).toBeUndefined();
+  });
+
+  test("normalizes a ho creation with a supplied siteId (strips the key)", () => {
+    const parsed = parseUserCreate({ ...base, siteId: siteUuid });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.siteId).toBeUndefined();
+  });
+
+  test("site_admin with a null siteId fails per-field on siteId", () => {
+    const parsed = parseUserCreate({ ...base, role: "site_admin", siteId: null });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues.map((issue) => issue.path.join("."))).toContain("siteId");
+    }
+  });
+
+  test("site_admin without a siteId still fails the refine", () => {
+    const parsed = parseUserCreate({ ...base, role: "site_admin" });
+    expect(parsed.success).toBe(false);
+  });
+
+  test("site_admin with a siteId parses", () => {
+    const parsed = parseUserCreate({ ...base, role: "site_admin", siteId: siteUuid });
+    expect(parsed.success).toBe(true);
+  });
+
+  test("create schema itself is unchanged: ho with a siteId still rejected", () => {
+    const result = userCreateSchema.safeParse({
+      name: "HO",
+      email: "ho@shiftly.test",
+      password: "longenough1",
+      role: "ho",
+      siteId: siteUuid,
+    });
+    expect(result.success).toBe(false);
   });
 });
