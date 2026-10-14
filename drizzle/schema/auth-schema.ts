@@ -13,9 +13,10 @@ import { site, siteLocation } from "./master-data";
 
 export const userRoleEnum = pgEnum("user_role", ["superadmin", "ho", "admin"]);
 
-// Three roles (spec docs/architecture.md v0.2 §6): superadmin owns clients and
-// all sites; ho is a site's head office, scoped to exactly one site; admin is
-// a site-location admin, scoped to exactly one site_location.
+// Three roles (spec docs/architecture.md v0.2 §6): superadmin is unbound
+// with access to every site (sites belong to superadmin directly; there is
+// no client entity); ho is a site's head office, scoped to exactly one site;
+// admin is a site-location admin, scoped to exactly one site_location.
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

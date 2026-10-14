@@ -11,6 +11,7 @@ import { requireHO, type SessionUser } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { locationCreateSchema, locationUpdateSchema } from "@/lib/validators";
+import { locationOwnedByActor } from "@/lib/location-scope";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -82,6 +83,13 @@ export async function updateLocation(
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
+  // Ownership before any write: for an ho the row must already sit in their
+  // site, or a foreign location would be re-parented in. This must run
+  // before the update whose set() pins siteId to the actor's site.
+  if (!(await locationOwnedByActor(actor, parsed.data.id))) {
+    return { ok: false, message: "Location not found." };
+  }
+
   try {
     const updated = await db
       .update(siteLocation)
@@ -107,10 +115,14 @@ export async function updateLocation(
 }
 
 export async function toggleLocation(id: string): Promise<ActionState> {
-  await requireHO();
+  const actor = await requireHO();
 
   if (!z.uuid().safeParse(id).success) {
     return { ok: false, message: "Invalid location id." };
+  }
+
+  if (!(await locationOwnedByActor(actor, id))) {
+    return { ok: false, message: "Location not found." };
   }
 
   try {
@@ -131,10 +143,16 @@ export async function toggleLocation(id: string): Promise<ActionState> {
 }
 
 export async function deleteLocation(id: string): Promise<ActionState> {
-  await requireHO();
+  const actor = await requireHO();
 
   if (!z.uuid().safeParse(id).success) {
     return { ok: false, message: "Invalid location id." };
+  }
+
+  // Foreign locations answer "not found." — never "users are still bound",
+  // which would leak that the row exists.
+  if (!(await locationOwnedByActor(actor, id))) {
+    return { ok: false, message: "Location not found." };
   }
 
   // Location admins are the rows that bind a site_location; anything else is

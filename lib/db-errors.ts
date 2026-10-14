@@ -1,7 +1,6 @@
-export type DbErrorKind = "name" | "email" | "site-name" | "location-name";
+export type DbErrorKind = "email" | "site-name" | "location-name";
 
 const DUPLICATE_MESSAGES: Record<DbErrorKind, string> = {
-  name: "A client with this name already exists",
   email: "Email already in use",
   "site-name": "A site with this name already exists",
   "location-name": "Location name already exists",

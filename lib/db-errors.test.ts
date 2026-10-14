@@ -20,11 +20,6 @@ function drizzleWrappedError(cause: FakePgError, causeChainDepth = 1): FakePgErr
 }
 
 describe("mapDbError", () => {
-  test("name kind: 23505 maps to the client name message", () => {
-    const result = mapDbError(pgError("23505"), { kind: "name" });
-    expect(result).toBe("A client with this name already exists");
-  });
-
   test("email kind: 23505 maps to the email message", () => {
     const result = mapDbError(pgError("23505"), { kind: "email" });
     expect(result).toBe("Email already in use");
@@ -41,7 +36,7 @@ describe("mapDbError", () => {
   });
 
   test("any kind: 23503 maps to the reference message", () => {
-    for (const kind of ["name", "email", "site-name", "location-name"] as const) {
+    for (const kind of ["email", "site-name", "location-name"] as const) {
       const result = mapDbError(pgError("23503"), { kind });
       expect(result).toBe("Some records still reference this item");
     }
@@ -50,11 +45,6 @@ describe("mapDbError", () => {
   test("wrapped 23505 location-name kind: maps through the cause chain", () => {
     const result = mapDbError(drizzleWrappedError(pgError("23505")), { kind: "location-name" });
     expect(result).toBe("Location name already exists");
-  });
-
-  test("wrapped 23505 name kind: maps through the cause chain", () => {
-    const result = mapDbError(drizzleWrappedError(pgError("23505")), { kind: "name" });
-    expect(result).toBe("A client with this name already exists");
   });
 
   test("wrapped 23505 email kind: maps through the cause chain", () => {
@@ -68,7 +58,7 @@ describe("mapDbError", () => {
   });
 
   test("wrapped 23503 maps through the cause chain", () => {
-    const result = mapDbError(drizzleWrappedError(pgError("23503")), { kind: "name" });
+    const result = mapDbError(drizzleWrappedError(pgError("23503")), { kind: "email" });
     expect(result).toBe("Some records still reference this item");
   });
 
@@ -86,15 +76,15 @@ describe("mapDbError", () => {
   });
 
   test("other PG codes map to null", () => {
-    expect(mapDbError(pgError("23502"), { kind: "name" })).toBe(null);
+    expect(mapDbError(pgError("23502"), { kind: "site-name" })).toBe(null);
     expect(mapDbError(pgError("42P01"), { kind: "email" })).toBe(null);
   });
 
   test("errors without a code map to null", () => {
-    expect(mapDbError(new Error("boom"), { kind: "name" })).toBe(null);
+    expect(mapDbError(new Error("boom"), { kind: "site-name" })).toBe(null);
     expect(mapDbError(null, { kind: "email" })).toBe(null);
     expect(mapDbError(undefined, { kind: "site-name" })).toBe(null);
-    expect(mapDbError("string error", { kind: "name" })).toBe(null);
+    expect(mapDbError("string error", { kind: "email" })).toBe(null);
   });
 });
 
