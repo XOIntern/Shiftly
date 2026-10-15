@@ -4,6 +4,12 @@ import { getUser } from "@/lib/session";
 import Image from "next/image";
 import Link from "next/link";
 
+// Deliberate block: the session check is the page's job, so there is no
+// static shell worth shipping first (same decision as the dashboard
+// layout). See:
+// https://nextjs.org/docs/messages/blocking-prerender-dynamic
+export const instant = false;
+
 // Decorative roster motif for the brand panel. Fixed pattern, not random,
 // so server and client render it identically.
 const ROSTER_CELLS = [
