@@ -158,8 +158,13 @@ export function DataTable<TData extends RowData>({
   const allSelected = table.getIsAllRowsSelected();
   const someSelected = table.getIsSomeRowsSelected();
 
-  const pageFrom = (page - 1) * TABLE_PAGE_SIZE + 1;
-  const pageTo = Math.min(page * TABLE_PAGE_SIZE, total);
+  // Both the client and the server clamp: the URL may name an out-of-range
+  // page (a crafted deep link, or deletion on a last page shrinking pageCount)
+  // while the server only clamps its rows. All footer math and navigation
+  // derive from the clamped value so no ghost page can strand the user.
+  const clampedPage = Math.min(page, pageCount);
+  const pageFrom = (clampedPage - 1) * TABLE_PAGE_SIZE + 1;
+  const pageTo = Math.min(clampedPage * TABLE_PAGE_SIZE, total);
   const showPagination = pageCount > 1 || total > TABLE_PAGE_SIZE;
   const goToPage = (target: number) => {
     const params = buildParams(searchParams);
@@ -321,7 +326,7 @@ export function DataTable<TData extends RowData>({
               <button
                 type="button"
                 aria-label="First page"
-                disabled={page === 1}
+                disabled={clampedPage === 1}
                 onClick={() => goToPage(1)}
                 className="cursor-pointer rounded-md p-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
               >
@@ -330,8 +335,8 @@ export function DataTable<TData extends RowData>({
               <button
                 type="button"
                 aria-label="Previous page"
-                disabled={page === 1}
-                onClick={() => goToPage(page - 1)}
+                disabled={clampedPage === 1}
+                onClick={() => goToPage(clampedPage - 1)}
                 className="cursor-pointer rounded-md p-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
               >
                 <ChevronLeftIcon className="size-4" />
@@ -344,8 +349,8 @@ export function DataTable<TData extends RowData>({
               <button
                 type="button"
                 aria-label="Next page"
-                disabled={page >= pageCount}
-                onClick={() => goToPage(page + 1)}
+                disabled={clampedPage >= pageCount}
+                onClick={() => goToPage(clampedPage + 1)}
                 className="cursor-pointer rounded-md p-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
               >
                 <ChevronRightIcon className="size-4" />
@@ -353,7 +358,7 @@ export function DataTable<TData extends RowData>({
               <button
                 type="button"
                 aria-label="Last page"
-                disabled={page >= pageCount}
+                disabled={clampedPage >= pageCount}
                 onClick={() => goToPage(pageCount)}
                 className="cursor-pointer rounded-md p-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
               >

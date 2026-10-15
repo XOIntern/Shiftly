@@ -223,6 +223,45 @@ describe("sites page server queries (issue #20)", () => {
     }
   });
 
+  test("a crafted prototype-chain sort falls back to the default order", async () => {
+    const token = `t2-sites-${randomUUID().slice(0, 8)}`;
+    const generated = [
+      { id: randomUUID(), name: `${token}-a` },
+      { id: randomUUID(), name: `${token}-z` },
+    ];
+    try {
+      await db.insert(site).values(generated);
+
+      actor = {
+        id: randomUUID(),
+        name: "Sites Page Sa",
+        email: `t2-sites-page-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+      // The whitelist must be own-property keyed: `Object.prototype` is
+      // truthy, so a plain truthiness guard admits these and drizzle
+      // throws before any SQL is sent.
+      for (const crafted of ["__proto__", "constructor", "valueOf"]) {
+        const props = await renderSites({
+          q: token,
+          sort: crafted as never,
+          dir: "asc" as never,
+        });
+        expect(props.sites.map((row) => row.id)).toEqual([
+          generated[0].id,
+          generated[1].id,
+        ]);
+      }
+    } finally {
+      for (const row of generated) {
+        await db.delete(site).where(eq(site.id, row.id));
+      }
+    }
+  });
+
   test("page=999 clamps to the last page of the filtered set", async () => {
     const token = `t2-sites-${randomUUID().slice(0, 8)}`;
     const generated = Array.from({ length: 15 }, () => randomUUID());

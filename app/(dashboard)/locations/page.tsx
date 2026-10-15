@@ -57,6 +57,13 @@ export default async function LocationsPage({
     ...(scope ? [scope] : []),
   );
 
+  // Own-property lookup: a plain truthiness guard would admit prototype-chain
+  // `columnIds` (e.g. `?sort=__proto__`), which drizzle rejects mid-render.
+  const sortColumn =
+    sort && Object.hasOwn(SORTABLE, sort.columnId)
+      ? SORTABLE[sort.columnId as keyof typeof SORTABLE]
+      : undefined;
+
   const [{ count: rowCount }] = await db
     .select({ count: count() })
     .from(siteLocation)
@@ -65,41 +72,38 @@ export default async function LocationsPage({
   const pageCount = Math.max(1, Math.ceil(rowCount / TABLE_PAGE_SIZE));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
-  const sites = await db
-    .select({ id: site.id, name: site.name })
-    .from(site)
-    .where(
-      isSuperadmin
-        ? undefined
-        : actor.siteId
-          ? eq(site.id, actor.siteId)
-          : sql`false`,
-    )
-    .orderBy(asc(site.name));
-
-  const locations = await db
-    .select({
-      id: siteLocation.id,
-      name: siteLocation.name,
-      address: siteLocation.address,
-      isActive: siteLocation.isActive,
-      siteId: siteLocation.siteId,
-      siteName: site.name,
-    })
-    .from(siteLocation)
-    .innerJoin(site, eq(siteLocation.siteId, site.id))
-    .where(where)
-    .orderBy(
-      ...(sort && SORTABLE[sort.columnId as keyof typeof SORTABLE]
-        ? [
-            sort.dir === "desc"
-              ? desc(SORTABLE[sort.columnId as keyof typeof SORTABLE])
-              : asc(SORTABLE[sort.columnId as keyof typeof SORTABLE]),
-          ]
-        : DEFAULT_ORDER),
-    )
-    .limit(TABLE_PAGE_SIZE)
-    .offset((clamped - 1) * TABLE_PAGE_SIZE);
+  const [sites, locations] = await Promise.all([
+    db
+      .select({ id: site.id, name: site.name })
+      .from(site)
+      .where(
+        isSuperadmin
+          ? undefined
+          : actor.siteId
+            ? eq(site.id, actor.siteId)
+            : sql`false`,
+      )
+      .orderBy(asc(site.name)),
+    db
+      .select({
+        id: siteLocation.id,
+        name: siteLocation.name,
+        address: siteLocation.address,
+        isActive: siteLocation.isActive,
+        siteId: siteLocation.siteId,
+        siteName: site.name,
+      })
+      .from(siteLocation)
+      .innerJoin(site, eq(siteLocation.siteId, site.id))
+      .where(where)
+      .orderBy(
+        ...(sortColumn && sort
+          ? [sort.dir === "desc" ? desc(sortColumn) : asc(sortColumn)]
+          : DEFAULT_ORDER),
+      )
+      .limit(TABLE_PAGE_SIZE)
+      .offset((clamped - 1) * TABLE_PAGE_SIZE),
+  ]);
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">

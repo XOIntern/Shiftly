@@ -83,6 +83,12 @@ export default async function UsersPage({
     ...(scope ? [scope] : []),
     ...(search ? [search] : []),
   );
+  // Own-property lookup: a plain truthiness guard would admit prototype-chain
+  // `columnIds` (e.g. `?sort=__proto__`), which drizzle rejects mid-render.
+  const sortColumn =
+    sort && Object.hasOwn(SORTABLE, sort.columnId)
+      ? SORTABLE[sort.columnId as keyof typeof SORTABLE]
+      : undefined;
 
   const [{ count: rowCount }] = await db
     .select({ count: count() })
@@ -120,12 +126,8 @@ export default async function UsersPage({
       // superadmin gets undefined (= no WHERE) so drizzle filters nothing.
       .where(where)
       .orderBy(
-        ...(sort && SORTABLE[sort.columnId as keyof typeof SORTABLE]
-          ? [
-              sort.dir === "desc"
-                ? desc(SORTABLE[sort.columnId as keyof typeof SORTABLE])
-                : asc(SORTABLE[sort.columnId as keyof typeof SORTABLE]),
-            ]
+        ...(sort && sortColumn
+          ? [sort.dir === "desc" ? desc(sortColumn) : asc(sortColumn)]
           : DEFAULT_ORDER),
       )
       .limit(TABLE_PAGE_SIZE)
