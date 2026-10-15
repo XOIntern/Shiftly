@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/login-form";
+import { getUser } from "@/lib/session";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -9,7 +11,12 @@ const ROSTER_CELLS = [
   1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1,
 ];
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  // A signed-in user has no business on the login form; getUser also signs
+  // out deactivated users, so they land here (the form) rather than looping.
+  const user = await getUser();
+  if (user) redirect("/dashboard");
+
   return (
     <div className="grid min-h-svh lg:grid-cols-2">
       {/* Brand panel, desktop only */}
