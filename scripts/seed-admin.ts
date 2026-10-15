@@ -1,13 +1,22 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { db } from "../lib/db";
 import { account, user } from "../drizzle/schema";
 
-export type SeedResult = "created" | "exists" | "error-missing-env" | "error-weak-password";
+export type SeedResult =
+  | "created"
+  | "exists"
+  | "error-missing-env"
+  | "error-weak-password";
 
-export async function seedAdmin(env: { email: string; password: string }): Promise<SeedResult> {
+export async function seedAdmin(env: {
+  email: string;
+  password: string;
+}): Promise<SeedResult> {
   if (!env.email || !env.password) return "error-missing-env";
   if (env.password.length < 8) return "error-weak-password";
 
@@ -48,14 +57,19 @@ export async function seedAdmin(env: { email: string; password: string }): Promi
   return "created";
 }
 
-if (import.meta.main) {
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1])
+) {
   const outcome = await seedAdmin({
     email: process.env.ADMIN_EMAIL ?? "",
     password: process.env.ADMIN_PASSWORD ?? "",
   });
 
-  if (outcome === "created") console.log(`✓ Admin created: ${process.env.ADMIN_EMAIL}`);
-  else if (outcome === "exists") console.log(`• Admin already exists: ${process.env.ADMIN_EMAIL}`);
+  if (outcome === "created")
+    console.log(`✓ Admin created: ${process.env.ADMIN_EMAIL}`);
+  else if (outcome === "exists")
+    console.log(`• Admin already exists: ${process.env.ADMIN_EMAIL}`);
   else {
     console.error(`✗ seed-admin failed: ${outcome}`);
     process.exit(1);

@@ -30,20 +30,28 @@ describe("seedAdmin", () => {
     const result = await seedAdmin(TEST_ENV);
     expect(result).toBe("created");
 
-    const rows = await db.select().from(user).where(eq(user.email, TEST_ENV.email));
+    const rows = await db
+      .select()
+      .from(user)
+      .where(eq(user.email, TEST_ENV.email));
     expect(rows.length).toBe(1);
     expect(rows[0].emailVerified).toBe(true);
     expect(rows[0].role).toBe("superadmin");
     expect(rows[0].isActive).toBe(true);
 
-    const login = await auth.api.signInEmail({ body: { email: TEST_ENV.email, password: TEST_ENV.password } });
+    const login = await auth.api.signInEmail({
+      body: { email: TEST_ENV.email, password: TEST_ENV.password },
+    });
     expect(login?.token).toBeTruthy();
   });
 
   test("is idempotent: second run skips", async () => {
     const result = await seedAdmin(TEST_ENV);
     expect(result).toBe("exists");
-    const rows = await db.select().from(user).where(eq(user.email, TEST_ENV.email));
+    const rows = await db
+      .select()
+      .from(user)
+      .where(eq(user.email, TEST_ENV.email));
     expect(rows.length).toBe(1);
     await cleanup();
   });

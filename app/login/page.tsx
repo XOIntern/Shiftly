@@ -2,13 +2,71 @@ import { LoginForm } from "@/components/login-form";
 import Image from "next/image";
 import Link from "next/link";
 
+// Decorative roster motif for the brand panel. Fixed pattern, not random,
+// so server and client render it identically.
+const ROSTER_CELLS = [
+  1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1,
+  1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1,
+];
+
 export default function LoginPage() {
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
-      <div className="flex w-full max-w-sm flex-col gap-6">
+    <div className="grid min-h-svh lg:grid-cols-2">
+      {/* Brand panel, desktop only */}
+      <div className="relative hidden flex-col justify-between bg-primary p-10 text-primary-foreground lg:flex xl:p-14">
         <Link
           href="/"
-          className="flex items-center gap-2 self-center font-medium"
+          className="flex items-center gap-2 font-semibold tracking-tight"
+        >
+          <Image
+            src="/logo.webp"
+            alt="Shiftly logo"
+            width={24}
+            height={24}
+            className="size-6 brightness-0 invert"
+            priority
+          />
+          Shiftly
+        </Link>
+
+        <div>
+          <h1 className="max-w-md text-4xl font-semibold leading-[1.1] tracking-tighter">
+            Shift scheduling for multi-site operations.
+          </h1>
+          <p className="mt-4 max-w-md text-balance text-primary-foreground/70">
+            Build the weekly roster per site and location, record attendance as
+            workers clock in, and manage everyone from one place.
+          </p>
+
+          {/* Roster grid motif */}
+          <div
+            aria-hidden
+            className="mt-12 grid max-w-md grid-cols-7 gap-1.5 opacity-30"
+          >
+            {ROSTER_CELLS.map((filled, i) => (
+              <span
+                key={i}
+                className={
+                  "size-5 rounded-xs " +
+                  (filled
+                    ? "bg-primary-foreground"
+                    : "bg-primary-foreground/20")
+                }
+              />
+            ))}
+          </div>
+        </div>
+
+        <p className="text-sm text-primary-foreground/60">
+          For admins and head-office teams.
+        </p>
+      </div>
+
+      {/* Login side */}
+      <div className="flex flex-col items-center justify-center gap-6 bg-background p-6 md:p-10">
+        <Link
+          href="/"
+          className="flex items-center gap-2 self-center font-semibold tracking-tight lg:hidden"
         >
           <Image
             src="/logo.webp"
