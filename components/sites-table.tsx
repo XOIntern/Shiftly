@@ -18,13 +18,15 @@ const helper = createColumnHelper<typeof dataTableFeatures, SiteRow>();
 const columns = helper.columns([
   helper.accessor("name", {
     header: "Name",
-    meta: { thClassName: "min-w-[160px]", tdClassName: "font-medium" },
+    meta: {
+      thClassName: "min-w-[160px]",
+      tdClassName: "font-medium",
+      sortable: true,
+    },
   }),
   helper.accessor("isActive", {
     header: "Status",
-    // Search should match names, not boolean accessors.
-    enableGlobalFilter: false,
-    meta: { thClassName: "min-w-[100px]" },
+    meta: { thClassName: "min-w-[100px]", sortable: true },
     cell: (info) =>
       info.getValue() ? (
         <Badge variant="secondary">Active</Badge>
@@ -45,11 +47,21 @@ const columns = helper.columns([
   }),
 ]);
 
-export function SitesTable({ sites }: { sites: SiteRow[] }) {
+export function SitesTable({
+  sites,
+  pageCount,
+  total,
+}: {
+  sites: SiteRow[];
+  pageCount: number;
+  total: number;
+}) {
   return (
     <DataTable
       columns={columns}
       data={sites}
+      pageCount={pageCount}
+      total={total}
       emptyMessage="No sites yet — add the first one."
       getRowId={(row) => row.id}
       selectionToolbar={({ count, ids, clear }) => (

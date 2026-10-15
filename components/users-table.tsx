@@ -75,8 +75,6 @@ export function UsersTable({
         helper.accessor((row) => row.user.isActive, {
           id: "isActive",
           header: "Status",
-          // Search should match names/emails, not boolean accessors.
-          enableGlobalFilter: false,
           meta: { thClassName: "min-w-[110px]" },
           cell: (info) =>
             info.getValue() ? (
@@ -113,6 +111,10 @@ export function UsersTable({
     <DataTable
       columns={columns}
       data={entries}
+      // Interim plumbing until the users page adopts the server pattern
+      // (epic task #22): one unbroken page, footer stays hidden.
+      pageCount={1}
+      total={entries.length}
       emptyMessage="No users yet."
       getRowId={(row) => row.user.id}
       // Unmanageable rows (the ho's own, foreign accounts) render no

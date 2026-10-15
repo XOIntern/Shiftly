@@ -51,8 +51,6 @@ export function LocationsTable({
         }),
         helper.accessor("isActive", {
           header: "Status",
-          // Search should match names/addresses, not boolean accessors.
-          enableGlobalFilter: false,
           meta: { thClassName: "min-w-[100px]" },
           cell: (info) => <StatusBadge isActive={info.getValue()} />,
         }),
@@ -78,6 +76,10 @@ export function LocationsTable({
     <DataTable
       columns={columns}
       data={locations}
+      // Interim plumbing until the locations page adopts the server pattern
+      // (epic task #21): one unbroken page, footer stays hidden.
+      pageCount={1}
+      total={locations.length}
       emptyMessage="No locations yet — add the first one for a site."
       getRowId={(row) => row.id}
       selectionToolbar={({ count, ids, clear }) => (
