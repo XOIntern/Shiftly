@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { EllipsisIcon, PlusIcon } from "lucide-react";
+import {
+  EllipsisIcon,
+  PencilIcon,
+  PlusIcon,
+  PowerIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/lib/action-state";
@@ -169,15 +175,18 @@ export function SiteRowActions({ site }: { site: SiteRow }) {
       <DropdownMenuContent align="start">
         <DropdownMenuGroup>
           <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+            <PowerIcon />
             {site.isActive ? "Deactivate" : "Activate"}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDialog("edit")}>
+            <PencilIcon />
             Edit
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
             onClick={() => setDialog("delete")}
           >
+            <Trash2Icon />
             Delete
           </DropdownMenuItem>
         </DropdownMenuGroup>

@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { EllipsisIcon, MapPinIcon } from "lucide-react";
+import {
+  EllipsisIcon,
+  MapPinIcon,
+  PencilIcon,
+  PowerIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/lib/action-state";
@@ -295,15 +301,18 @@ export function LocationRowActions({
       <DropdownMenuContent align="start">
         <DropdownMenuGroup>
           <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+            <PowerIcon />
             {location.isActive ? "Deactivate" : "Activate"}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDialog("edit")}>
+            <PencilIcon />
             Edit
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
             onClick={() => setDialog("delete")}
           >
+            <Trash2Icon />
             Delete
           </DropdownMenuItem>
         </DropdownMenuGroup>

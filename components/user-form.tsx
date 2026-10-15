@@ -1,7 +1,13 @@
 "use client";
 
 import { useId, useState, useTransition } from "react";
-import { EllipsisIcon, PlusIcon } from "lucide-react";
+import {
+  EllipsisIcon,
+  KeyRoundIcon,
+  PencilIcon,
+  PlusIcon,
+  PowerIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { createUser, setActive, updateUser } from "@/app/(dashboard)/users/actions";
@@ -456,12 +462,15 @@ export function UserRowActions({
       <DropdownMenuContent align="start">
         <DropdownMenuGroup>
           <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+            <PowerIcon />
             {user.isActive ? "Deactivate" : "Activate"}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDialog("edit")}>
+            <PencilIcon />
             Edit
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDialog("reset")}>
+            <KeyRoundIcon />
             Reset password
           </DropdownMenuItem>
         </DropdownMenuGroup>
