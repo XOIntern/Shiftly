@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
+import { EllipsisIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/lib/action-state";
@@ -16,7 +16,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +27,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Field,
   FieldError,
@@ -136,22 +142,77 @@ export function CreateSiteButton() {
   );
 }
 
-export function EditSiteButton({ site }: { site: SiteRow }) {
-  const [open, setOpen] = useState(false);
+export function SiteRowActions({ site }: { site: SiteRow }) {
+  const [dialog, setDialog] = useState<"edit" | "delete" | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function toggleActive() {
+    startTransition(async () => {
+      const result = await toggleSite(site.id);
+      if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
+    <DropdownMenu>
+      <DropdownMenuTrigger
         render={
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={`Edit ${site.name}`}
+            aria-label={`Actions for ${site.name}`}
           />
         }
       >
-        <PencilIcon />
-      </DialogTrigger>
+        <EllipsisIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuGroup>
+          <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+            {site.isActive ? "Deactivate" : "Activate"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDialog("edit")}>
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setDialog("delete")}
+          >
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+      {/* Controlled dialogs live outside the menu popup so the menu can
+      close before their layer opens. */}
+      <EditSiteDialog
+        site={site}
+        open={dialog === "edit"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
+      <DeleteSiteDialog
+        site={site}
+        open={dialog === "delete"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
+    </DropdownMenu>
+  );
+}
+
+function EditSiteDialog({
+  site,
+  open,
+  onOpenChange,
+}: {
+  site: SiteRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit site</DialogTitle>
@@ -159,41 +220,28 @@ export function EditSiteButton({ site }: { site: SiteRow }) {
             Update the site&apos;s name or change its active state.
           </DialogDescription>
         </DialogHeader>
-        <SiteForm site={site} onSaved={() => setOpen(false)} />
+        <SiteForm site={site} onSaved={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   );
 }
 
-export function ToggleSiteButton({ site }: { site: SiteRow }) {
-  const [pending, startTransition] = useTransition();
-
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      disabled={pending}
-      onClick={() => {
-        startTransition(async () => {
-          const result = await toggleSite(site.id);
-          if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
-        });
-      }}
-    >
-      {site.isActive ? "Deactivate" : "Activate"}
-    </Button>
-  );
-}
-
-export function DeleteSiteButton({ site }: { site: SiteRow }) {
-  const [open, setOpen] = useState(false);
+function DeleteSiteDialog({
+  site,
+  open,
+  onOpenChange,
+}: {
+  site: SiteRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [pending, startTransition] = useTransition();
 
   function handleConfirm() {
     startTransition(async () => {
       const result = await deleteSite(site.id);
       if (result.ok) {
-        setOpen(false);
+        onOpenChange(false);
         return;
       }
       toast.error(result.message ?? GENERIC_ERROR);
@@ -201,18 +249,7 @@ export function DeleteSiteButton({ site }: { site: SiteRow }) {
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Delete ${site.name}`}
-          />
-        }
-      >
-        <TrashIcon />
-      </AlertDialogTrigger>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete site</AlertDialogTitle>

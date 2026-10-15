@@ -21,18 +21,20 @@ type Entry = {
   canManage: boolean;
 };
 
-// The page returns an RSC object tree; the user rows live on the
-// TableRowCells elements as props.entry.
+// The page returns an RSC object tree; the user rows travel to the client
+// table as the entries prop on <UsersTable>.
 function collectEntries(node: unknown, out: Entry[]): Entry[] {
   if (!node || typeof node !== "object") return out;
   if (Array.isArray(node)) {
     for (const child of node) collectEntries(child, out);
     return out;
   }
-  const props = (node as { props?: { children?: unknown; entry?: unknown } })
+  const props = (node as { props?: { children?: unknown; entries?: unknown } })
     .props;
   if (props) {
-    if (props.entry) out.push(props.entry as Entry);
+    if (Array.isArray(props.entries)) {
+      out.push(...(props.entries as Entry[]));
+    }
     collectEntries(props.children, out);
   }
   return out;

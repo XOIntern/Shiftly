@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState, useTransition } from "react";
-import { PencilIcon, PlusIcon } from "lucide-react";
+import { EllipsisIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { createUser, setActive, updateUser } from "@/app/(dashboard)/users/actions";
@@ -18,6 +18,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ResetPasswordDialog } from "@/components/user-reset-password";
 import {
   Field,
   FieldDescription,
@@ -409,32 +417,95 @@ export function CreateUserButton({
   );
 }
 
-export function EditUserButton({
+export function UserRowActions({
+  user,
+  form,
+  actorRole,
+  sites,
+  locations,
+}: {
+  user: UserRow;
+  form: UserFormData;
+  actorRole: Role;
+  sites: SiteOption[];
+  locations: LocationOption[];
+}) {
+  const [dialog, setDialog] = useState<"edit" | "reset" | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function toggleActive() {
+    startTransition(async () => {
+      const result = await setActive(user.id, !user.isActive);
+      if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Actions for ${user.name}`}
+          />
+        }
+      >
+        <EllipsisIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuGroup>
+          <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+            {user.isActive ? "Deactivate" : "Activate"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDialog("edit")}>
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDialog("reset")}>
+            Reset password
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+      {/* Controlled dialogs live outside the menu popup so the menu can
+      close before their layer opens. */}
+      <EditUserDialog
+        actorRole={actorRole}
+        user={form}
+        sites={sites}
+        locations={locations}
+        open={dialog === "edit"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
+      <ResetPasswordDialog
+        user={user}
+        open={dialog === "reset"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
+    </DropdownMenu>
+  );
+}
+
+function EditUserDialog({
   actorRole,
   user,
   sites,
   locations,
+  open,
+  onOpenChange,
 }: {
   actorRole: Role;
   user: UserFormData;
   sites: SiteOption[];
   locations: LocationOption[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Edit ${user.name}`}
-          />
-        }
-      >
-        <PencilIcon />
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit user</DialogTitle>
@@ -448,29 +519,9 @@ export function EditUserButton({
           user={user}
           sites={sites}
           locations={locations}
-          onSaved={() => setOpen(false)}
+          onSaved={() => onOpenChange(false)}
         />
       </DialogContent>
     </Dialog>
-  );
-}
-
-export function ToggleUserButton({ user }: { user: UserRow }) {
-  const [pending, startTransition] = useTransition();
-
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      disabled={pending}
-      onClick={() => {
-        startTransition(async () => {
-          const result = await setActive(user.id, !user.isActive);
-          if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
-        });
-      }}
-    >
-      {user.isActive ? "Deactivate" : "Activate"}
-    </Button>
   );
 }

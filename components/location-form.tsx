@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MapPinIcon, PencilIcon, TrashIcon } from "lucide-react";
+import { EllipsisIcon, MapPinIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/lib/action-state";
@@ -21,7 +21,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +32,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Field,
   FieldDescription,
@@ -256,28 +262,86 @@ export function CreateLocationButton({ sites }: { sites: SiteOption[] }) {
   );
 }
 
-export function EditLocationButton({
+export function LocationRowActions({
   location,
   sites,
 }: {
   location: LocationRow;
   sites: SiteOption[];
 }) {
-  const [open, setOpen] = useState(false);
+  const [dialog, setDialog] = useState<"edit" | "delete" | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function toggleActive() {
+    startTransition(async () => {
+      const result = await toggleLocation(location.id);
+      if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
+    <DropdownMenu>
+      <DropdownMenuTrigger
         render={
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={`Edit ${location.name}`}
+            aria-label={`Actions for ${location.name}`}
           />
         }
       >
-        <PencilIcon />
-      </DialogTrigger>
+        <EllipsisIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuGroup>
+          <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+            {location.isActive ? "Deactivate" : "Activate"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDialog("edit")}>
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setDialog("delete")}
+          >
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+      {/* Controlled dialogs live outside the menu popup so the menu can
+      close before their layer opens. */}
+      <EditLocationDialog
+        location={location}
+        sites={sites}
+        open={dialog === "edit"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
+      <DeleteLocationDialog
+        location={location}
+        open={dialog === "delete"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
+    </DropdownMenu>
+  );
+}
+
+function EditLocationDialog({
+  location,
+  sites,
+  open,
+  onOpenChange,
+}: {
+  location: LocationRow;
+  sites: SiteOption[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit location</DialogTitle>
@@ -288,50 +352,29 @@ export function EditLocationButton({
         <LocationForm
           sites={sites}
           location={location}
-          onSaved={() => setOpen(false)}
+          onSaved={() => onOpenChange(false)}
         />
       </DialogContent>
     </Dialog>
   );
 }
 
-export function ToggleLocationButton({
+function DeleteLocationDialog({
   location,
+  open,
+  onOpenChange,
 }: {
   location: LocationRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [pending, startTransition] = useTransition();
-
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      disabled={pending}
-      onClick={() => {
-        startTransition(async () => {
-          const result = await toggleLocation(location.id);
-          if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
-        });
-      }}
-    >
-      {location.isActive ? "Deactivate" : "Activate"}
-    </Button>
-  );
-}
-
-export function DeleteLocationButton({
-  location,
-}: {
-  location: LocationRow;
-}) {
-  const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function handleConfirm() {
     startTransition(async () => {
       const result = await deleteLocation(location.id);
       if (result.ok) {
-        setOpen(false);
+        onOpenChange(false);
         return;
       }
       toast.error(result.message ?? GENERIC_ERROR);
@@ -339,18 +382,7 @@ export function DeleteLocationButton({
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Delete ${location.name}`}
-          />
-        }
-      >
-        <TrashIcon />
-      </AlertDialogTrigger>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete location</AlertDialogTitle>

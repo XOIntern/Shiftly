@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useState, useTransition } from "react";
-import { KeyRoundIcon } from "lucide-react";
 
 import { resetPassword } from "@/app/(dashboard)/users/actions";
 import type { ActionState } from "@/lib/action-state";
@@ -13,7 +12,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Field,
@@ -24,13 +22,16 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
-export function ResetPasswordButton({
+export function ResetPasswordDialog({
   user,
+  open,
+  onOpenChange,
 }: {
   user: { id: string; name: string };
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const inputId = useId();
-  const [open, setOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<ActionState["fieldErrors"]>();
   const [message, setMessage] = useState<string>();
@@ -43,7 +44,7 @@ export function ResetPasswordButton({
       setFieldErrors(undefined);
       setMessage(undefined);
     }
-    setOpen(next);
+    onOpenChange(next);
   }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -65,17 +66,6 @@ export function ResetPasswordButton({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Reset password of ${user.name}`}
-          />
-        }
-      >
-        <KeyRoundIcon />
-      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reset password</DialogTitle>

@@ -5,32 +5,15 @@ import { site, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { requireHO } from "@/lib/session";
 import { canManageActorTarget, userScopeFilter, type Role } from "@/lib/scope";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   CreateUserButton,
-  EditUserButton,
-  ToggleUserButton,
   type LocationOption,
   type SiteOption,
   type UserFormData,
   type UserRow,
 } from "@/components/user-form";
-import { ResetPasswordButton } from "@/components/user-reset-password";
+import { UsersTable } from "@/components/users-table";
 
 // Deliberate block: the page queries master data behind the HO session check,
 // so there is no static shell worth shipping first. See:
@@ -40,16 +23,6 @@ export const instant = false;
 // Second site join: admins get their site through the bound location, while
 // ho rows carry it directly on user.siteId — the alias labels both paths.
 const locationSite = alias(site, "location_site");
-
-function RoleBadge({ role }: { role: UserRow["role"] }) {
-  return role === "superadmin" ? (
-    <Badge>Superadmin</Badge>
-  ) : role === "ho" ? (
-    <Badge>Head office</Badge>
-  ) : (
-    <Badge variant="secondary">Admin</Badge>
-  );
-}
 
 function bindingLabel(row: {
   role: Role;
@@ -156,99 +129,15 @@ export default async function UsersPage() {
         />
       </div>
       <Card>
-        <CardHeader>
-          <CardTitle>All users</CardTitle>
-          <CardDescription>
-            Deactivated users are signed out immediately and cannot log in.
-          </CardDescription>
-        </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="min-w-[180px]">Name</TableHead>
-                <TableHead className="min-w-[220px]">Email</TableHead>
-                <TableHead className="min-w-[130px]">Role</TableHead>
-                <TableHead className="min-w-[180px]">Binding</TableHead>
-                <TableHead className="min-w-[110px]">Status</TableHead>
-                <TableHead className="min-w-[180px] text-right">
-                  Actions
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.map((entry) => (
-                <TableRow key={entry.user.id}>
-                  <TableRowCells
-                    entry={entry}
-                    actorRole={actor.role}
-                    sites={sites}
-                    locations={locations}
-                  />
-                </TableRow>
-              ))}
-              {entries.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
-                    No users yet.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+          <UsersTable
+            entries={entries}
+            actorRole={actor.role}
+            sites={sites}
+            locations={locations}
+          />
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-// Kept inline to avoid re-mapping — a locally declared sub-render keeps the
-// row bodies readable without inventing new abstractions.
-function TableRowCells({
-  entry,
-  actorRole,
-  sites,
-  locations,
-}: {
-  entry: { user: UserRow; form: UserFormData; canManage: boolean };
-  actorRole: Role;
-  sites: SiteOption[];
-  locations: LocationOption[];
-}) {
-  const { user: row, form, canManage } = entry;
-  return (
-    <>
-      <TableCell className="font-medium">{row.name}</TableCell>
-      <TableCell>{row.email}</TableCell>
-      <TableCell>
-        <RoleBadge role={row.role} />
-      </TableCell>
-      <TableCell>{row.binding ?? "—"}</TableCell>
-      <TableCell>
-        {row.isActive ? (
-          <Badge variant="secondary">Active</Badge>
-        ) : (
-          <Badge variant="outline" className="px-1.5 text-muted-foreground">
-            Inactive
-          </Badge>
-        )}
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex justify-end gap-1">
-          {canManage ? (
-            <>
-              <ToggleUserButton user={row} />
-              <EditUserButton
-                actorRole={actorRole}
-                user={form}
-                sites={sites}
-                locations={locations}
-              />
-              <ResetPasswordButton user={row} />
-            </>
-          ) : null}
-        </div>
-      </TableCell>
-    </>
   );
 }

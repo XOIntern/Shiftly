@@ -3,30 +3,12 @@ import { asc, eq, sql } from "drizzle-orm";
 import { site, siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { requireHO } from "@/lib/session";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   CreateLocationButton,
-  DeleteLocationButton,
-  EditLocationButton,
-  ToggleLocationButton,
-  type LocationRow,
   type SiteOption,
 } from "@/components/location-form";
+import { LocationsTable } from "@/components/locations-table";
 
 // Deliberate block: the page queries master data behind the HO session check,
 // so there is no static shell worth shipping first. See:
@@ -86,72 +68,11 @@ export default async function LocationsPage() {
         <CreateLocationButton sites={sites satisfies SiteOption[]} />
       </div>
       <Card>
-        <CardHeader>
-          <CardTitle>All locations</CardTitle>
-          <CardDescription>
-            Deactivated locations keep their users behind the site&apos;s
-            normal rostering.
-          </CardDescription>
-        </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="min-w-[160px]">Location</TableHead>
-                <TableHead className="min-w-[160px]">Site</TableHead>
-                <TableHead className="min-w-[160px]">Address</TableHead>
-                <TableHead className="min-w-[100px]">Status</TableHead>
-                <TableHead className="min-w-[180px] text-right">
-                  Actions
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {locations.map((location: LocationRow) => {
-                return (
-                  <TableRow key={location.id}>
-                    <TableCell className="font-medium">
-                      {location.name}
-                    </TableCell>
-                    <TableCell>{location.siteName}</TableCell>
-                    <TableCell>{location.address}</TableCell>
-                    <TableCell>
-                      {location.isActive ? (
-                        <Badge variant="secondary">Active</Badge>
-                      ) : (
-                        <Badge
-                          variant="outline"
-                          className="px-1.5 text-muted-foreground"
-                        >
-                          Inactive
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <ToggleLocationButton location={location} />
-                        <EditLocationButton
-                          location={location}
-                          sites={sites}
-                        />
-                        <DeleteLocationButton location={location} />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {locations.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={5}
-                    className="h-24 text-center text-muted-foreground"
-                  >
-                    No locations yet — add the first one for a site.
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
+          <LocationsTable
+            locations={locations}
+            sites={sites satisfies SiteOption[]}
+          />
         </CardContent>
       </Card>
     </div>
