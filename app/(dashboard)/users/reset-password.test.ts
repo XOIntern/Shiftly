@@ -1,0 +1,95 @@
+import "dotenv/config";
+import { randomUUID } from "node:crypto";
+import { describe, expect, mock, test } from "bun:test";
+import { eq } from "drizzle-orm";
+
+import { db } from "@/lib/db";
+import { site, siteLocation, user } from "@/drizzle/schema";
+import type { SessionUser } from "@/lib/session";
+
+// resetPassword resolves its actor through requireHO and writes through
+// setCredentialPassword/deleteUserSessions — swapped here (the same
+// mock.module isolation bulk-active.test.ts needs) so the real server action
+// runs against the test database without a Next request context, and the
+// session eviction is observed as a call instead of executed. The helper's
+// own DB behavior is covered by the real-DB tests in credential-store.test.ts.
+const sessionWipes: string[] = [];
+let actor: SessionUser;
+mock.module("@/lib/session", () => ({
+  // The session mock swaps the WHOLE module across bun's single test
+  // process, so every export other suites may resolve must exist here.
+  getUser: async () => actor,
+  requireUser: async () => actor,
+  requireHO: async () => actor,
+  requireSuperadmin: async () => actor,
+}));
+// No Next request context under bun test — revalidation is a no-op stub.
+mock.module("next/cache", () => ({
+  revalidatePath: () => {},
+}));
+mock.module("@/lib/credential-store", () => ({
+  deleteUserSessions: async (userId: string) => {
+    sessionWipes.push(userId);
+  },
+  setCredentialPassword: async () => 1,
+}));
+
+describe("resetPassword", () => {
+  test("a successful reset evicts the target's sessions", async () => {
+    const siteA = randomUUID();
+    const locA = randomUUID();
+    const hoActor = randomUUID();
+    const adminA = randomUUID();
+
+    const mkEmail = (id: string) => `t5-users-${id}@shiftly.test`;
+    try {
+      await db.insert(site).values([
+        { id: siteA, name: `t5-users-site-${siteA}` },
+      ]);
+      await db.insert(siteLocation).values([
+        { id: locA, siteId: siteA, name: "T5 Users Reset Loc A" },
+      ]);
+      await db.insert(user).values([
+        {
+          id: hoActor,
+          name: "T5 Actor HO",
+          email: mkEmail(hoActor),
+          emailVerified: true,
+          role: "ho",
+          siteId: siteA,
+        },
+        {
+          id: adminA,
+          name: "T5 Admin A",
+          email: mkEmail(adminA),
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: locA,
+        },
+      ]);
+
+      actor = {
+        id: hoActor,
+        name: "T5 Actor HO",
+        email: mkEmail(hoActor),
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { resetPassword } = await import("./actions");
+      const result = await resetPassword(adminA, "Brand-New-Password-1");
+
+      expect(result.ok).toBe(true);
+      // The credential rewrite alone is not enough — the reset must log the
+      // target out everywhere.
+      expect(sessionWipes).toEqual([adminA]);
+    } finally {
+      await db.delete(user).where(eq(user.id, hoActor));
+      await db.delete(user).where(eq(user.id, adminA));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locA));
+      await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+});

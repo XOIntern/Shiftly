@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
@@ -65,6 +65,19 @@ async function credentialPasswordHash(userId: string): Promise<string | null> {
     )
     .limit(1);
   return row?.password ?? null;
+}
+
+// Inserts future-dated session rows directly (sign-in would only make one),
+// mirroring what several live devices look like on the eve of a reset.
+async function insertSessions(userId: string, count: number): Promise<void> {
+  await db.insert(session).values(
+    Array.from({ length: count }, () => ({
+      id: randomUUID(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      token: randomBytes(16).toString("hex"),
+      userId,
+    })),
+  );
 }
 
 describe("credential store", () => {
@@ -134,6 +147,33 @@ describe("credential store", () => {
       .from(session)
       .where(eq(session.userId, userId));
     expect(before.length).toBeGreaterThan(0);
+
+    await deleteUserSessions(userId);
+
+    const after = await db
+      .select({ id: session.id })
+      .from(session)
+      .where(eq(session.userId, userId));
+    expect(after.length).toBe(0);
+
+    await cleanup();
+  });
+});
+
+// The resetPassword flow (HO resets a password from the Users page) ends in
+// deleteUserSessions — here against sessions inserted directly, so the wipe
+// is proven without depending on how many sign-ins a test could stage.
+describe("credential store: direct-inserted sessions", () => {
+  test("resetPassword flow: two live sessions of the target are wiped", async () => {
+    await cleanup();
+    const userId = await createUserWithCredential();
+
+    await insertSessions(userId, 2);
+    const before = await db
+      .select({ id: session.id })
+      .from(session)
+      .where(eq(session.userId, userId));
+    expect(before.length).toBe(2);
 
     await deleteUserSessions(userId);
 

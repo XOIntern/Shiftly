@@ -270,6 +270,9 @@ export async function resetPassword(
     return { ok: false, message: GENERIC_ERROR };
   }
 
+  // A new hash fences new logins only — every live session dies with it.
+  await deleteUserSessions(id);
+
   revalidatePath("/users");
   return { ok: true };
 }
