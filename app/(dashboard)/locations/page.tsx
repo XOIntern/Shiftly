@@ -1,7 +1,13 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, and, count, desc, eq, ilike, or, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 
 import { site, siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
+import {
+  TABLE_PAGE_SIZE,
+  ilikePattern,
+  parseTableSearchParams,
+} from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -15,45 +21,85 @@ import { LocationsTable } from "@/components/locations-table";
 // https://nextjs.org/docs/messages/blocking-prerender-dynamic
 export const instant = false;
 
-export default async function LocationsPage() {
+// Whitelist + default order per the epic's URL contract — sort column ids
+// the URL may name, never composed from user input.
+const SORTABLE = {
+  name: siteLocation.name,
+  siteName: site.name,
+  address: siteLocation.address,
+  isActive: siteLocation.isActive,
+};
+const DEFAULT_ORDER = [asc(site.name), asc(siteLocation.name)];
+
+// The reference algorithm (see the Sites pilot, epic #24): validate URL
+// state, count first for pageCount, clamp the page, then fetch one page.
+export default async function LocationsPage({
+  searchParams,
+}: PageProps<"/locations">) {
   const actor = await requireHO();
+  const { q, page, sort } = parseTableSearchParams(await searchParams);
   const isSuperadmin = actor.role === "superadmin";
 
-  const [locations, sites] = await Promise.all([
-    db
-      .select({
-        id: siteLocation.id,
-        name: siteLocation.name,
-        address: siteLocation.address,
-        isActive: siteLocation.isActive,
-        siteId: siteLocation.siteId,
-        siteName: site.name,
-      })
-      .from(siteLocation)
-      .innerJoin(site, eq(siteLocation.siteId, site.id))
-      // A ho sees their own site's locations; a superadmin sees all sites.
-      // A ho without a binding (invariant breach) sees nothing rather than
-      // everything — hence sql`false` for the null siteId.
-      .where(
-        isSuperadmin
-          ? undefined
-          : actor.siteId
-            ? eq(siteLocation.siteId, actor.siteId)
-            : sql`false`,
-      )
-      .orderBy(asc(site.name), asc(siteLocation.name)),
-    db
-      .select({ id: site.id, name: site.name })
-      .from(site)
-      .where(
-        isSuperadmin
-          ? undefined
-          : actor.siteId
-            ? eq(site.id, actor.siteId)
-            : sql`false`,
-      )
-      .orderBy(asc(site.name)),
-  ]);
+  // A ho sees their own site's locations; a superadmin sees all sites.
+  // A ho without a binding (invariant breach) sees nothing rather than
+  // everything — hence sql`false` for the null siteId.
+  const scope: SQL | undefined = isSuperadmin
+    ? undefined
+    : actor.siteId
+      ? eq(siteLocation.siteId, actor.siteId)
+      : sql`false`;
+
+  const pattern = ilikePattern(q);
+  // Name OR address search; the joined site name is deliberately not
+  // searched (locked decision 3). Null-safe and(...) composes scope+search.
+  const where = and(
+    ...(pattern ? [or(ilike(siteLocation.name, pattern), ilike(siteLocation.address, pattern))] : []),
+    ...(scope ? [scope] : []),
+  );
+
+  const [{ count: rowCount }] = await db
+    .select({ count: count() })
+    .from(siteLocation)
+    .innerJoin(site, eq(siteLocation.siteId, site.id))
+    .where(where);
+  const pageCount = Math.max(1, Math.ceil(rowCount / TABLE_PAGE_SIZE));
+  const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
+
+  const sites = await db
+    .select({ id: site.id, name: site.name })
+    .from(site)
+    .where(
+      isSuperadmin
+        ? undefined
+        : actor.siteId
+          ? eq(site.id, actor.siteId)
+          : sql`false`,
+    )
+    .orderBy(asc(site.name));
+
+  const locations = await db
+    .select({
+      id: siteLocation.id,
+      name: siteLocation.name,
+      address: siteLocation.address,
+      isActive: siteLocation.isActive,
+      siteId: siteLocation.siteId,
+      siteName: site.name,
+    })
+    .from(siteLocation)
+    .innerJoin(site, eq(siteLocation.siteId, site.id))
+    .where(where)
+    .orderBy(
+      ...(sort && SORTABLE[sort.columnId as keyof typeof SORTABLE]
+        ? [
+            sort.dir === "desc"
+              ? desc(SORTABLE[sort.columnId as keyof typeof SORTABLE])
+              : asc(SORTABLE[sort.columnId as keyof typeof SORTABLE]),
+          ]
+        : DEFAULT_ORDER),
+    )
+    .limit(TABLE_PAGE_SIZE)
+    .offset((clamped - 1) * TABLE_PAGE_SIZE);
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
@@ -72,6 +118,8 @@ export default async function LocationsPage() {
           <LocationsTable
             locations={locations}
             sites={sites satisfies SiteOption[]}
+            pageCount={pageCount}
+            total={rowCount}
           />
         </CardContent>
       </Card>

@@ -29,9 +29,13 @@ function StatusBadge({ isActive }: { isActive: boolean }) {
 export function LocationsTable({
   locations,
   sites,
+  pageCount,
+  total,
 }: {
   locations: LocationRow[];
   sites: SiteOption[];
+  pageCount: number;
+  total: number;
 }) {
   // useTable requires stable columns; the edit dialog needs the site options.
   const columns = useMemo(
@@ -39,19 +43,23 @@ export function LocationsTable({
       helper.columns([
         helper.accessor("name", {
           header: "Location",
-          meta: { thClassName: "min-w-[160px]", tdClassName: "font-medium" },
+          meta: {
+            thClassName: "min-w-[160px]",
+            tdClassName: "font-medium",
+            sortable: true,
+          },
         }),
         helper.accessor("siteName", {
           header: "Site",
-          meta: { thClassName: "min-w-[160px]" },
+          meta: { thClassName: "min-w-[160px]", sortable: true },
         }),
         helper.accessor("address", {
           header: "Address",
-          meta: { thClassName: "min-w-[160px]" },
+          meta: { thClassName: "min-w-[160px]", sortable: true },
         }),
         helper.accessor("isActive", {
           header: "Status",
-          meta: { thClassName: "min-w-[100px]" },
+          meta: { thClassName: "min-w-[100px]", sortable: true },
           cell: (info) => <StatusBadge isActive={info.getValue()} />,
         }),
         helper.display({
@@ -76,10 +84,8 @@ export function LocationsTable({
     <DataTable
       columns={columns}
       data={locations}
-      // Interim plumbing until the locations page adopts the server pattern
-      // (epic task #21): one unbroken page, footer stays hidden.
-      pageCount={1}
-      total={locations.length}
+      pageCount={pageCount}
+      total={total}
       emptyMessage="No locations yet — add the first one for a site."
       getRowId={(row) => row.id}
       selectionToolbar={({ count, ids, clear }) => (
