@@ -75,6 +75,8 @@ interface DataTableProps<TData extends RowData> {
   selectionToolbar?: (selection: {
     count: number;
     ids: string[];
+    /** The selected rows' data, so the toolbar can react to row state. */
+    rows: TData[];
     clear: () => void;
   }) => ReactNode;
 }
@@ -226,6 +228,7 @@ export function DataTable<TData extends RowData>({
           ? selectionToolbar({
               count: selectedIds.length,
               ids: selectedIds,
+              rows: table.getSelectedRowModel().rows.map((row) => row.original),
               clear: () => table.resetRowSelection(true),
             })
           : null}

@@ -64,7 +64,7 @@ export function SitesTable({
       total={total}
       emptyMessage="No sites yet — add the first one."
       getRowId={(row) => row.id}
-      selectionToolbar={({ count, ids, clear }) => (
+      selectionToolbar={({ count, ids, rows, clear }) => (
         <BulkToolbar
           entityName="site"
           count={count}
@@ -72,6 +72,7 @@ export function SitesTable({
           onActivate={() => setActiveBulk(ids, true)}
           onDeactivate={() => setActiveBulk(ids, false)}
           onDelete={() => deleteBulk(ids)}
+          selectedStatuses={rows.map((row) => row.isActive)}
         />
       )}
     />

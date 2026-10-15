@@ -88,7 +88,7 @@ export function LocationsTable({
       total={total}
       emptyMessage="No locations yet — add the first one for a site."
       getRowId={(row) => row.id}
-      selectionToolbar={({ count, ids, clear }) => (
+      selectionToolbar={({ count, ids, rows, clear }) => (
         <BulkToolbar
           entityName="location"
           count={count}
@@ -96,6 +96,7 @@ export function LocationsTable({
           onActivate={() => setActiveBulk(ids, true)}
           onDeactivate={() => setActiveBulk(ids, false)}
           onDelete={() => deleteBulk(ids)}
+          selectedStatuses={rows.map((row) => row.isActive)}
         />
       )}
     />

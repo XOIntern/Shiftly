@@ -126,13 +126,14 @@ export function UsersTable({
       // Unmanageable rows (the ho's own, foreign accounts) render no
       // checkbox and are never select-all targets.
       canSelectRow={(row) => row.canManage}
-      selectionToolbar={({ count, ids, clear }) => (
+      selectionToolbar={({ count, ids, rows, clear }) => (
         <BulkToolbar
           entityName="user"
           count={count}
           clear={clear}
           onActivate={() => setActiveBulk(ids, true)}
           onDeactivate={() => setActiveBulk(ids, false)}
+          selectedStatuses={rows.map((row) => row.user.isActive)}
         />
       )}
     />
