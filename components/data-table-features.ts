@@ -4,6 +4,7 @@ import {
   createFilteredRowModel,
   createSortedRowModel,
   globalFilteringFeature,
+  rowSelectionFeature,
   rowSortingFeature,
   tableFeatures,
 } from "@tanstack/react-table";
@@ -15,6 +16,7 @@ import {
 // row model. Core row models are wired by the table itself.
 export const dataTableFeatures = tableFeatures({
   rowSortingFeature,
+  rowSelectionFeature,
   columnFilteringFeature,
   globalFilteringFeature,
   columnVisibilityFeature,

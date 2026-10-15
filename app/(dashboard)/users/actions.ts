@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { hashPassword } from "better-auth/crypto";
 
@@ -312,4 +312,74 @@ export async function setActive(
 
   revalidatePath("/users");
   return { ok: true };
+}
+
+// Bulk variant of setActive: same permission gate, one write. The batch
+// contract is "do what you can": malformed ids are dropped, rows the actor
+// cannot manage are skipped, and never deactivating yourself rides on the
+// single-row rule (a ho's own row is already unmanageable; a superadmin's
+// own row passes the gate, so it is excluded explicitly). The caller only
+// learns a count — which rows were skipped is never part of the answer.
+export async function setActiveBulk(
+  ids: string[],
+  isActive: boolean,
+): Promise<ActionState> {
+  const current = await requireHO();
+
+  const validIds = [...new Set(ids)].filter((id) =>
+    z.uuid().safeParse(id).success,
+  );
+  if (validIds.length === 0) {
+    return { ok: false, message: "No users selected." };
+  }
+
+  // Every requested target goes through the same site_location join and
+  // permission gate the single-row path uses, so an ho can never widen its
+  // batch past another site's rows — no matter what ids the client sent.
+  const candidates = await db
+    .select({
+      id: user.id,
+      role: user.role,
+      siteId: user.siteId,
+      siteLocationId: user.siteLocationId,
+      locationSiteId: siteLocation.siteId,
+    })
+    .from(user)
+    .leftJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
+    .where(inArray(user.id, validIds));
+
+  const managed = candidates.filter(
+    (target) =>
+      canManageActorTarget(current, {
+        role: target.role,
+        locationSiteId: target.locationSiteId,
+      }) && (isActive || target.id !== current.id),
+  );
+  if (managed.length === 0) {
+    revalidatePath("/users");
+    return { ok: true, applied: 0 };
+  }
+
+  let applied = 0;
+  try {
+    const updated = await db
+      .update(user)
+      .set({ isActive })
+      .where(
+        inArray(
+          user.id,
+          managed.map((target) => target.id),
+        ),
+      )
+      .returning({ id: user.id });
+
+    // Session hygiene matches the single-row action on both directions.
+    await Promise.all(updated.map((row) => deleteUserSessions(row.id)));
+    applied = updated.length;
+  } catch {
+    return { ok: false, message: GENERIC_ERROR };
+  }
+
+  revalidatePath("/users");
+  return { ok: true, applied };
 }

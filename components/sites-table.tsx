@@ -3,6 +3,8 @@
 import { createColumnHelper } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 
+import { deleteBulk, setActiveBulk } from "@/app/(dashboard)/sites/actions";
+import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import {
@@ -49,6 +51,17 @@ export function SitesTable({ sites }: { sites: SiteRow[] }) {
       columns={columns}
       data={sites}
       emptyMessage="No sites yet — add the first one."
+      getRowId={(row) => row.id}
+      selectionToolbar={({ count, ids, clear }) => (
+        <BulkToolbar
+          entityName="site"
+          count={count}
+          clear={clear}
+          onActivate={() => setActiveBulk(ids, true)}
+          onDeactivate={() => setActiveBulk(ids, false)}
+          onDelete={() => deleteBulk(ids)}
+        />
+      )}
     />
   );
 }

@@ -11,7 +11,7 @@ import { requireHO, type SessionUser } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { locationCreateSchema, locationUpdateSchema } from "@/lib/validators";
-import { locationMutationWhere, locationOwnedByActor } from "@/lib/location-scope";
+import { locationMutationWhere, locationOwnedByActor, locationBulkMutationWhere } from "@/lib/location-scope";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -181,4 +181,88 @@ export async function deleteLocation(id: string): Promise<ActionState> {
 
   revalidatePath("/locations");
   return { ok: true };
+}
+
+// Bulk subset-write of location.isActive. "Do what you can": malformed ids
+// are dropped and the ownership weld rides inside the mutating WHERE, so an
+// ho can never widen its batch past its own site no matter what ids arrive.
+export async function setActiveBulk(
+  ids: string[],
+  isActive: boolean,
+): Promise<ActionState> {
+  const actor = await requireHO();
+
+  const validIds = [...new Set(ids)].filter((id) =>
+    z.uuid().safeParse(id).success,
+  );
+  if (validIds.length === 0) {
+    return { ok: false, message: "No locations selected." };
+  }
+
+  try {
+    const updated = await db
+      .update(siteLocation)
+      .set({ isActive })
+      .where(locationBulkMutationWhere(actor, validIds))
+      .returning({ id: siteLocation.id });
+    revalidatePath("/locations");
+    return { ok: true, applied: updated.length };
+  } catch (err) {
+    return dbResult(err);
+  }
+}
+
+// Bulk location unregistration. Rows with admins still bound are skipped
+// (not fatal) with the same guard message the single-row path gives: the
+// bound check rides the same ownership WHERE, so foreign locations can
+// never leak into either count.
+export async function deleteBulk(ids: string[]): Promise<ActionState> {
+  const actor = await requireHO();
+
+  const validIds = [...new Set(ids)].filter((id) =>
+    z.uuid().safeParse(id).success,
+  );
+  if (validIds.length === 0) {
+    return { ok: false, message: "No locations selected." };
+  }
+
+  // Admin-bound rows among the requested set, scoped by the same weld —
+  // this select maps 1:1 onto "these rows will refuse to delete."
+  const boundRows = await db
+    .select({ id: user.siteLocationId })
+    .from(user)
+    .innerJoin(
+      siteLocation,
+      eq(user.siteLocationId, siteLocation.id),
+    )
+    .where(locationBulkMutationWhere(actor, validIds));
+
+  const boundIds = new Set(
+    boundRows
+      .filter((row): row is { id: string } => row.id !== null)
+      .map((row) => row.id),
+  );
+
+  try {
+    const deleted = await db
+      .delete(siteLocation)
+      .where(
+        locationBulkMutationWhere(
+          actor,
+          validIds.filter((id) => !boundIds.has(id)),
+        ),
+      );
+    const result: ActionState = {
+      ok: true,
+      applied: deleted.rowCount ?? 0,
+      blocked: boundIds.size,
+    };
+    if (boundIds.size > 0) {
+      result.message = `${boundIds.size} location${boundIds.size === 1 ? "" : "s"} skipped: Users are still bound to this location`;
+    }
+    revalidatePath("/locations");
+    return result;
+  } catch (err) {
+    return dbResult(err);
+  }
 }

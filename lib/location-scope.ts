@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { siteLocation } from "../drizzle/schema";
 import { db } from "./db";
@@ -41,4 +41,16 @@ export function locationMutationWhere(actor: ScopedActor, id: string) {
   if (actor.role === "superadmin") return eq(siteLocation.id, id);
   if (!actor.siteId) return sql`false`;
   return and(eq(siteLocation.id, id), eq(siteLocation.siteId, actor.siteId));
+}
+
+// The bulk form of locationMutationWhere: the same ownership predicate
+// welded into the statement, over an id list. An unbound ho keeps the
+// `WHERE false` fail-closed shape; a superadmin gets the plain id filter.
+export function locationBulkMutationWhere(actor: ScopedActor, ids: string[]) {
+  if (actor.role === "superadmin") return inArray(siteLocation.id, ids);
+  if (!actor.siteId) return sql`false`;
+  return and(
+    inArray(siteLocation.id, ids),
+    eq(siteLocation.siteId, actor.siteId),
+  );
 }

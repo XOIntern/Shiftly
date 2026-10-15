@@ -3,6 +3,8 @@
 import { useMemo } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 
+import { deleteBulk, setActiveBulk } from "@/app/(dashboard)/locations/actions";
+import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +79,17 @@ export function LocationsTable({
       columns={columns}
       data={locations}
       emptyMessage="No locations yet — add the first one for a site."
+      getRowId={(row) => row.id}
+      selectionToolbar={({ count, ids, clear }) => (
+        <BulkToolbar
+          entityName="location"
+          count={count}
+          clear={clear}
+          onActivate={() => setActiveBulk(ids, true)}
+          onDeactivate={() => setActiveBulk(ids, false)}
+          onDelete={() => deleteBulk(ids)}
+        />
+      )}
     />
   );
 }

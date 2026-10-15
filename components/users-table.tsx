@@ -3,6 +3,8 @@
 import { useMemo } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 
+import { setActiveBulk } from "@/app/(dashboard)/users/actions";
+import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +114,19 @@ export function UsersTable({
       columns={columns}
       data={entries}
       emptyMessage="No users yet."
+      getRowId={(row) => row.user.id}
+      // Unmanageable rows (the ho's own, foreign accounts) render no
+      // checkbox and are never select-all targets.
+      canSelectRow={(row) => row.canManage}
+      selectionToolbar={({ count, ids, clear }) => (
+        <BulkToolbar
+          entityName="user"
+          count={count}
+          clear={clear}
+          onActivate={() => setActiveBulk(ids, true)}
+          onDeactivate={() => setActiveBulk(ids, false)}
+        />
+      )}
     />
   );
 }
