@@ -144,10 +144,11 @@ export function DataTable<TData extends RowData>({
 
   // Selection is page-scoped (locked decision 1): any URL state change
   // drops it, so the toolbar can never act on rows beyond the current page.
+  // Deps are primitives — `sort` is a fresh object per render.
   useEffect(() => {
     table.resetRowSelection(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, page, sort]);
+  }, [q, page, sort?.columnId, sort?.dir]);
 
   const rows = table.getRowModel().rows;
 
