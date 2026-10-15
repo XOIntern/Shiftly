@@ -96,11 +96,20 @@ export const userPasswordSchema = z.object({
 
 // Self-service change-password (/settings): any non-empty current password
 // (its correctness is the action's job), plus the same 8-char minimum the
-// admin-facing schemas enforce.
-export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1),
-  newPassword: z.string().min(8),
-});
+// admin-facing schemas enforce. Comparing the two inputs (not against the
+// stored hash) is sound here: the action only calls the API after verifying
+// currentPassword, so a matching currentPassword string IS the stored
+// password. fieldErrorsFrom routes the issue by path, landing on
+// fieldErrors.newPassword.
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8),
+  })
+  .refine((v) => v.newPassword !== v.currentPassword, {
+    path: ["newPassword"],
+    message: "New password must be different from the current password.",
+  });
 
 // Same field rules as userCreateSchema minus the password (edits use
 // resetPassword for that) and minus email (email edits need Better Auth
