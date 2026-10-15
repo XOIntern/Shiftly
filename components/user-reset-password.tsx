@@ -71,7 +71,8 @@ export function ResetPasswordDialog({
           <DialogTitle>Reset password</DialogTitle>
           <DialogDescription>
             Set a new password for “{user.name}”. Their current password stops
-            working immediately.
+            working immediately. All their signed-in devices will be logged
+            out.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
