@@ -68,7 +68,11 @@ export function UsersTable({
             return role === "superadmin" ? (
               <Badge>Superadmin</Badge>
             ) : role === "ho" ? (
-              <Badge>Head office</Badge>
+              // Teal scale (§2.4): 100/800 in light, the documented ≥3:1
+              // dark pair (900 bg, #18928a text).
+              <Badge className="bg-accent-teal-100 text-accent-teal-800 dark:bg-accent-teal-900/40 dark:text-accent-teal-700">
+                Head office
+              </Badge>
             ) : (
               <Badge variant="secondary">Admin</Badge>
             );
