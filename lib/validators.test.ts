@@ -290,12 +290,36 @@ describe("changePasswordSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  test("accepts a new password different from the current one", () => {
+    const result = changePasswordSchema.safeParse({
+      currentPassword: "old-pass",
+      newPassword: "different-pass",
+    });
+    expect(result.success).toBe(true);
+  });
+
   test("rejects a 7-char newPassword", () => {
     const result = changePasswordSchema.safeParse({
       currentPassword: "old-pass",
       newPassword: "1234567",
     });
     expect(result.success).toBe(false);
+  });
+
+  test("rejects an unchanged-password change", () => {
+    const result = changePasswordSchema.safeParse({
+      currentPassword: "same-pass",
+      newPassword: "same-pass",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: ["newPassword"],
+          message: "New password must be different from the current password.",
+        }),
+      );
+    }
   });
 
   test("rejects an empty currentPassword", () => {
