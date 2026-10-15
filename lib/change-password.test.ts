@@ -119,6 +119,48 @@ describe("auth.api changePassword contract", () => {
     await cleanup(userId);
   });
 
+  test("revokeOtherSessions: true resolves the other session's cookie to null, keeps the current one", async () => {
+    const userId = await createUser();
+    const currentSession = await signIn(userId, OLD_PASSWORD);
+    const otherSession = await signIn(userId, OLD_PASSWORD);
+    expect(currentSession?.headers).toBeTruthy();
+    expect(otherSession?.headers).toBeTruthy();
+
+    // deleteUserSessions deletes ALL sessions (including the current one) and
+    // re-creates one for this request, so the surviving session is only
+    // reachable through the fresh Set-Cookie on this response.
+    const { response, headers } = await auth.api
+      .changePassword({
+        body: {
+          currentPassword: OLD_PASSWORD,
+          newPassword: NEW_PASSWORD,
+          revokeOtherSessions: true,
+        },
+        headers: currentSession!.headers,
+        returnHeaders: true,
+      });
+    expect(response.token).toBeTruthy();
+
+    // The OTHER session's cookie no longer resolves...
+    const otherGone = await auth.api.getSession({
+      headers: otherSession!.headers,
+    });
+    expect(otherGone).toBeNull();
+
+    // ...while the CURRENT session still does, via the fresh cookie.
+    const freshCookie = headers
+      .getSetCookie()
+      .map((cookie) => cookie.split(";")[0])
+      .find((cookie) => cookie.startsWith("better-auth.session_token="));
+    expect(freshCookie).toBeTruthy();
+    const currentAlive = await auth.api.getSession({
+      headers: new Headers({ cookie: freshCookie! }),
+    });
+    expect(currentAlive?.user.id).toBe(userId);
+
+    await cleanup(userId);
+  });
+
   test("unauthenticated call (no headers) rejects with status UNAUTHORIZED", async () => {
     const result = await auth.api
       .changePassword({

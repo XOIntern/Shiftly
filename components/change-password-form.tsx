@@ -55,7 +55,9 @@ export function ChangePasswordForm() {
           </Alert>
         ) : null}
         {succeeded ? (
-          <p className="text-sm text-muted-foreground">Password changed.</p>
+          <p className="text-sm text-muted-foreground">
+            Password changed. Other devices have been signed out.
+          </p>
         ) : null}
         <Field data-invalid={fieldErrors?.currentPassword ? "true" : undefined}>
           <FieldLabel htmlFor={currentId}>Current password</FieldLabel>
