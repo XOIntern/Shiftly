@@ -3,11 +3,7 @@ import { alias } from "drizzle-orm/pg-core";
 
 import { site, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import {
-  TABLE_PAGE_SIZE,
-  ilikePattern,
-  parseTableSearchParams,
-} from "@/lib/table-params";
+import { PAGE_SIZE_OPTIONS, ilikePattern, parseTableSearchParams } from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
 import { canManageActorTarget, userScopeFilter, type Role } from "@/lib/scope";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,7 +49,10 @@ export default async function UsersPage({
 }: PageProps<"/users">) {
   // Server-side HO guard; the actions repeat it for direct calls.
   const actor = await requireHO();
-  const { q, page, sort } = parseTableSearchParams(await searchParams);
+  const { q, page, sort, pageSize } = parseTableSearchParams(
+    await searchParams,
+    PAGE_SIZE_OPTIONS,
+  );
 
   // URL-contract whitelists (epic #24) — the binding UI label is
   // JS-computed, so its SQL sort uses the joined location name. Postgres
@@ -99,7 +98,7 @@ export default async function UsersPage({
     // userScopeFilter reads siteLocation columns: the count carries every
     // join the listing does (issue #22).
     .where(where);
-  const pageCount = Math.max(1, Math.ceil(rowCount / TABLE_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
   const [rows, allSites, allLocations] = await Promise.all([
@@ -130,8 +129,8 @@ export default async function UsersPage({
           ? [sort.dir === "desc" ? desc(sortColumn) : asc(sortColumn)]
           : DEFAULT_ORDER),
       )
-      .limit(TABLE_PAGE_SIZE)
-      .offset((clamped - 1) * TABLE_PAGE_SIZE),
+      .limit(pageSize)
+      .offset((clamped - 1) * pageSize),
     db.select({ id: site.id, name: site.name }).from(site).orderBy(asc(site.name)),
     db
       .select({

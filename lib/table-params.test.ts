@@ -16,6 +16,7 @@ describe("parseTableSearchParams", () => {
       q: "",
       page: 1,
       sort: null,
+      pageSize: 10,
     });
   });
 
@@ -24,7 +25,12 @@ describe("parseTableSearchParams", () => {
       parseTableSearchParams(
         raw({ q: ["alpha", "beta"], page: ["3", "9"], sort: ["name"] }),
       ),
-    ).toEqual({ q: "alpha", page: 3, sort: { columnId: "name", dir: "asc" } });
+    ).toEqual({
+      q: "alpha",
+      page: 3,
+      sort: { columnId: "name", dir: "asc" },
+      pageSize: 10,
+    });
   });
 
   test("q is trimmed; whitespace-only q means no search", () => {
@@ -59,6 +65,53 @@ describe("parseTableSearchParams", () => {
     expect(parseTableSearchParams(raw({ sort: "  " })).sort).toEqual({
       columnId: "  ",
       dir: "asc",
+    });
+  });
+
+  describe("pageSize", () => {
+    test("defaults to the first whitelist option", () => {
+      const options = [10, 20, 30, 40, 50];
+      expect(parseTableSearchParams(raw({}), options).pageSize).toBe(10);
+      expect(
+        parseTableSearchParams(raw({ pageSize: "junk" }), options).pageSize,
+      ).toBe(10);
+      expect(
+        parseTableSearchParams(raw({ pageSize: "-3" }), options).pageSize,
+      ).toBe(10);
+    });
+
+    test("accepts only whitelisted values", () => {
+      const options = [10, 20, 30, 40, 50];
+      expect(
+        parseTableSearchParams(raw({ pageSize: "20" }), options).pageSize,
+      ).toBe(20);
+      expect(
+        parseTableSearchParams(raw({ pageSize: "50" }), options).pageSize,
+      ).toBe(50);
+      // Not on the whitelist → default, never an arbitrary limit.
+      expect(
+        parseTableSearchParams(raw({ pageSize: "7" }), options).pageSize,
+      ).toBe(10);
+      expect(
+        parseTableSearchParams(raw({ pageSize: "99999" }), options).pageSize,
+      ).toBe(10);
+      expect(
+        parseTableSearchParams(raw({ pageSize: "20" }), options).pageSize,
+      ).toBe(20);
+    });
+
+    test("honors a non-default whitelist", () => {
+      expect(
+        parseTableSearchParams(raw({ pageSize: "25" }), [25, 75]).pageSize,
+      ).toBe(25);
+      expect(
+        parseTableSearchParams(raw({ pageSize: "10" }), [25, 75]).pageSize,
+      ).toBe(25);
+    });
+
+    test("without a whitelist the cap is TABLE_PAGE_SIZE", () => {
+      expect(parseTableSearchParams(raw({})).pageSize).toBe(10);
+      expect(parseTableSearchParams(raw({ pageSize: "50" })).pageSize).toBe(10);
     });
   });
 });

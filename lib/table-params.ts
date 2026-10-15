@@ -3,6 +3,9 @@
 // client components read useSearchParams with it (epic #24).
 
 export const TABLE_PAGE_SIZE = 10;
+// Rows-per-page choices the footer Select offers; the URL pageSize param
+// accepts only these (anything else parses to the first option).
+export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50];
 
 export type SortDir = "asc" | "desc";
 // null when the URL has no usable sort; whitelisting happens in the pages.
@@ -12,10 +15,14 @@ export type RawSearchParams = Record<string, string | string[] | undefined>;
 
 // Single string values only: repeated params and undefined/empty fall back
 // to defaults, so a malformed "?sort=a&sort=b" can never reach the queries.
-export function parseTableSearchParams(raw: RawSearchParams): {
+export function parseTableSearchParams(
+  raw: RawSearchParams,
+  pageSizeOptions: number[] = [TABLE_PAGE_SIZE],
+): {
   q: string;
   page: number;
   sort: TableSort;
+  pageSize: number;
 } {
   const first = (key: string): string | undefined => {
     const value = raw[key];
@@ -30,8 +37,15 @@ export function parseTableSearchParams(raw: RawSearchParams): {
   const sort: TableSort = sortValue
     ? { columnId: sortValue, dir: first("dir") === "desc" ? "desc" : "asc" }
     : null;
+  // Rows per page is whitelist-gated like sort column ids: only values the
+  // UI offers are ever accepted; anything else falls to the first option.
+  const parsedPageSize = Number.parseInt(first("pageSize") ?? "", 10);
+  const defaultPageSize = pageSizeOptions[0] ?? TABLE_PAGE_SIZE;
+  const pageSize = pageSizeOptions.includes(parsedPageSize)
+    ? parsedPageSize
+    : defaultPageSize;
 
-  return { q, page, sort };
+  return { q, page, sort, pageSize };
 }
 
 // undefined for empty q; otherwise "%q%" with \, %, _ backslash-escaped so

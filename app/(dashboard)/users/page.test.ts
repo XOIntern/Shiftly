@@ -499,4 +499,48 @@ describe("users page scoping (issue #18)", () => {
       await db.delete(site).where(eq(site.id, siteA));
     }
   });
+
+  test("pageSize=20 widens one page; a non-whitelist pageSize falls to 10 (rows per page)", async () => {
+    const siteId = randomUUID();
+    const token = `t4-users-psize-${randomUUID().slice(0, 8)}`;
+    const ids = Array.from({ length: 15 }, () => randomUUID());
+    try {
+      await db.insert(site).values([
+        { id: siteId, name: `t4-users-site-${randomUUID().slice(0, 6)}` },
+      ]);
+      await db.insert(user).values(
+        ids.map((id, i) => ({
+          id,
+          name: `${token}-${String(i + 1).padStart(2, "0")}`,
+          email: `t4-users-${id}@shiftly.test`,
+          emailVerified: true,
+          role: "ho" as const,
+          siteId,
+        })),
+      );
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Ho Actor",
+        email: `t4-users-${randomUUID()}@shiftly.test`,
+        role: "ho",
+        siteId,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const widened = await renderUsers({ q: token, pageSize: "20" });
+      expect(widened.entries.length).toBe(15);
+      expect(widened.page.total).toBe(15);
+      expect(widened.page.pageCount).toBe(1);
+
+      const capped = await renderUsers({ q: token, pageSize: "7" as never });
+      expect(capped.entries.length).toBe(10);
+      expect(capped.page.pageCount).toBe(2);
+      expect(capped.page.total).toBe(15);
+    } finally {
+      await db.delete(user).where(inArray(user.id, ids));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
 });

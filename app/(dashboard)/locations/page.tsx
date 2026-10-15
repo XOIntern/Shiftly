@@ -3,11 +3,7 @@ import type { SQL } from "drizzle-orm";
 
 import { site, siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import {
-  TABLE_PAGE_SIZE,
-  ilikePattern,
-  parseTableSearchParams,
-} from "@/lib/table-params";
+import { PAGE_SIZE_OPTIONS, ilikePattern, parseTableSearchParams } from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -37,7 +33,10 @@ export default async function LocationsPage({
   searchParams,
 }: PageProps<"/locations">) {
   const actor = await requireHO();
-  const { q, page, sort } = parseTableSearchParams(await searchParams);
+  const { q, page, sort, pageSize } = parseTableSearchParams(
+    await searchParams,
+    PAGE_SIZE_OPTIONS,
+  );
   const isSuperadmin = actor.role === "superadmin";
 
   // A ho sees their own site's locations; a superadmin sees all sites.
@@ -69,7 +68,7 @@ export default async function LocationsPage({
     .from(siteLocation)
     .innerJoin(site, eq(siteLocation.siteId, site.id))
     .where(where);
-  const pageCount = Math.max(1, Math.ceil(rowCount / TABLE_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
   const [sites, locations] = await Promise.all([
@@ -101,8 +100,8 @@ export default async function LocationsPage({
           ? [sort.dir === "desc" ? desc(sortColumn) : asc(sortColumn)]
           : DEFAULT_ORDER),
       )
-      .limit(TABLE_PAGE_SIZE)
-      .offset((clamped - 1) * TABLE_PAGE_SIZE),
+      .limit(pageSize)
+      .offset((clamped - 1) * pageSize),
   ]);
 
   return (

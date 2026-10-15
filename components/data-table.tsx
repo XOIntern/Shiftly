@@ -26,11 +26,20 @@ import {
 } from "lucide-react";
 
 import {
+  PAGE_SIZE_OPTIONS,
   parseTableSearchParams,
   TABLE_PAGE_SIZE,
 } from "@/lib/table-params";
 import { dataTableFeatures, type DataTableFeatures } from "@/components/data-table-features";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Table,
@@ -88,8 +97,9 @@ export function DataTable<TData extends RowData>({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { q, page, sort } = parseTableSearchParams(
+  const { q, page, sort, pageSize } = parseTableSearchParams(
     Object.fromEntries(searchParams.entries()),
+    PAGE_SIZE_OPTIONS,
   );
 
   const table = useTable({
@@ -148,7 +158,7 @@ export function DataTable<TData extends RowData>({
   useEffect(() => {
     table.resetRowSelection(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, page, sort?.columnId, sort?.dir]);
+  }, [q, page, sort?.columnId, sort?.dir, pageSize]);
 
   const rows = table.getRowModel().rows;
 
@@ -163,12 +173,22 @@ export function DataTable<TData extends RowData>({
   // while the server only clamps its rows. All footer math and navigation
   // derive from the clamped value so no ghost page can strand the user.
   const clampedPage = Math.min(page, pageCount);
-  const pageFrom = (clampedPage - 1) * TABLE_PAGE_SIZE + 1;
-  const pageTo = Math.min(clampedPage * TABLE_PAGE_SIZE, total);
   const showPagination = pageCount > 1 || total > TABLE_PAGE_SIZE;
   const goToPage = (target: number) => {
     const params = buildParams(searchParams);
     params.set("page", String(target));
+    pushUrl(params, "push");
+  };
+  // Changing the page size can strand a big page number: restart at page 1
+  // like a search does, keeping q and the sort.
+  const goToPageSize = (next: number) => {
+    const params = buildParams(searchParams);
+    if (next === PAGE_SIZE_OPTIONS[0]) {
+      params.delete("pageSize"); // the default has no URL footprint
+    } else {
+      params.set("pageSize", String(next));
+    }
+    params.set("page", "1");
     pushUrl(params, "push");
   };
 
@@ -321,49 +341,81 @@ export function DataTable<TData extends RowData>({
           </TableBody>
         </Table>
         {showPagination ? (
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-label="First page"
-                disabled={clampedPage === 1}
-                onClick={() => goToPage(1)}
-                className="cursor-pointer rounded-md p-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-              >
-                <ChevronsLeftIcon className="size-4" />
-              </button>
-              <button
-                type="button"
-                aria-label="Previous page"
-                disabled={clampedPage === 1}
-                onClick={() => goToPage(clampedPage - 1)}
-                className="cursor-pointer rounded-md p-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-              >
-                <ChevronLeftIcon className="size-4" />
-              </button>
-            </div>
-            <span className="text-sm text-muted-foreground">
-              {pageFrom}–{pageTo} of {total}
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-label="Next page"
-                disabled={clampedPage >= pageCount}
-                onClick={() => goToPage(clampedPage + 1)}
-                className="cursor-pointer rounded-md p-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-              >
-                <ChevronRightIcon className="size-4" />
-              </button>
-              <button
-                type="button"
-                aria-label="Last page"
-                disabled={clampedPage >= pageCount}
-                onClick={() => goToPage(pageCount)}
-                className="cursor-pointer rounded-md p-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-              >
-                <ChevronsRightIcon className="size-4" />
-              </button>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {selectionToolbar
+                ? `${selectedIds.length} of ${rows.length} row(s) selected.`
+                : null}
+            </p>
+            <div className="flex flex-wrap items-center gap-5">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Rows per page
+                </span>
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(next) => goToPageSize(Number(next))}
+                >
+                  <SelectTrigger
+                    className="h-8 w-[4.5rem]"
+                    aria-label="Rows per page"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZE_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={String(option)}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                Page {clampedPage} of {pageCount}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="First page"
+                  disabled={clampedPage === 1}
+                  onClick={() => goToPage(1)}
+                  className="cursor-pointer"
+                >
+                  <ChevronsLeftIcon />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Previous page"
+                  disabled={clampedPage === 1}
+                  onClick={() => goToPage(clampedPage - 1)}
+                  className="cursor-pointer"
+                >
+                  <ChevronLeftIcon />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Next page"
+                  disabled={clampedPage >= pageCount}
+                  onClick={() => goToPage(clampedPage + 1)}
+                  className="cursor-pointer"
+                >
+                  <ChevronRightIcon />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Last page"
+                  disabled={clampedPage >= pageCount}
+                  onClick={() => goToPage(pageCount)}
+                  className="cursor-pointer"
+                >
+                  <ChevronsRightIcon />
+                </Button>
+              </div>
             </div>
           </div>
         ) : null}

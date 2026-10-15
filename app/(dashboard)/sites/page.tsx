@@ -2,11 +2,7 @@ import { asc, count, desc, ilike } from "drizzle-orm";
 
 import { site } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import {
-  TABLE_PAGE_SIZE,
-  ilikePattern,
-  parseTableSearchParams,
-} from "@/lib/table-params";
+import { PAGE_SIZE_OPTIONS, ilikePattern, parseTableSearchParams } from "@/lib/table-params";
 import { requireSuperadmin } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateSiteButton } from "@/components/site-form";
@@ -29,7 +25,10 @@ export default async function SitesPage({
   searchParams,
 }: PageProps<"/sites">) {
   await requireSuperadmin();
-  const { q, page, sort } = parseTableSearchParams(await searchParams);
+  const { q, page, sort, pageSize } = parseTableSearchParams(
+    await searchParams,
+    PAGE_SIZE_OPTIONS,
+  );
   const pattern = ilikePattern(q);
   const where = pattern ? ilike(site.name, pattern) : undefined;
   // Own-property lookup: a plain truthiness guard would admit prototype-chain
@@ -43,7 +42,7 @@ export default async function SitesPage({
     .select({ count: count() })
     .from(site)
     .where(where);
-  const pageCount = Math.max(1, Math.ceil(rowCount / TABLE_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
   const sites = await db
@@ -55,8 +54,8 @@ export default async function SitesPage({
         ? [sort.dir === "desc" ? desc(sortColumn) : asc(sortColumn)]
         : DEFAULT_ORDER),
     )
-    .limit(TABLE_PAGE_SIZE)
-    .offset((clamped - 1) * TABLE_PAGE_SIZE);
+    .limit(pageSize)
+    .offset((clamped - 1) * pageSize);
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
