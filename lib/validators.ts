@@ -94,6 +94,14 @@ export const userPasswordSchema = z.object({
   newPassword: z.string().min(8),
 });
 
+// Self-service change-password (/settings): any non-empty current password
+// (its correctness is the action's job), plus the same 8-char minimum the
+// admin-facing schemas enforce.
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
 // Same field rules as userCreateSchema minus the password (edits use
 // resetPassword for that) and minus email (email edits need Better Auth
 // semantics and are out of scope for updateUser), with the same

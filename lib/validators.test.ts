@@ -4,6 +4,7 @@ import {
   siteUpdateSchema,
   userCreateSchema,
   userPasswordSchema,
+  changePasswordSchema,
   parseUserCreate,
   parseUserUpdate,
   userUpdateSchema,
@@ -277,6 +278,32 @@ describe("userPasswordSchema", () => {
 
   test("rejects a short password", () => {
     expect(userPasswordSchema.safeParse({ newPassword: "1234567" }).success).toBe(false);
+  });
+});
+
+describe("changePasswordSchema", () => {
+  test("accepts a current and an 8-char new password", () => {
+    const result = changePasswordSchema.safeParse({
+      currentPassword: "old-pass",
+      newPassword: "12345678",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a 7-char newPassword", () => {
+    const result = changePasswordSchema.safeParse({
+      currentPassword: "old-pass",
+      newPassword: "1234567",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects an empty currentPassword", () => {
+    const result = changePasswordSchema.safeParse({
+      currentPassword: "",
+      newPassword: "12345678",
+    });
+    expect(result.success).toBe(false);
   });
 });
 
