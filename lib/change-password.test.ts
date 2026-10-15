@@ -9,7 +9,7 @@ import { APIError } from "better-auth/api";
 import { auth } from "./auth";
 import { db } from "./db";
 import { account, user } from "../drizzle/schema";
-import { changePasswordErrorState } from "../app/(dashboard)/settings/actions";
+import { changePasswordErrorState } from "./change-password-errors";
 import { GENERIC_ERROR } from "./action-state";
 
 const OLD_PASSWORD = "password-123456";
