@@ -4,9 +4,13 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 
+import { APIError } from "better-auth/api";
+
 import { auth } from "./auth";
 import { db } from "./db";
 import { account, user } from "../drizzle/schema";
+import { changePasswordErrorState } from "../app/(dashboard)/settings/actions";
+import { GENERIC_ERROR } from "./action-state";
 
 const OLD_PASSWORD = "password-123456";
 const NEW_PASSWORD = "rotated-password-654321";
@@ -128,5 +132,45 @@ describe("auth.api changePassword contract", () => {
 
     expect(result.rejected).toBe(true);
     expect(result.status).toBe("UNAUTHORIZED");
+  });
+});
+
+describe("changePasswordErrorState", () => {
+  test("maps INVALID_PASSWORD to a currentPassword field error", () => {
+    const err = new APIError("BAD_REQUEST", {
+      message: "Invalid password",
+      code: "INVALID_PASSWORD",
+    });
+
+    const result = changePasswordErrorState(err);
+
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors).toEqual({
+      currentPassword: "Current password is incorrect.",
+    });
+    expect(result.message).toBeUndefined();
+  });
+
+  test("maps an unknown error code to the generic failure", () => {
+    const err = new APIError("BAD_REQUEST", {
+      message: "no account",
+      code: "CREDENTIAL_ACCOUNT_NOT_FOUND",
+    });
+
+    const result = changePasswordErrorState(err);
+
+    expect(result).toEqual({ ok: false, message: GENERIC_ERROR });
+  });
+
+  test("maps a non-APIError throw to the generic failure", () => {
+    const result = changePasswordErrorState(new Error("boom"));
+
+    expect(result).toEqual({ ok: false, message: GENERIC_ERROR });
+  });
+
+  test("maps a non-object throw to the generic failure", () => {
+    const result = changePasswordErrorState("network down");
+
+    expect(result).toEqual({ ok: false, message: GENERIC_ERROR });
   });
 });

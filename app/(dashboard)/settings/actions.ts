@@ -1,0 +1,49 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+
+import { auth } from "@/lib/auth";
+import type { ActionState } from "@/lib/action-state";
+import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
+import { changePasswordSchema } from "@/lib/validators";
+
+// Maps a Better Auth rejection to the action result shape. No requireUser()
+// gate here: the endpoint's sensitiveSessionMiddleware already rejects
+// unauthenticated calls with UNAUTHORIZED (pinned by the contract test), so
+// a second gate would duplicate it.
+export function changePasswordErrorState(err: unknown): ActionState {
+  const code =
+    typeof err === "object" && err !== null && "body" in err
+      ? (err as { body?: { code?: string } }).body?.code
+      : undefined;
+  if (code === "INVALID_PASSWORD") {
+    return {
+      ok: false,
+      fieldErrors: { currentPassword: "Current password is incorrect." },
+    };
+  }
+  return { ok: false, message: GENERIC_ERROR };
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<ActionState> {
+  const parsed = changePasswordSchema.safeParse({ currentPassword, newPassword });
+  if (!parsed.success) {
+    return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
+  }
+
+  try {
+    await auth.api.changePassword({
+      body: { currentPassword, newPassword },
+      headers: await headers(),
+    });
+  } catch (err) {
+    return changePasswordErrorState(err);
+  }
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
