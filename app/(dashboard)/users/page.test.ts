@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation, user } from "@/drizzle/schema";
@@ -16,7 +16,7 @@ mock.module("@/lib/session", () => ({
 }));
 
 type Entry = {
-  user: { id: string; binding: string | null; role: string };
+  user: { id: string; name: string; binding: string | null; role: string };
   form: { id: string };
   canManage: boolean;
 };
@@ -36,6 +36,27 @@ function collectEntries(node: unknown, out: Entry[]): Entry[] {
       out.push(...(props.entries as Entry[]));
     }
     collectEntries(props.children, out);
+  }
+  return out;
+}
+
+function collectPageProps(node: unknown, out: { pageCount?: number; total?: number }[]) {
+  if (!node || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const child of node) collectPageProps(child, out);
+    return out;
+  }
+  const props = (node as {
+    props?: { children?: unknown; entries?: unknown; pageCount?: unknown; total?: unknown };
+  }).props;
+  if (props) {
+    if ("entries" in props) {
+      out.push({
+        pageCount: props.pageCount as number | undefined,
+        total: props.total as number | undefined,
+      });
+    }
+    collectPageProps(props.children, out);
   }
   return out;
 }
@@ -61,15 +82,21 @@ function collectOptions(node: unknown, out: Options[]): Options[] {
   return out;
 }
 
-async function renderUsers(): Promise<{
+async function renderUsers(
+  searchParams: Record<string, string | string[] | undefined> = {},
+): Promise<{
   entries: Entry[];
   options: Options[];
+  page: { pageCount?: number; total?: number };
 }> {
   const { default: UsersPage } = await import("./page");
-  const tree = await UsersPage();
+  const tree = await UsersPage({
+    searchParams: Promise.resolve(searchParams),
+  } as never);
   return {
     entries: collectEntries(tree, []),
     options: collectOptions(tree, []),
+    page: collectPageProps(tree, [])[0] ?? {},
   };
 }
 
@@ -276,6 +303,199 @@ describe("users page scoping (issue #18)", () => {
       await db.delete(user).where(eq(user.id, hoRow));
       await db.delete(user).where(eq(user.id, adminA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
+      await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+
+  test("q matches name OR email, scoped; pageCount/total travel (issue #22)", async () => {
+    const siteA = randomUUID();
+    const locA = randomUUID();
+    const nameMatch = randomUUID();
+    const emailMatch = randomUUID();
+    const missed = randomUUID();
+    try {
+      await db.insert(site).values([{ id: siteA, name: `t4-users-site-${randomUUID().slice(0, 6)}` }]);
+      await db.insert(siteLocation).values([
+        { id: locA, siteId: siteA, name: "T4 Users Loc A", address: "x" },
+      ]);
+      const token = randomUUID().slice(0, 8);
+      await db.insert(user).values([
+        {
+          id: nameMatch,
+          name: `t4-token-${token}`,
+          email: `t4-users-${nameMatch}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: locA,
+        },
+        {
+          id: emailMatch,
+          name: "unrelated joe",
+          email: `t4-token-${token}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: locA,
+        },
+        {
+          id: missed,
+          name: "unrelated sam",
+          email: `t4-users-${missed}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: locA,
+        },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Ho Actor",
+        email: `t4-users-${randomUUID()}@shiftly.test`,
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const { entries, page } = await renderUsers({ q: token });
+
+      expect(entries.map((e) => e.user.id).sort()).toEqual(
+        [nameMatch, emailMatch].sort(),
+      );
+      expect(page.total).toBe(2);
+      expect(page.pageCount).toBe(1);
+    } finally {
+      await db.delete(user).where(eq(user.id, nameMatch));
+      await db.delete(user).where(eq(user.id, emailMatch));
+      await db.delete(user).where(eq(user.id, missed));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locA));
+      await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+
+  test("sort=binding orders by location name with NULL bindings last", async () => {
+    const siteA = randomUUID();
+    const locAlpha = randomUUID();
+    const locBeta = randomUUID();
+    const boundAlpha = randomUUID();
+    const boundBeta = randomUUID();
+    const unbound = randomUUID();
+    try {
+      await db.insert(site).values([{ id: siteA, name: `t4-users-site-${randomUUID().slice(0, 6)}` }]);
+      await db.insert(siteLocation).values([
+        {
+          id: locAlpha,
+          siteId: siteA,
+          name: "T4 Users Loc Alpha",
+          address: "x",
+        },
+        { id: locBeta, siteId: siteA, name: "T4 Users Loc Beta", address: "x" },
+      ]);
+      await db.insert(user).values([
+        {
+          id: boundAlpha,
+          name: "t4-binding-a",
+          email: `t4-users-${boundAlpha}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: locAlpha,
+        },
+        {
+          id: boundBeta,
+          name: "t4-binding-b",
+          email: `t4-users-${boundBeta}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: locBeta,
+        },
+        {
+          id: unbound,
+          name: "t4-binding-z",
+          email: `t4-users-${unbound}@shiftly.test`,
+          emailVerified: true,
+          role: "ho",
+          siteId: siteA,
+        },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Ho Actor",
+        email: `t4-users-${randomUUID()}@shiftly.test`,
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const { entries } = await renderUsers({
+        q: "t4-binding-",
+        sort: "binding",
+      });
+
+      // Postgres ASC puts NULLs last: both location-bound rows ordered by
+      // their location name, then the site-bound ho row with no location.
+      expect(entries.map((e) => e.user.id)).toEqual([
+        boundAlpha,
+        boundBeta,
+        unbound,
+      ]);
+    } finally {
+      await db.delete(user).where(eq(user.id, boundAlpha));
+      await db.delete(user).where(eq(user.id, boundBeta));
+      await db.delete(user).where(eq(user.id, unbound));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locAlpha));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locBeta));
+      await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+
+  test("a bogus sort falls back to role/name order; page=999 clamps", async () => {
+    const siteA = randomUUID();
+    const token = `t4-users-clamp-${randomUUID().slice(0, 8)}`;
+    const siteId = siteA;
+    const ids = Array.from({ length: 15 }, () => randomUUID());
+    try {
+      await db.insert(site).values([
+        { id: siteId, name: `t4-users-site-${randomUUID().slice(0, 6)}` },
+      ]);
+      await db.insert(user).values(
+        ids.map((id, i) => ({
+          id,
+          name: `${token}-${String(i + 1).padStart(2, "0")}`,
+          email: `t4-users-${id}@shiftly.test`,
+          emailVerified: true,
+          role: "ho" as const,
+          siteId,
+        })),
+      );
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Ho Actor",
+        email: `t4-users-${randomUUID()}@shiftly.test`,
+        role: "ho",
+        siteId,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const bogus = await renderUsers({
+        q: token,
+        sort: "bogus" as never,
+        dir: "desc" as never,
+      });
+      // Default order (role asc, name asc) — for same-role fixtures that is
+      // plain name order. Page 1 of the fixed page size 10 shows the first
+      // ten in that order.
+      expect(bogus.entries.map((e) => e.user.id)).toEqual(ids.slice(0, 10));
+
+      const clamped = await renderUsers({ q: token, page: "999" });
+      expect(clamped.page.pageCount).toBe(2);
+      expect(clamped.page.total).toBe(15);
+      expect(clamped.entries.length).toBe(5);
+      expect(
+        clamped.entries.map((e) => e.user.name.slice(-2)),
+      ).toEqual(["11", "12", "13", "14", "15"]);
+    } finally {
+      await db.delete(user).where(inArray(user.id, ids));
       await db.delete(site).where(eq(site.id, siteA));
     }
   });

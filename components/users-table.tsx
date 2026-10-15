@@ -31,11 +31,15 @@ export function UsersTable({
   actorRole,
   sites,
   locations,
+  pageCount,
+  total,
 }: {
   entries: { user: UserRow; form: UserFormData; canManage: boolean }[];
   actorRole: Role;
   sites: SiteOption[];
   locations: LocationOption[];
+  pageCount: number;
+  total: number;
 }) {
   // useTable requires stable columns; the dialogs need role + form options.
   const columns = useMemo(
@@ -44,17 +48,21 @@ export function UsersTable({
         helper.accessor((row) => row.user.name, {
           id: "name",
           header: "Name",
-          meta: { thClassName: "min-w-[180px]", tdClassName: "font-medium" },
+          meta: {
+            thClassName: "min-w-[180px]",
+            tdClassName: "font-medium",
+            sortable: true,
+          },
         }),
         helper.accessor((row) => row.user.email, {
           id: "email",
           header: "Email",
-          meta: { thClassName: "min-w-[220px]" },
+          meta: { thClassName: "min-w-[220px]", sortable: true },
         }),
         helper.accessor((row) => row.user.role, {
           id: "role",
           header: "Role",
-          meta: { thClassName: "min-w-[130px]" },
+          meta: { thClassName: "min-w-[130px]", sortable: true },
           cell: (info) => {
             const role = info.getValue();
             return role === "superadmin" ? (
@@ -69,13 +77,13 @@ export function UsersTable({
         helper.accessor((row) => row.user.binding ?? "", {
           id: "binding",
           header: "Binding",
-          meta: { thClassName: "min-w-[180px]" },
+          meta: { thClassName: "min-w-[180px]", sortable: true },
           cell: (info) => info.getValue() || "—",
         }),
         helper.accessor((row) => row.user.isActive, {
           id: "isActive",
           header: "Status",
-          meta: { thClassName: "min-w-[110px]" },
+          meta: { thClassName: "min-w-[110px]", sortable: true },
           cell: (info) =>
             info.getValue() ? (
               <Badge variant="secondary">Active</Badge>
@@ -111,10 +119,8 @@ export function UsersTable({
     <DataTable
       columns={columns}
       data={entries}
-      // Interim plumbing until the users page adopts the server pattern
-      // (epic task #22): one unbroken page, footer stays hidden.
-      pageCount={1}
-      total={entries.length}
+      pageCount={pageCount}
+      total={total}
       emptyMessage="No users yet."
       getRowId={(row) => row.user.id}
       // Unmanageable rows (the ho's own, foreign accounts) render no

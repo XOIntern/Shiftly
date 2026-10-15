@@ -1,8 +1,13 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, and, count, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { site, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
+import {
+  TABLE_PAGE_SIZE,
+  ilikePattern,
+  parseTableSearchParams,
+} from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
 import { canManageActorTarget, userScopeFilter, type Role } from "@/lib/scope";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,9 +48,53 @@ function bindingLabel(row: {
 // Management rights over a resolved row come from the shared lib/scope
 // gate (canManageActorTarget) — the page no longer keeps its own copy of the
 // malformed-admin rule.
-export default async function UsersPage() {
+export default async function UsersPage({
+  searchParams,
+}: PageProps<"/users">) {
   // Server-side HO guard; the actions repeat it for direct calls.
   const actor = await requireHO();
+  const { q, page, sort } = parseTableSearchParams(await searchParams);
+
+  // URL-contract whitelists (epic #24) — the binding UI label is
+  // JS-computed, so its SQL sort uses the joined location name. Postgres
+  // ASC leaves NULL bindings last (accepted in the locked decisions).
+  const SORTABLE = {
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    binding: siteLocation.name,
+  };
+  const DEFAULT_ORDER = [asc(user.role), asc(user.name)];
+
+  const pattern = ilikePattern(q);
+  // Role text matches too — natural through the same OR (allowed per #22);
+  // the enum column needs a text cast for ILIKE.
+  const search = pattern
+    ? or(
+        ilike(user.name, pattern),
+        ilike(user.email, pattern),
+        sql`${user.role}::text ilike ${pattern}`,
+      )
+    : undefined;
+  // Null-safe and(...) composes the listing scope with the search.
+  const scope = userScopeFilter(actor);
+  const where = and(
+    ...(scope ? [scope] : []),
+    ...(search ? [search] : []),
+  );
+
+  const [{ count: rowCount }] = await db
+    .select({ count: count() })
+    .from(user)
+    .leftJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
+    .leftJoin(site, eq(user.siteId, site.id))
+    .leftJoin(locationSite, eq(siteLocation.siteId, locationSite.id))
+    // userScopeFilter reads siteLocation columns: the count carries every
+    // join the listing does (issue #22).
+    .where(where);
+  const pageCount = Math.max(1, Math.ceil(rowCount / TABLE_PAGE_SIZE));
+  const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
   const [rows, allSites, allLocations] = await Promise.all([
     db
@@ -69,8 +118,18 @@ export default async function UsersPage() {
       // Listing scoping (issue #18): an ho sees only users bound to its own
       // site — site-bound rows plus admins of the site's locations; a
       // superadmin gets undefined (= no WHERE) so drizzle filters nothing.
-      .where(userScopeFilter(actor))
-      .orderBy(asc(user.role), asc(user.name)),
+      .where(where)
+      .orderBy(
+        ...(sort && SORTABLE[sort.columnId as keyof typeof SORTABLE]
+          ? [
+              sort.dir === "desc"
+                ? desc(SORTABLE[sort.columnId as keyof typeof SORTABLE])
+                : asc(SORTABLE[sort.columnId as keyof typeof SORTABLE]),
+            ]
+          : DEFAULT_ORDER),
+      )
+      .limit(TABLE_PAGE_SIZE)
+      .offset((clamped - 1) * TABLE_PAGE_SIZE),
     db.select({ id: site.id, name: site.name }).from(site).orderBy(asc(site.name)),
     db
       .select({
@@ -135,6 +194,8 @@ export default async function UsersPage() {
             actorRole={actor.role}
             sites={sites}
             locations={locations}
+            pageCount={pageCount}
+            total={rowCount}
           />
         </CardContent>
       </Card>
