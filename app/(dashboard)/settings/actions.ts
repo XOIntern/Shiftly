@@ -23,7 +23,7 @@ export async function changePassword(
 
   try {
     await auth.api.changePassword({
-      body: { currentPassword, newPassword },
+      body: { currentPassword, newPassword, revokeOtherSessions: true },
       headers: await headers(),
     });
   } catch (err) {
