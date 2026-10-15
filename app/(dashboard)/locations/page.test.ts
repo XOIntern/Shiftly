@@ -23,7 +23,6 @@ type LocationNode = {
   locations: Array<{
     id: string;
     name: string;
-    address: string;
     siteName: string;
   }>;
   sites: Array<{ id: string; name: string }>;
@@ -63,7 +62,7 @@ async function renderLocations(
 
 // t3- prefixed real-DB fixtures; uuid slices keep suites collision-free.
 describe("locations page server queries (issue #21)", () => {
-  test("ho actor: search matches name AND address, scoped to its site", async () => {
+  test("ho actor: search matches name only (address field removed), scoped to its site", async () => {
     const siteA = randomUUID();
     const siteB = randomUUID();
     const locA_name = randomUUID();
@@ -81,28 +80,24 @@ describe("locations page server queries (issue #21)", () => {
           id: locA_name,
           siteId: siteA,
           name: `t3-loc-name-${randomUUID().slice(0, 6)}`,
-          address: "skip addr",
         },
-        // Matched via its address only.
+        // Once held the token in its address only — must NOT match now.
         {
           id: locB_address,
           siteId: siteA,
           name: "unrelated name",
-          address: `t3-loc-name-${randomUUID().slice(0, 6)}`,
         },
         // No match for the token.
         {
           id: locC_other,
           siteId: siteA,
           name: "unrelated name 2",
-          address: "unrelated address",
         },
         // Same token but on a foreign site — a ho must never see it.
         {
           id: locD_foreign,
           siteId: siteB,
           name: `t3-loc-name-foreign`,
-          address: `t3-loc-name-foreign-addr`,
         },
       ]);
 
@@ -119,8 +114,8 @@ describe("locations page server queries (issue #21)", () => {
       const props = await renderLocations({ q: token });
 
       const matched = props.locations.map((l) => l.id).sort();
-      expect(matched).toEqual([locA_name, locB_address].sort());
-      expect(props.total).toBe(2);
+      expect(matched).toEqual([locA_name]);
+      expect(props.total).toBe(1);
       expect(props.pageCount).toBe(1);
     } finally {
       await db.delete(siteLocation).where(eq(siteLocation.id, locA_name));
@@ -160,8 +155,8 @@ describe("locations page server queries (issue #21)", () => {
       ]);
       await db.insert(siteLocation).values([
         // Names reversed relative to site names to expose join ordering.
-        { id: locA, siteId: siteB, name: "t3-loc-zeta", address: "x" },
-        { id: locB, siteId: siteA, name: "t3-loc-alpha", address: "x" },
+        { id: locA, siteId: siteB, name: "t3-loc-zeta" },
+        { id: locB, siteId: siteA, name: "t3-loc-alpha" },
       ]);
 
       actor = {
@@ -215,12 +210,11 @@ describe("locations page server queries (issue #21)", () => {
           id,
           siteId: data[0],
           name: `${token}-${String(i + 1).padStart(2, "0")}`,
-          address: token,
         })),
       );
 
-      // Address carries the bare token; names are token-01..token-12 —
-      // either field matches, so the filtered set is exactly the fixtures.
+      // Names carry the token (token-01..token-12), so the filtered set is
+      // exactly the fixtures.
       const props = await renderLocations({ q: token, page: "999" });
       expect(props.pageCount).toBe(2);
       expect(props.total).toBe(12);

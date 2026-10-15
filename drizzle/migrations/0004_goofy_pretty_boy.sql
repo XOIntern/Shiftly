@@ -1,0 +1,1 @@
+ALTER TABLE "site_location" DROP COLUMN "address";

@@ -82,7 +82,7 @@ describe("sites bulk actions", () => {
     try {
       await db.insert(site).values([siteRow(empty), siteRow(guarded)]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: guarded, name: "T4 Sites Bulk Loc", address: "x" },
+        { id: locA, siteId: guarded, name: "T4 Sites Bulk Loc" },
       ]);
 
       actor = {

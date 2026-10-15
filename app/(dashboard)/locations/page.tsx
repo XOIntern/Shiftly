@@ -1,4 +1,4 @@
-import { asc, and, count, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { asc, and, count, desc, eq, ilike, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { site, siteLocation } from "@/drizzle/schema";
@@ -22,7 +22,6 @@ export const instant = false;
 const SORTABLE = {
   name: siteLocation.name,
   siteName: site.name,
-  address: siteLocation.address,
   isActive: siteLocation.isActive,
 };
 const DEFAULT_ORDER = [asc(site.name), asc(siteLocation.name)];
@@ -49,10 +48,10 @@ export default async function LocationsPage({
       : sql`false`;
 
   const pattern = ilikePattern(q);
-  // Name OR address search; the joined site name is deliberately not
-  // searched (locked decision 3). Null-safe and(...) composes scope+search.
+  // Name-only search; the joined site name is deliberately not searched
+  // (locked decision 3). Null-safe and(...) composes scope+search.
   const where = and(
-    ...(pattern ? [or(ilike(siteLocation.name, pattern), ilike(siteLocation.address, pattern))] : []),
+    ...(pattern ? [ilike(siteLocation.name, pattern)] : []),
     ...(scope ? [scope] : []),
   );
 
@@ -87,7 +86,6 @@ export default async function LocationsPage({
       .select({
         id: siteLocation.id,
         name: siteLocation.name,
-        address: siteLocation.address,
         isActive: siteLocation.isActive,
         siteId: siteLocation.siteId,
         siteName: site.name,

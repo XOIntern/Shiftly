@@ -31,7 +31,6 @@ export const siteLocation = pgTable(
       .notNull()
       .references(() => site.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
-    address: text("address").notNull().default(""),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")

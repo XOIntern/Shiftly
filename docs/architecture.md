@@ -209,7 +209,6 @@ erDiagram
     }
     SITE_LOCATION {
         string name "physical location/city, e.g. Jakarta vs Bogor"
-        string address
     }
     USER {
         string role "superadmin | ho | admin (superadmin unbound)"

@@ -32,14 +32,13 @@ function effectiveSiteId(
 }
 
 export async function createLocation(
-  input: { siteId?: string; name: string; address: string },
+  input: { siteId?: string; name: string },
 ): Promise<ActionState> {
   const actor = await requireHO();
 
   const parsed = locationCreateSchema.safeParse({
     siteId: effectiveSiteId(actor, input.siteId),
     name: input.name,
-    address: input.address,
   });
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
@@ -56,7 +55,6 @@ export async function createLocation(
     await db.insert(siteLocation).values({
       siteId: parsed.data.siteId,
       name: parsed.data.name,
-      address: parsed.data.address,
     });
   } catch (err) {
     return dbResult(err);
@@ -68,7 +66,7 @@ export async function createLocation(
 
 export async function updateLocation(
   id: string,
-  input: { name: string; address: string; siteId?: string; isActive: boolean },
+  input: { name: string; siteId?: string; isActive: boolean },
 ): Promise<ActionState> {
   const actor = await requireHO();
 
@@ -76,7 +74,6 @@ export async function updateLocation(
     id,
     siteId: effectiveSiteId(actor, input.siteId),
     name: input.name,
-    address: input.address,
     isActive: input.isActive,
   });
   if (!parsed.success) {
@@ -95,7 +92,6 @@ export async function updateLocation(
       .update(siteLocation)
       .set({
         name: parsed.data.name,
-        address: parsed.data.address,
         // undefined for a superadmin edit without a siteId (keep the
         // current site); a ho always lands on their own site.
         siteId: parsed.data.siteId,

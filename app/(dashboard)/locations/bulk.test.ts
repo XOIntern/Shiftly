@@ -24,7 +24,7 @@ mock.module("next/cache", () => ({
 }));
 
 function locationRow(id: string, siteId: string, name: string) {
-  return { id, siteId, name, address: "x" };
+  return { id, siteId, name };
 }
 
 describe("locations bulk actions", () => {

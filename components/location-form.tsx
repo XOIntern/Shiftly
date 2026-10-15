@@ -77,7 +77,6 @@ export type LocationOption = {
 export type LocationRow = {
   id: string;
   name: string;
-  address: string;
   isActive: boolean;
   siteId: string;
   siteName: string;
@@ -113,7 +112,6 @@ function LocationForm({
     location?.siteId ?? null,
   );
   const [name, setName] = useState(location?.name ?? "");
-  const [address, setAddress] = useState(location?.address ?? "");
   const [fieldErrors, setFieldErrors] = useState<LocationFieldErrors>();
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
@@ -147,13 +145,11 @@ function LocationForm({
       const result = location
         ? await updateLocation(location.id, {
             name,
-            address,
             isActive: location.isActive,
           })
         : await createLocation({
             siteId: siteId ?? undefined,
             name,
-            address,
           });
 
       if (result.ok) {
@@ -183,22 +179,7 @@ function LocationForm({
             <FieldError errors={[{ message: fieldErrors.name }]} />
           ) : null}
         </Field>
-        <Field data-invalid={fieldErrors?.address ? "true" : undefined}>
-          <FieldLabel htmlFor="location-address">Address</FieldLabel>
-          <Input
-            id="location-address"
-            name="address"
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            aria-invalid={fieldErrors?.address ? true : undefined}
-            maxLength={200}
-            required
-          />
-          {fieldErrors?.address ? (
-            <FieldError errors={[{ message: fieldErrors.address }]} />
-          ) : null}
-        </Field>
-        {/* Edits are name/address only: ho updates are pinned to their own
+        {/* Edits are name-only: ho updates are pinned to their own
             site and a superadmin edit keeps the current one. */}
         {location ? null : (
           <Field data-invalid={fieldErrors?.siteId ? "true" : undefined}>
@@ -354,9 +335,7 @@ function EditLocationDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit location</DialogTitle>
-          <DialogDescription>
-            Update the location&apos;s name or address.
-          </DialogDescription>
+          <DialogDescription>Update the location&apos;s name.</DialogDescription>
         </DialogHeader>
         <LocationForm
           sites={sites}

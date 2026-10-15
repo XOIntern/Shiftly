@@ -15,7 +15,6 @@ export const siteUpdateSchema = siteCreateSchema.extend({
 export const locationCreateSchema = z.object({
   siteId: z.uuid().optional(),
   name: nameField,
-  address: z.string().trim().min(1).max(200),
 });
 
 export const locationUpdateSchema = locationCreateSchema.extend({

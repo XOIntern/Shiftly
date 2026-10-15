@@ -256,8 +256,8 @@ describe("userScopeFilter (real DB)", () => {
         { id: siteB, name: `scope-filter-site-b-${siteB}` },
       ]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "Scope Filter L1", address: "x" },
-        { id: locB, siteId: siteB, name: "Scope Filter L2", address: "x" },
+        { id: locA, siteId: siteA, name: "Scope Filter L1" },
+        { id: locB, siteId: siteB, name: "Scope Filter L2" },
       ]);
       const mk = (id: string) => `scope-filter-${id}@shiftly.test`;
       await db.insert(user).values([

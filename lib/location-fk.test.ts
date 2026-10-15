@@ -27,7 +27,6 @@ describe("site_location delete FK restrict", () => {
         id: locationId,
         siteId,
         name: "Main Warehouse",
-        address: "Jl. Test 123",
       });
       // The binding that must hold the location: role "admin" is the role the
       // redesign binds to exactly one site_location.
@@ -88,7 +87,6 @@ describe("location ownership guard (review Critical: by-id scoping)", () => {
         id: locationId,
         siteId: siteBId, // foreign to the ho below
         name: "Foreign Warehouse",
-        address: "Jl. Guard 456",
       });
       // Real ho fixture, bound to site A, like a live session would be.
       await db.insert(user).values({
@@ -187,7 +185,6 @@ describe("ho ownership weld in the mutating WHERE (issue #17 Task 2)", () => {
         id: locationId,
         siteId: siteBId,
         name: "Foreign Warehouse",
-        address: "Jl. Weld 789",
       });
       await db.insert(user).values({
         id: hoId,

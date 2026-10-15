@@ -53,10 +53,6 @@ export function LocationsTable({
           header: "Site",
           meta: { thClassName: "min-w-[160px]", sortable: true },
         }),
-        helper.accessor("address", {
-          header: "Address",
-          meta: { thClassName: "min-w-[160px]", sortable: true },
-        }),
         helper.accessor("isActive", {
           header: "Status",
           meta: { thClassName: "min-w-[100px]", sortable: true },

@@ -123,9 +123,9 @@ describe("users page scoping (issue #18)", () => {
         { id: siteB, name: `t3-users-site-beta-${siteB}` },
       ]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T3 Users Loc A", address: "x" },
-        { id: locB, siteId: siteB, name: "T3 Users Loc B", address: "x" },
-        { id: locC, siteId: siteA, name: "T3 Users Loc C", address: "x" },
+        { id: locA, siteId: siteA, name: "T3 Users Loc A" },
+        { id: locB, siteId: siteB, name: "T3 Users Loc B" },
+        { id: locC, siteId: siteA, name: "T3 Users Loc C" },
       ]);
       await db.insert(user).values([
         {
@@ -234,7 +234,7 @@ describe("users page scoping (issue #18)", () => {
     try {
       await db.insert(site).values([{ id: siteA, name: `t3-users-site-gamma-${siteA}` }]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T3 Users Loc G", address: "x" },
+        { id: locA, siteId: siteA, name: "T3 Users Loc G" },
       ]);
       await db.insert(user).values([
         {
@@ -316,7 +316,7 @@ describe("users page scoping (issue #18)", () => {
     try {
       await db.insert(site).values([{ id: siteA, name: `t4-users-site-${randomUUID().slice(0, 6)}` }]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Loc A", address: "x" },
+        { id: locA, siteId: siteA, name: "T4 Users Loc A" },
       ]);
       const token = randomUUID().slice(0, 8);
       await db.insert(user).values([
@@ -385,9 +385,8 @@ describe("users page scoping (issue #18)", () => {
           id: locAlpha,
           siteId: siteA,
           name: "T4 Users Loc Alpha",
-          address: "x",
         },
-        { id: locBeta, siteId: siteA, name: "T4 Users Loc Beta", address: "x" },
+        { id: locBeta, siteId: siteA, name: "T4 Users Loc Beta" },
       ]);
       await db.insert(user).values([
         {

@@ -61,8 +61,8 @@ describe("setActiveBulk (bulk deactivation)", () => {
         { id: siteB, name: `t4-users-site-beta-${siteB}` },
       ]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc A", address: "x" },
-        { id: locB, siteId: siteB, name: "T4 Users Bulk Loc B", address: "x" },
+        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc A" },
+        { id: locB, siteId: siteB, name: "T4 Users Bulk Loc B" },
       ]);
       await db.insert(user).values([
         {
@@ -158,7 +158,7 @@ describe("setActiveBulk (bulk deactivation)", () => {
         { id: siteA, name: `t4-users-site-gamma-${siteA}` },
       ]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc G", address: "x" },
+        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc G" },
       ]);
       await db.insert(user).values([
         {
@@ -217,7 +217,7 @@ describe("setActiveBulk (bulk deactivation)", () => {
         { id: siteA, name: `t4-users-site-delta-${siteA}` },
       ]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc D", address: "x" },
+        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc D" },
       ]);
       await db.insert(user).values([
         {
@@ -277,7 +277,7 @@ describe("setActiveBulk (bulk deactivation)", () => {
         { id: siteA, name: `t4-users-site-eps-${siteA}` },
       ]);
       await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc E", address: "x" },
+        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc E" },
       ]);
       await db.insert(user).values([
         {
