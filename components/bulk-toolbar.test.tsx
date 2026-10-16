@@ -65,4 +65,11 @@ describe("BulkToolbar lifecycle button visibility", () => {
 
     expect(hasButton(html, "Clear")).toBeFalse();
   });
+
+  test("no confirm dialog mounts until a verb button is clicked", () => {
+    const html = renderBulk(2, [true, true]);
+
+    expect(html.includes("Deactivate 2 sites?")).toBeFalse();
+    expect(html.includes("Delete 2 sites?")).toBeFalse();
+  });
 });

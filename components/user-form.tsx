@@ -37,6 +37,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ResetPasswordDialog } from "@/components/user-reset-password";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Field,
   FieldDescription,
   FieldError,
@@ -450,15 +460,10 @@ export function UserRowActions({
   sites: SiteOption[];
   locations: LocationOption[];
 }) {
-  const [dialog, setDialog] = useState<"edit" | "reset" | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  function toggleActive() {
-    startTransition(async () => {
-      const result = await setActive(user.id, !user.isActive);
-      if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
-    });
-  }
+  const [dialog, setDialog] = useState<"edit" | "reset" | "toggle" | null>(
+    null,
+  );
+  const [pending] = useTransition();
 
   return (
     <DropdownMenu>
@@ -475,7 +480,11 @@ export function UserRowActions({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuGroup>
-          <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+          <DropdownMenuItem
+            disabled={pending}
+            variant={user.isActive ? "destructive" : undefined}
+            onClick={() => setDialog("toggle")}
+          >
             <PowerIcon />
             {user.isActive ? "Deactivate" : "Activate"}
           </DropdownMenuItem>
@@ -508,7 +517,66 @@ export function UserRowActions({
           if (!open) setDialog(null);
         }}
       />
+      <ToggleUserDialog
+        user={user}
+        open={dialog === "toggle"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
     </DropdownMenu>
+  );
+}
+
+function ToggleUserDialog({
+  user,
+  open,
+  onOpenChange,
+}: {
+  user: UserRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const activating = !user.isActive;
+  const verb = activating ? "Activate" : "Deactivate";
+
+  function handleConfirm() {
+    startTransition(async () => {
+      const result = await setActive(user.id, activating);
+      if (result.ok) {
+        onOpenChange(false);
+        return;
+      }
+      toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {verb} “{user.name}”?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {activating
+              ? "They will be able to sign in again."
+              : "They will no longer be able to sign in, and all their signed-in devices will be logged out."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant={activating ? "outline" : "destructive"}
+            disabled={pending}
+            onClick={handleConfirm}
+          >
+            {pending ? `${verb.slice(0, -2)}ing…` : verb}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

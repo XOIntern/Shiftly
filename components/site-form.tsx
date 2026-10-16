@@ -148,15 +148,10 @@ export function CreateSiteButton() {
 }
 
 export function SiteRowActions({ site }: { site: SiteRow }) {
-  const [dialog, setDialog] = useState<"edit" | "delete" | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  function toggleActive() {
-    startTransition(async () => {
-      const result = await toggleSite(site.id);
-      if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
-    });
-  }
+  const [dialog, setDialog] = useState<"edit" | "delete" | "toggle" | null>(
+    null,
+  );
+  const [pending] = useTransition();
 
   return (
     <DropdownMenu>
@@ -173,7 +168,11 @@ export function SiteRowActions({ site }: { site: SiteRow }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuGroup>
-          <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+          <DropdownMenuItem
+            disabled={pending}
+            variant={site.isActive ? "destructive" : undefined}
+            onClick={() => setDialog("toggle")}
+          >
             <PowerIcon />
             {site.isActive ? "Deactivate" : "Activate"}
           </DropdownMenuItem>
@@ -206,6 +205,13 @@ export function SiteRowActions({ site }: { site: SiteRow }) {
           if (!open) setDialog(null);
         }}
       />
+      <ToggleSiteDialog
+        site={site}
+        open={dialog === "toggle"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
     </DropdownMenu>
   );
 }
@@ -231,6 +237,57 @@ function EditSiteDialog({
         <SiteForm site={site} onSaved={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ToggleSiteDialog({
+  site,
+  open,
+  onOpenChange,
+}: {
+  site: SiteRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const activating = !site.isActive;
+  const verb = activating ? "Activate" : "Deactivate";
+
+  function handleConfirm() {
+    startTransition(async () => {
+      const result = await toggleSite(site.id);
+      if (result.ok) {
+        onOpenChange(false);
+        return;
+      }
+      toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {verb} “{site.name}”?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            The site will be marked {activating ? "active" : "inactive"} for
+            everyone. Locations and users under it keep their own state.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant={activating ? undefined : "destructive"}
+            disabled={pending}
+            onClick={handleConfirm}
+          >
+            {pending ? `${verb.slice(0, -2)}ing…` : verb}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

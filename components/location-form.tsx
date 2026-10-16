@@ -162,21 +162,6 @@ function LocationForm({
     <form onSubmit={handleSubmit}>
       <FieldGroup className="gap-4">
         {message ? <FieldError>{message}</FieldError> : null}
-        <Field data-invalid={fieldErrors?.name ? "true" : undefined}>
-          <FieldLabel htmlFor="location-name">Location name</FieldLabel>
-          <Input
-            id="location-name"
-            name="name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            aria-invalid={fieldErrors?.name ? true : undefined}
-            maxLength={200}
-            required
-          />
-          {fieldErrors?.name ? (
-            <FieldError errors={[{ message: fieldErrors.name }]} />
-          ) : null}
-        </Field>
         {/* Edits are name-only: ho updates are pinned to their own
             site and a superadmin edit keeps the current one. */}
         {location ? null : (
@@ -214,6 +199,22 @@ function LocationForm({
             ) : null}
           </Field>
         )}
+
+        <Field data-invalid={fieldErrors?.name ? "true" : undefined}>
+          <FieldLabel htmlFor="location-name">Location name</FieldLabel>
+          <Input
+            id="location-name"
+            name="name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            aria-invalid={fieldErrors?.name ? true : undefined}
+            maxLength={200}
+            required
+          />
+          {fieldErrors?.name ? (
+            <FieldError errors={[{ message: fieldErrors.name }]} />
+          ) : null}
+        </Field>
         <DialogFooter>
           <Button type="submit" disabled={pending}>
             {pending ? "Saving…" : "Save"}
@@ -254,15 +255,10 @@ export function LocationRowActions({
   location: LocationRow;
   sites: SiteOption[];
 }) {
-  const [dialog, setDialog] = useState<"edit" | "delete" | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  function toggleActive() {
-    startTransition(async () => {
-      const result = await toggleLocation(location.id);
-      if (!result.ok) toast.error(result.message ?? GENERIC_ERROR);
-    });
-  }
+  const [dialog, setDialog] = useState<"edit" | "delete" | "toggle" | null>(
+    null,
+  );
+  const [pending] = useTransition();
 
   return (
     <DropdownMenu>
@@ -279,7 +275,11 @@ export function LocationRowActions({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuGroup>
-          <DropdownMenuItem disabled={pending} onClick={toggleActive}>
+          <DropdownMenuItem
+            disabled={pending}
+            variant={location.isActive ? "destructive" : undefined}
+            onClick={() => setDialog("toggle")}
+          >
             <PowerIcon />
             {location.isActive ? "Deactivate" : "Activate"}
           </DropdownMenuItem>
@@ -313,7 +313,65 @@ export function LocationRowActions({
           if (!open) setDialog(null);
         }}
       />
+      <ToggleLocationDialog
+        location={location}
+        open={dialog === "toggle"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
     </DropdownMenu>
+  );
+}
+
+function ToggleLocationDialog({
+  location,
+  open,
+  onOpenChange,
+}: {
+  location: LocationRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const activating = !location.isActive;
+  const verb = activating ? "Activate" : "Deactivate";
+
+  function handleConfirm() {
+    startTransition(async () => {
+      const result = await toggleLocation(location.id);
+      if (result.ok) {
+        onOpenChange(false);
+        return;
+      }
+      toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {verb} “{location.name}”?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            The location will be marked {activating ? "active" : "inactive"}.
+            Workers and admins bound to it keep their bindings.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant={activating ? undefined : "destructive"}
+            disabled={pending}
+            onClick={handleConfirm}
+          >
+            {pending ? `${verb.slice(0, -2)}ing…` : verb}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
