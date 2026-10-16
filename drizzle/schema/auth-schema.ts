@@ -9,7 +9,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { site, siteLocation } from "./master-data";
+import { site, siteLocation } from "./site-schema";
 
 export const userRoleEnum = pgEnum("user_role", ["superadmin", "ho", "admin"]);
 

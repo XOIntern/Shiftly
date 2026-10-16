@@ -38,7 +38,9 @@ export const siteLocation = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [unique("site_location_site_id_name_unique").on(table.siteId, table.name)],
+  (table) => [
+    unique("site_location_site_id_name_unique").on(table.siteId, table.name),
+  ],
 );
 
 export const siteRelations = relations(site, ({ many }) => ({
