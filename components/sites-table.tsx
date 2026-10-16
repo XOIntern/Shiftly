@@ -7,6 +7,7 @@ import { deleteBulk, setActiveBulk } from "@/app/dashboard/sites/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { StatusFilter } from "@/components/status-filter";
 import { SiteRowActions, type SiteRow } from "@/components/site-form";
 
 const helper = createColumnHelper<typeof dataTableFeatures, SiteRow>();
@@ -61,6 +62,7 @@ export function SitesTable({
       total={total}
       emptyMessage="No sites yet — add the first one."
       getRowId={(row) => row.id}
+      filters={<StatusFilter />}
       selectionToolbar={({ count, ids, rows, clear }) => (
         <BulkToolbar
           entityName="site"

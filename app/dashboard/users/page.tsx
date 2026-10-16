@@ -1,9 +1,14 @@
-import { asc, and, count, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { asc, and, count, eq, ilike, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { site, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { PAGE_SIZE_OPTIONS, ilikePattern, parseTableSearchParams } from "@/lib/table-params";
+import { buildOrder } from "@/lib/table-order";
+import {
+  PAGE_SIZE_OPTIONS,
+  ilikePattern,
+  parseTableSearchParams,
+} from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
 import { canManageActorTarget, userScopeFilter, type Role } from "@/lib/scope";
 import { Card, CardContent } from "@/components/ui/card";
@@ -50,7 +55,7 @@ export default async function UsersPage({
 }: PageProps<"/dashboard/users">) {
   // Server-side HO guard; the actions repeat it for direct calls.
   const actor = await requireHO();
-  const { q, page, sort, pageSize } = parseTableSearchParams(
+  const { q, status, page, sorts, pageSize } = parseTableSearchParams(
     await searchParams,
     PAGE_SIZE_OPTIONS,
   );
@@ -77,18 +82,17 @@ export default async function UsersPage({
         sql`${user.role}::text ilike ${pattern}`,
       )
     : undefined;
-  // Null-safe and(...) composes the listing scope with the search.
+  // Null-safe and(...) composes the listing scope with search + filters.
   const scope = userScopeFilter(actor);
   const where = and(
     ...(scope ? [scope] : []),
     ...(search ? [search] : []),
+    ...(status ? [eq(user.isActive, status === "active")] : []),
   );
-  // Own-property lookup: a plain truthiness guard would admit prototype-chain
-  // `columnIds` (e.g. `?sort=__proto__`), which drizzle rejects mid-render.
-  const sortColumn =
-    sort && Object.hasOwn(SORTABLE, sort.columnId)
-      ? SORTABLE[sort.columnId as keyof typeof SORTABLE]
-      : undefined;
+  // buildOrder own-property checks the whitelist: a plain truthiness guard
+  // would admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which
+  // drizzle rejects mid-render.
+  const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
   const [{ count: rowCount }] = await db
     .select({ count: count() })
@@ -125,14 +129,13 @@ export default async function UsersPage({
       // site — site-bound rows plus admins of the site's locations; a
       // superadmin gets undefined (= no WHERE) so drizzle filters nothing.
       .where(where)
-      .orderBy(
-        ...(sort && sortColumn
-          ? [sort.dir === "desc" ? desc(sortColumn) : asc(sortColumn)]
-          : DEFAULT_ORDER),
-      )
+      .orderBy(...order)
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),
-    db.select({ id: site.id, name: site.name }).from(site).orderBy(asc(site.name)),
+    db
+      .select({ id: site.id, name: site.name })
+      .from(site)
+      .orderBy(asc(site.name)),
     db
       .select({
         id: siteLocation.id,
@@ -178,9 +181,9 @@ export default async function UsersPage({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Head-office, admin, and superadmin accounts. Admins only access
-            the site location they are bound to.
+          <p className="text-sm text-muted-foreground">
+            Head-office, admin, and superadmin accounts. Admins only access the
+            site location they are bound to.
           </p>
         </div>
         <CreateUserButton

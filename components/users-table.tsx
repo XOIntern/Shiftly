@@ -7,6 +7,7 @@ import { setActiveBulk } from "@/app/dashboard/users/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { StatusFilter } from "@/components/status-filter";
 import { Badge } from "@/components/ui/badge";
 import {
   type LocationOption,
@@ -127,6 +128,7 @@ export function UsersTable({
       total={total}
       emptyMessage="No users yet."
       getRowId={(row) => row.user.id}
+      filters={<StatusFilter />}
       // Unmanageable rows (the ho's own, foreign accounts) render no
       // checkbox and are never select-all targets.
       canSelectRow={(row) => row.canManage}

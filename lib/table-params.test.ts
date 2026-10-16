@@ -15,7 +15,8 @@ describe("parseTableSearchParams", () => {
     expect(parseTableSearchParams(raw({}))).toEqual({
       q: "",
       page: 1,
-      sort: null,
+      sorts: [],
+      status: null,
       pageSize: 10,
     });
   });
@@ -28,7 +29,8 @@ describe("parseTableSearchParams", () => {
     ).toEqual({
       q: "alpha",
       page: 3,
-      sort: { columnId: "name", dir: "asc" },
+      sorts: [{ columnId: "name", dir: "asc" }],
+      status: null,
       pageSize: 10,
     });
   });
@@ -45,26 +47,90 @@ describe("parseTableSearchParams", () => {
     expect(parseTableSearchParams(raw({ page: "2abc" })).page).toBe(2);
   });
 
-  test("dir is asc unless exactly desc", () => {
-    expect(parseTableSearchParams(raw({ sort: "name", dir: "desc" })).sort).toEqual({
-      columnId: "name",
-      dir: "desc",
+  test("dir is asc unless exactly desc (legacy single-sort form)", () => {
+    expect(parseTableSearchParams(raw({ sort: "name", dir: "desc" })).sorts).toEqual([
+      { columnId: "name", dir: "desc" },
+    ]);
+    expect(parseTableSearchParams(raw({ sort: "name", dir: "DESC" })).sorts).toEqual([
+      { columnId: "name", dir: "asc" },
+    ]);
+    expect(
+      parseTableSearchParams(raw({ sort: "name", dir: "sideways" })).sorts,
+    ).toEqual([{ columnId: "name", dir: "asc" }]);
+  });
+
+  test("empty or whitespace-only sort parses to no sorts", () => {
+    expect(parseTableSearchParams(raw({ sort: "" })).sorts).toEqual([]);
+    expect(parseTableSearchParams(raw({ sort: "  " })).sorts).toEqual([]);
+  });
+
+  describe("multi-sort", () => {
+    test("parses a comma-separated columnId:dir list in priority order", () => {
+      expect(
+        parseTableSearchParams(raw({ sort: "isActive:asc,name:desc" })).sorts,
+      ).toEqual([
+        { columnId: "isActive", dir: "asc" },
+        { columnId: "name", dir: "desc" },
+      ]);
     });
-    expect(parseTableSearchParams(raw({ sort: "name", dir: "DESC" })).sort).toEqual({
-      columnId: "name",
-      dir: "asc",
+
+    test("a pair without a dir falls back to asc", () => {
+      expect(parseTableSearchParams(raw({ sort: "name:" })).sorts).toEqual([
+        { columnId: "name", dir: "asc" },
+      ]);
     });
-    expect(parseTableSearchParams(raw({ sort: "name", dir: "sideways" })).sort).toEqual({
-      columnId: "name",
-      dir: "asc",
+
+    test("empty segments and blank column ids are skipped", () => {
+      expect(
+        parseTableSearchParams(raw({ sort: ",name:asc,,b:desc," })).sorts,
+      ).toEqual([
+        { columnId: "name", dir: "asc" },
+        { columnId: "b", dir: "desc" },
+      ]);
+      expect(parseTableSearchParams(raw({ sort: "," })).sorts).toEqual([]);
+    });
+
+    test("duplicate column ids keep the first occurrence only", () => {
+      expect(
+        parseTableSearchParams(raw({ sort: "name:asc,name:desc" })).sorts,
+      ).toEqual([{ columnId: "name", dir: "asc" }]);
+    });
+
+    test("the list is capped at three levels", () => {
+      expect(
+        parseTableSearchParams(
+          raw({ sort: "a:asc,b:desc,c:asc,d:desc" }),
+        ).sorts,
+      ).toEqual([
+        { columnId: "a", dir: "asc" },
+        { columnId: "b", dir: "desc" },
+        { columnId: "c", dir: "asc" },
+      ]);
     });
   });
 
-  test("sort is null for empty or whitespace values", () => {
-    expect(parseTableSearchParams(raw({ sort: "" })).sort).toBeNull();
-    expect(parseTableSearchParams(raw({ sort: "  " })).sort).toEqual({
-      columnId: "  ",
-      dir: "asc",
+  describe("status", () => {
+    test("is null when the param is absent or empty", () => {
+      expect(parseTableSearchParams(raw({})).status).toBeNull();
+      expect(parseTableSearchParams(raw({ status: "" })).status).toBeNull();
+    });
+
+    test("parses the whitelist values exactly", () => {
+      expect(parseTableSearchParams(raw({ status: "active" })).status).toBe(
+        "active",
+      );
+      expect(parseTableSearchParams(raw({ status: "inactive" })).status).toBe(
+        "inactive",
+      );
+    });
+
+    test("is null for anything outside the whitelist", () => {
+      expect(parseTableSearchParams(raw({ status: "ACTIVE" })).status).toBeNull();
+      expect(parseTableSearchParams(raw({ status: "junk" })).status).toBeNull();
+      // Array values use the first element, like q/page/sort do.
+      expect(
+        parseTableSearchParams(raw({ status: ["active", "junk"] })).status,
+      ).toBe("active");
     });
   });
 

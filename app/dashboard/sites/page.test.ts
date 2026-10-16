@@ -156,6 +156,85 @@ describe("sites page server queries (issue #20)", () => {
     }
   });
 
+  test("status filter keeps only active or inactive rows; junk shows all", async () => {
+    const token = `t2-sites-${randomUUID().slice(0, 8)}`;
+    const activeId = randomUUID();
+    const inactiveId = randomUUID();
+    try {
+      await db.insert(site).values([
+        { id: activeId, name: `${token}-on`, isActive: true },
+        { id: inactiveId, name: `${token}-off`, isActive: false },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "Sites Page Sa",
+        email: `t2-sites-page-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const all = await renderSites({ q: token });
+      expect(all.sites.map((row) => row.id).sort()).toEqual(
+        [activeId, inactiveId].sort(),
+      );
+
+      const active = await renderSites({ q: token, status: "active" });
+      expect(active.sites.map((row) => row.id)).toEqual([activeId]);
+      expect(active.total).toBe(1);
+
+      const inactive = await renderSites({ q: token, status: "inactive" });
+      expect(inactive.sites.map((row) => row.id)).toEqual([inactiveId]);
+      expect(inactive.total).toBe(1);
+
+      // Whitelist: anything else parses to no filter.
+      const junk = await renderSites({ q: token, status: "junk" as never });
+      expect(junk.sites).toHaveLength(2);
+    } finally {
+      await db.delete(site).where(eq(site.id, activeId));
+      await db.delete(site).where(eq(site.id, inactiveId));
+    }
+  });
+
+  test("multi-sort orders by the listed keys in priority order", async () => {
+    const token = `t2-sites-${randomUUID().slice(0, 8)}`;
+    // isActive asc puts false first; within each group, name desc reverses.
+    const offA = randomUUID();
+    const offB = randomUUID();
+    const onA = randomUUID();
+    const onB = randomUUID();
+    try {
+      await db.insert(site).values([
+        { id: offA, name: `${token}-off-a`, isActive: false },
+        { id: offB, name: `${token}-off-b`, isActive: false },
+        { id: onA, name: `${token}-on-a`, isActive: true },
+        { id: onB, name: `${token}-on-b`, isActive: true },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "Sites Page Sa",
+        email: `t2-sites-page-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const props = await renderSites({
+        q: token,
+        sort: "isActive:asc,name:desc",
+      });
+
+      expect(props.sites.map((row) => row.id)).toEqual([offB, offA, onB, onA]);
+    } finally {
+      for (const row of [offA, offB, onA, onB]) {
+        await db.delete(site).where(eq(site.id, row));
+      }
+    }
+  });
+
   test("sort=isActive&dir=desc puts active rows first", async () => {
     const token = `t2-sites-${randomUUID().slice(0, 8)}`;
     const inactiveId = randomUUID();

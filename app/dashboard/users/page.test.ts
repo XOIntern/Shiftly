@@ -371,6 +371,62 @@ describe("users page scoping (issue #18)", () => {
     }
   });
 
+  test("status filter keeps only active or inactive rows; junk shows all", async () => {
+    const token = `t4-users-status-${randomUUID().slice(0, 8)}`;
+    const activeId = randomUUID();
+    const inactiveId = randomUUID();
+    try {
+      await db.insert(user).values([
+        {
+          id: activeId,
+          name: "t4-status-on",
+          email: `${token}-on@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          isActive: true,
+        },
+        {
+          id: inactiveId,
+          name: "t4-status-off",
+          email: `${token}-off@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          isActive: false,
+        },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Status Sa",
+        email: `t4-users-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const all = await renderUsers({ q: token });
+      expect(all.entries.map((e) => e.user.id).sort()).toEqual(
+        [activeId, inactiveId].sort(),
+      );
+
+      const active = await renderUsers({ q: token, status: "active" });
+      expect(active.entries.map((e) => e.user.id)).toEqual([activeId]);
+      expect(active.page.total).toBe(1);
+
+      const inactive = await renderUsers({ q: token, status: "inactive" });
+      expect(inactive.entries.map((e) => e.user.id)).toEqual([inactiveId]);
+      expect(inactive.page.total).toBe(1);
+
+      // Whitelist: anything else parses to no filter.
+      const junk = await renderUsers({ q: token, status: "junk" as never });
+      expect(junk.entries).toHaveLength(2);
+    } finally {
+      await db.delete(user).where(eq(user.id, activeId));
+      await db.delete(user).where(eq(user.id, inactiveId));
+    }
+  });
+
   test("sort=binding orders by location name with NULL bindings last", async () => {
     const siteA = randomUUID();
     const locAlpha = randomUUID();
@@ -443,6 +499,51 @@ describe("users page scoping (issue #18)", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, locAlpha));
       await db.delete(siteLocation).where(eq(siteLocation.id, locBeta));
       await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+
+  test("multi-sort: the second key orders within ties of the first", async () => {
+    const token = `t4-users-multi-${randomUUID().slice(0, 8)}`;
+    const userA = randomUUID();
+    const userB = randomUUID();
+    try {
+      // Both active admins: isActive alone ties them, so only the explicit
+      // second key (name desc) can produce this order.
+      await db.insert(user).values([
+        {
+          id: userA,
+          name: `${token}-a`,
+          email: `t4-users-${userA}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+        },
+        {
+          id: userB,
+          name: `${token}-b`,
+          email: `t4-users-${userB}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+        },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Multi Sa",
+        email: `t4-users-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const { entries } = await renderUsers({
+        q: token,
+        sort: "isActive:desc,name:desc",
+      });
+
+      expect(entries.map((e) => e.user.id)).toEqual([userB, userA]);
+    } finally {
+      await db.delete(user).where(eq(user.id, userA));
+      await db.delete(user).where(eq(user.id, userB));
     }
   });
 

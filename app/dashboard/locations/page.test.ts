@@ -143,6 +143,55 @@ describe("locations page server queries (issue #21)", () => {
     expect(props.pageCount).toBe(1);
   });
 
+  test("status filter keeps only active or inactive rows; junk shows all", async () => {
+    const siteA = randomUUID();
+    const locActive = randomUUID();
+    const locInactive = randomUUID();
+    const token = `t3-loc-status-${randomUUID().slice(0, 8)}`;
+    try {
+      await db.insert(site).values([{ id: siteA, name: token }]);
+      await db.insert(siteLocation).values([
+        { id: locActive, siteId: siteA, name: `${token}-on`, isActive: true },
+        {
+          id: locInactive,
+          siteId: siteA,
+          name: `${token}-off`,
+          isActive: false,
+        },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "Loc Status Actor",
+        email: `t3-loc-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const all = await renderLocations({ q: token });
+      expect(all.locations.map((l) => l.id).sort()).toEqual(
+        [locActive, locInactive].sort(),
+      );
+
+      const active = await renderLocations({ q: token, status: "active" });
+      expect(active.locations.map((l) => l.id)).toEqual([locActive]);
+      expect(active.total).toBe(1);
+
+      const inactive = await renderLocations({ q: token, status: "inactive" });
+      expect(inactive.locations.map((l) => l.id)).toEqual([locInactive]);
+      expect(inactive.total).toBe(1);
+
+      // Whitelist: anything else parses to no filter.
+      const junk = await renderLocations({ q: token, status: "junk" as never });
+      expect(junk.locations).toHaveLength(2);
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.siteId, siteA));
+      await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+
   test("sort=siteName orders by the joined site name; bogus falls back", async () => {
     const siteA = randomUUID();
     const siteB = randomUUID();
@@ -188,6 +237,41 @@ describe("locations page server queries (issue #21)", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, locB));
       await db.delete(site).where(eq(site.id, siteA));
       await db.delete(site).where(eq(site.id, siteB));
+    }
+  });
+
+  test("multi-sort: the second key orders within ties of the first", async () => {
+    const siteA = randomUUID();
+    const locA = randomUUID();
+    const locB = randomUUID();
+    const token = `t3-loc-multi-${randomUUID().slice(0, 8)}`;
+    try {
+      // One site, two locations: siteName alone ties them, so only the
+      // explicit second key (name desc) can produce this order.
+      await db.insert(site).values([{ id: siteA, name: token }]);
+      await db.insert(siteLocation).values([
+        { id: locA, siteId: siteA, name: `${token}-a` },
+        { id: locB, siteId: siteA, name: `${token}-b` },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "Loc Multi Actor",
+        email: `t3-loc-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const props = await renderLocations({
+        q: token,
+        sort: "siteName:asc,name:desc",
+      });
+
+      expect(props.locations.map((l) => l.id)).toEqual([locB, locA]);
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.siteId, siteA));
+      await db.delete(site).where(eq(site.id, siteA));
     }
   });
 

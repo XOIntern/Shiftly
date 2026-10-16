@@ -7,6 +7,7 @@ import { deleteBulk, setActiveBulk } from "@/app/dashboard/locations/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { StatusFilter } from "@/components/status-filter";
 import { Badge } from "@/components/ui/badge";
 import {
   LocationRowActions,
@@ -79,8 +80,9 @@ export function LocationsTable({
       data={locations}
       pageCount={pageCount}
       total={total}
-      emptyMessage="No locations yet — add the first one for a site."
+      emptyMessage="No locations yet."
       getRowId={(row) => row.id}
+      filters={<StatusFilter />}
       selectionToolbar={({ count, ids, rows, clear }) => (
         <BulkToolbar
           entityName="location"

@@ -26,9 +26,11 @@ import {
 } from "lucide-react";
 
 import {
+  MAX_SORTS,
   PAGE_SIZE_OPTIONS,
   parseTableSearchParams,
   TABLE_PAGE_SIZE,
+  type TableSort,
 } from "@/lib/table-params";
 import { dataTableFeatures, type DataTableFeatures } from "@/components/data-table-features";
 import { Button } from "@/components/ui/button";
@@ -65,6 +67,10 @@ interface DataTableProps<TData extends RowData> {
   /** Shown when the filtered set is empty with no search in the URL. */
   emptyMessage?: string;
   placeholder?: string;
+  /** Extra toolbar controls (e.g. a status filter) rendered after the
+   * search box; they own their URL params and push them like the
+   * search does. Any URL change — theirs included — drops selection. */
+  filters?: ReactNode;
   /** Stable application id per row — required so selection survives
    * re-sorts, filters, and revalidation refreshes (index ids would remap
    * onto whatever row lands at that position). */
@@ -92,6 +98,7 @@ export function DataTable<TData extends RowData>({
   total,
   emptyMessage = "No results.",
   placeholder = "Search…",
+  filters,
   getRowId,
   canSelectRow,
   selectionToolbar,
@@ -99,10 +106,19 @@ export function DataTable<TData extends RowData>({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { q, page, sort, pageSize } = parseTableSearchParams(
+  const { q, sorts, status, page, pageSize } = parseTableSearchParams(
     Object.fromEntries(searchParams.entries()),
     PAGE_SIZE_OPTIONS,
   );
+  // One stable string drives the sort UI, the header indicators, and the
+  // selection-reset effect without re-running on a fresh array each render.
+  const sortKey = sorts.map((s) => `${s.columnId}:${s.dir}`).join(",");
+  const sortOf = (columnId: string): TableSort | undefined =>
+    sorts.find((s) => s.columnId === columnId);
+  const sortRank = (columnId: string): number | null => {
+    const index = sorts.findIndex((s) => s.columnId === columnId);
+    return index === -1 ? null : index + 1;
+  };
 
   const table = useTable({
     features: dataTableFeatures,
@@ -160,7 +176,7 @@ export function DataTable<TData extends RowData>({
   useEffect(() => {
     table.resetRowSelection(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, page, sort?.columnId, sort?.dir, pageSize]);
+  }, [q, status, page, sortKey, pageSize]);
 
   const rows = table.getRowModel().rows;
 
@@ -194,18 +210,45 @@ export function DataTable<TData extends RowData>({
     pushUrl(params, "push");
   };
 
-  const toggleSort = (columnId: string) => {
+  // Plain click cycles one column: asc → desc → none (replace). Shift+click
+  // composes the multi-sort list (TanStack convention): not listed → append
+  // asc; asc → desc; desc → remove. Both restart pagination at page 1.
+  const toggleSort = (columnId: string, multi: boolean) => {
     const params = buildParams(searchParams);
     params.set("page", "1");
-    if (sort?.columnId !== columnId) {
-      params.set("sort", columnId);
-      params.set("dir", "asc");
-    } else if (sort.dir === "asc") {
-      params.set("dir", "desc");
+    const current = sortOf(columnId);
+    const write = (next: TableSort[]) => {
+      if (next.length === 0) {
+        params.delete("sort");
+        params.delete("dir");
+      } else {
+        params.set(
+          "sort",
+          next.map((s) => `${s.columnId}:${s.dir}`).join(","),
+        );
+        params.delete("dir"); // the pairs carry their own directions
+      }
+    };
+
+    if (!multi) {
+      if (!current) {
+        write([{ columnId, dir: "asc" }]);
+      } else if (current.dir === "asc") {
+        write([{ columnId, dir: "desc" }]);
+      } else {
+        write([]);
+      }
+      pushUrl(params, "push");
+      return;
+    }
+
+    if (!current) {
+      if (sorts.length >= MAX_SORTS) return; // list full — nothing to do
+      write([...sorts, { columnId, dir: "asc" }]);
+    } else if (current.dir === "asc") {
+      write(sorts.map((s) => (s.columnId === columnId ? { ...s, dir: "desc" } : s)));
     } else {
-      // Cycle third stop: back to the default order.
-      params.delete("sort");
-      params.delete("dir");
+      write(sorts.filter((s) => s.columnId !== columnId));
     }
     pushUrl(params, "push");
   };
@@ -213,17 +256,23 @@ export function DataTable<TData extends RowData>({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <InputGroup className="max-w-sm">
-          <InputGroupAddon>
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            aria-label="Search table"
-            placeholder={placeholder}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-          />
-        </InputGroup>
+        {/* flex-1 lets search fill the row's spare width (capped by max-w-sm)
+            so an added filter sits beside it instead of wrapping below: the
+            InputGroup's own w-full would otherwise claim the whole line. */}
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+          <InputGroup className="min-w-56 flex-1 sm:max-w-sm">
+            <InputGroupAddon>
+              <SearchIcon />
+            </InputGroupAddon>
+            <InputGroupInput
+              aria-label="Search table"
+              placeholder={placeholder}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+            />
+          </InputGroup>
+          {filters}
+        </div>
         {selectedIds.length > 0 && selectionToolbar
           ? selectionToolbar({
               count: selectedIds.length,
@@ -256,8 +305,9 @@ export function DataTable<TData extends RowData>({
                 {headerGroup.headers.map((header) => {
                   const column = header.column;
                   const sortable = !!column.columnDef.meta?.sortable;
-                  const sortDirection =
-                    sort?.columnId === column.id ? sort.dir : null;
+                  const current = sortOf(column.id);
+                  const sortDirection = current?.dir ?? null;
+                  const rank = sortRank(column.id);
 
                   return (
                     <TableHead
@@ -274,7 +324,12 @@ export function DataTable<TData extends RowData>({
                       {header.isPlaceholder ? null : sortable ? (
                         <button
                           type="button"
-                          onClick={() => toggleSort(column.id)}
+                          onClick={(event) => toggleSort(column.id, event.shiftKey)}
+                          title={
+                            sortable
+                              ? "Sort — Shift+click untuk tambah ke multi-sort"
+                              : undefined
+                          }
                           className="flex cursor-pointer items-center gap-1 text-start"
                         >
                           <table.FlexRender header={header} />
@@ -285,6 +340,11 @@ export function DataTable<TData extends RowData>({
                           ) : (
                             <ArrowUpDownIcon className="size-3.5 opacity-30" />
                           )}
+                          {sorts.length > 1 && rank !== null ? (
+                            <span className="rounded bg-muted px-1 text-[10px] leading-4 text-muted-foreground">
+                              {rank}
+                            </span>
+                          ) : null}
                         </button>
                       ) : (
                         <table.FlexRender header={header} />

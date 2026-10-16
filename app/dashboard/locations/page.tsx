@@ -1,8 +1,9 @@
-import { asc, and, count, desc, eq, ilike, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { site, siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
+import { buildOrder } from "@/lib/table-order";
 import {
   PAGE_SIZE_OPTIONS,
   ilikePattern,
@@ -36,7 +37,7 @@ export default async function LocationsPage({
   searchParams,
 }: PageProps<"/dashboard/locations">) {
   const actor = await requireHO();
-  const { q, page, sort, pageSize } = parseTableSearchParams(
+  const { q, status, page, sorts, pageSize } = parseTableSearchParams(
     await searchParams,
     PAGE_SIZE_OPTIONS,
   );
@@ -53,18 +54,17 @@ export default async function LocationsPage({
 
   const pattern = ilikePattern(q);
   // Name-only search; the joined site name is deliberately not searched
-  // (locked decision 3). Null-safe and(...) composes scope+search.
+  // (locked decision 3). Null-safe and(...) composes scope+search+filters.
   const where = and(
     ...(pattern ? [ilike(siteLocation.name, pattern)] : []),
+    ...(status ? [eq(siteLocation.isActive, status === "active")] : []),
     ...(scope ? [scope] : []),
   );
 
-  // Own-property lookup: a plain truthiness guard would admit prototype-chain
-  // `columnIds` (e.g. `?sort=__proto__`), which drizzle rejects mid-render.
-  const sortColumn =
-    sort && Object.hasOwn(SORTABLE, sort.columnId)
-      ? SORTABLE[sort.columnId as keyof typeof SORTABLE]
-      : undefined;
+  // Own-property lookup inside buildOrder: a plain truthiness guard would
+  // admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which
+  // drizzle rejects mid-render.
+  const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
   const [{ count: rowCount }] = await db
     .select({ count: count() })
@@ -97,11 +97,7 @@ export default async function LocationsPage({
       .from(siteLocation)
       .innerJoin(site, eq(siteLocation.siteId, site.id))
       .where(where)
-      .orderBy(
-        ...(sortColumn && sort
-          ? [sort.dir === "desc" ? desc(sortColumn) : asc(sortColumn)]
-          : DEFAULT_ORDER),
-      )
+      .orderBy(...order)
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),
   ]);
@@ -111,7 +107,7 @@ export default async function LocationsPage({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Locations</h1>
-          <p className="max-w-md text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Workplace locations inside each site. Site admins are bound to
             exactly one location; queries are scoped at the data level.
           </p>
