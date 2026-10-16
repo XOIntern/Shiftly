@@ -32,7 +32,10 @@ import {
   TABLE_PAGE_SIZE,
   type TableSort,
 } from "@/lib/table-params";
-import { dataTableFeatures, type DataTableFeatures } from "@/components/data-table-features";
+import {
+  dataTableFeatures,
+  type DataTableFeatures,
+} from "@/components/data-table-features";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -42,7 +45,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import {
   Table,
   TableBody,
@@ -222,10 +229,7 @@ export function DataTable<TData extends RowData>({
         params.delete("sort");
         params.delete("dir");
       } else {
-        params.set(
-          "sort",
-          next.map((s) => `${s.columnId}:${s.dir}`).join(","),
-        );
+        params.set("sort", next.map((s) => `${s.columnId}:${s.dir}`).join(","));
         params.delete("dir"); // the pairs carry their own directions
       }
     };
@@ -246,7 +250,9 @@ export function DataTable<TData extends RowData>({
       if (sorts.length >= MAX_SORTS) return; // list full — nothing to do
       write([...sorts, { columnId, dir: "asc" }]);
     } else if (current.dir === "asc") {
-      write(sorts.map((s) => (s.columnId === columnId ? { ...s, dir: "desc" } : s)));
+      write(
+        sorts.map((s) => (s.columnId === columnId ? { ...s, dir: "desc" } : s)),
+      );
     } else {
       write(sorts.filter((s) => s.columnId !== columnId));
     }
@@ -324,7 +330,9 @@ export function DataTable<TData extends RowData>({
                       {header.isPlaceholder ? null : sortable ? (
                         <button
                           type="button"
-                          onClick={(event) => toggleSort(column.id, event.shiftKey)}
+                          onClick={(event) =>
+                            toggleSort(column.id, event.shiftKey)
+                          }
                           title={
                             sortable
                               ? "Sort — Shift+click untuk tambah ke multi-sort"
@@ -420,7 +428,7 @@ export function DataTable<TData extends RowData>({
                   onValueChange={(next) => goToPageSize(Number(next))}
                 >
                   <SelectTrigger
-                    className="h-8 w-[4.5rem]"
+                    className="h-8 w-18"
                     aria-label="Rows per page"
                   >
                     <SelectValue />
