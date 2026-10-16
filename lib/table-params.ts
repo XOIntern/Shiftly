@@ -23,6 +23,10 @@ export type StatusFilter = "active" | "inactive" | null;
 
 export type RawSearchParams = Record<string, string | string[] | undefined>;
 
+// Role enum as plain strings — table-params stays framework-free, so it
+// cannot import lib/scope (which pulls in drizzle + the db client).
+const ROLES = ["superadmin", "ho", "admin"] as const;
+
 // Single string values only: repeated params and undefined/empty fall back
 // to defaults, so a malformed "?sort=a&sort=b" can never reach the queries.
 export function parseTableSearchParams(
@@ -33,6 +37,7 @@ export function parseTableSearchParams(
   page: number;
   sorts: TableSort[];
   status: StatusFilter;
+  role: (typeof ROLES)[number] | null;
   pageSize: number;
 } {
   const first = (key: string): string | undefined => {
@@ -74,8 +79,13 @@ export function parseTableSearchParams(
   const statusValue = first("status");
   const status: StatusFilter =
     statusValue === "active" || statusValue === "inactive" ? statusValue : null;
+  const roleValue = first("role");
+  const role =
+    roleValue && (ROLES as readonly string[]).includes(roleValue)
+      ? (roleValue as (typeof ROLES)[number])
+      : null;
 
-  return { q, page, sorts, status, pageSize };
+  return { q, page, sorts, status, role, pageSize };
 }
 
 // undefined for empty q; otherwise "%q%" with \, %, _ backslash-escaped so

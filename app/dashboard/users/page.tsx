@@ -55,7 +55,7 @@ export default async function UsersPage({
 }: PageProps<"/dashboard/users">) {
   // Server-side HO guard; the actions repeat it for direct calls.
   const actor = await requireHO();
-  const { q, status, page, sorts, pageSize } = parseTableSearchParams(
+  const { q, status, role, page, sorts, pageSize } = parseTableSearchParams(
     await searchParams,
     PAGE_SIZE_OPTIONS,
   );
@@ -88,6 +88,7 @@ export default async function UsersPage({
     ...(scope ? [scope] : []),
     ...(search ? [search] : []),
     ...(status ? [eq(user.isActive, status === "active")] : []),
+    ...(role ? [eq(user.role, role)] : []),
   );
   // buildOrder own-property checks the whitelist: a plain truthiness guard
   // would admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which

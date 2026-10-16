@@ -427,6 +427,68 @@ describe("users page scoping (issue #18)", () => {
     }
   });
 
+  test("role filter keeps only the matching role rows; junk shows all", async () => {
+    const token = `t4-users-role-${randomUUID().slice(0, 8)}`;
+    const hoId = randomUUID();
+    const adminId = randomUUID();
+    const saId = randomUUID();
+    try {
+      await db.insert(user).values([
+        {
+          id: hoId,
+          name: "t4-role-ho",
+          email: `${token}-ho@shiftly.test`,
+          emailVerified: true,
+          role: "ho",
+        },
+        {
+          id: adminId,
+          name: "t4-role-admin",
+          email: `${token}-admin@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+        },
+        {
+          id: saId,
+          name: "t4-role-sa",
+          email: `${token}-sa@shiftly.test`,
+          emailVerified: true,
+          role: "superadmin",
+        },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Role Sa",
+        email: `t4-users-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const all = await renderUsers({ q: token });
+      expect(all.entries.map((e) => e.user.id).sort()).toEqual(
+        [hoId, adminId, saId].sort(),
+      );
+
+      const ho = await renderUsers({ q: token, role: "ho" });
+      expect(ho.entries.map((e) => e.user.id)).toEqual([hoId]);
+      expect(ho.page.total).toBe(1);
+
+      const admin = await renderUsers({ q: token, role: "admin" });
+      expect(admin.entries.map((e) => e.user.id)).toEqual([adminId]);
+
+      // Whitelist: anything else parses to no filter.
+      const junk = await renderUsers({ q: token, role: "junk" as never });
+      expect(junk.entries).toHaveLength(3);
+    } finally {
+      await db.delete(user).where(eq(user.id, hoId));
+      await db.delete(user).where(eq(user.id, adminId));
+      await db.delete(user).where(eq(user.id, saId));
+    }
+  });
+
   test("sort=binding orders by location name with NULL bindings last", async () => {
     const siteA = randomUUID();
     const locAlpha = randomUUID();

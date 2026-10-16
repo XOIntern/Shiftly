@@ -17,6 +17,7 @@ describe("parseTableSearchParams", () => {
       page: 1,
       sorts: [],
       status: null,
+      role: null,
       pageSize: 10,
     });
   });
@@ -31,6 +32,7 @@ describe("parseTableSearchParams", () => {
       page: 3,
       sorts: [{ columnId: "name", dir: "asc" }],
       status: null,
+      role: null,
       pageSize: 10,
     });
   });
@@ -106,6 +108,30 @@ describe("parseTableSearchParams", () => {
         { columnId: "b", dir: "desc" },
         { columnId: "c", dir: "asc" },
       ]);
+    });
+  });
+
+  describe("role", () => {
+    test("is null when the param is absent or empty", () => {
+      expect(parseTableSearchParams(raw({})).role).toBeNull();
+      expect(parseTableSearchParams(raw({ role: "" })).role).toBeNull();
+    });
+
+    test("parses the whitelist values exactly", () => {
+      expect(parseTableSearchParams(raw({ role: "superadmin" })).role).toBe(
+        "superadmin",
+      );
+      expect(parseTableSearchParams(raw({ role: "ho" })).role).toBe("ho");
+      expect(parseTableSearchParams(raw({ role: "admin" })).role).toBe("admin");
+    });
+
+    test("is null for anything outside the whitelist", () => {
+      expect(parseTableSearchParams(raw({ role: "ADMIN" })).role).toBeNull();
+      expect(parseTableSearchParams(raw({ role: "junk" })).role).toBeNull();
+      // Array values use the first element, like q/page/sort do.
+      expect(parseTableSearchParams(raw({ role: ["ho", "junk"] })).role).toBe(
+        "ho",
+      );
     });
   });
 
