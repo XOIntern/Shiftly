@@ -43,10 +43,10 @@ export default async function LoginPage() {
         </Link>
 
         <div>
-          <h1 className="max-w-md text-4xl font-semibold leading-[1.1] tracking-tighter">
+          <h1 className="max-w-md text-3xl font-semibold leading-[1.1] tracking-tighter">
             Shift scheduling for multi-site operations.
           </h1>
-          <p className="mt-4 max-w-md text-balance text-primary-foreground/70">
+          <p className="mt-4 max-w-lg text-balance text-primary-foreground/70">
             Build the weekly roster per site and location, record attendance as
             workers clock in, and manage everyone from one place.
           </p>
