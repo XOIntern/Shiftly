@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState, useTransition } from "react";
+import { EyeIcon, EyeOffIcon } from "lucide-react";
 
 import { resetPassword } from "@/app/dashboard/users/actions";
 import type { ActionState } from "@/lib/action-state";
@@ -20,7 +21,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupInput, InputGroupAddon } from "./ui/input-group";
 
 export function ResetPasswordDialog({
   user,
@@ -33,6 +34,7 @@ export function ResetPasswordDialog({
 }) {
   const inputId = useId();
   const [newPassword, setNewPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<ActionState["fieldErrors"]>();
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
@@ -41,6 +43,7 @@ export function ResetPasswordDialog({
     // Reset for the next open.
     if (!next) {
       setNewPassword("");
+      setShowPassword(false);
       setFieldErrors(undefined);
       setMessage(undefined);
     }
@@ -79,16 +82,30 @@ export function ResetPasswordDialog({
             {message ? <FieldError>{message}</FieldError> : null}
             <Field data-invalid={fieldErrors?.newPassword ? "true" : undefined}>
               <FieldLabel htmlFor={inputId}>New password</FieldLabel>
-              <Input
-                id={inputId}
-                name="newPassword"
-                type="password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                aria-invalid={fieldErrors?.newPassword ? true : undefined}
-                minLength={8}
-                required
-              />
+              <InputGroup>
+                <InputGroupInput
+                  id={inputId}
+                  name="newPassword"
+                  type={showPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  aria-invalid={fieldErrors?.newPassword ? true : undefined}
+                  minLength={8}
+                  required
+                />
+                <InputGroupAddon align="inline-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showPassword}
+                    tabIndex={-1}
+                    className="text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </InputGroupAddon>
+              </InputGroup>
               <FieldDescription>At least 8 characters.</FieldDescription>
               {fieldErrors?.newPassword ? (
                 <FieldError errors={[{ message: fieldErrors.newPassword }]} />
