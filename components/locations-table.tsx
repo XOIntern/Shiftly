@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 
-import { deleteBulk, setActiveBulk } from "@/app/(dashboard)/locations/actions";
+import { deleteBulk, setActiveBulk } from "@/app/dashboard/locations/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
@@ -41,6 +41,10 @@ export function LocationsTable({
   const columns = useMemo(
     () =>
       helper.columns([
+        helper.accessor("siteName", {
+          header: "Site",
+          meta: { thClassName: "min-w-[160px]", sortable: true },
+        }),
         helper.accessor("name", {
           header: "Location",
           meta: {
@@ -48,10 +52,6 @@ export function LocationsTable({
             tdClassName: "font-medium",
             sortable: true,
           },
-        }),
-        helper.accessor("siteName", {
-          header: "Site",
-          meta: { thClassName: "min-w-[160px]", sortable: true },
         }),
         helper.accessor("isActive", {
           header: "Status",
@@ -66,10 +66,7 @@ export function LocationsTable({
             tdClassName: "text-right",
           },
           cell: (info) => (
-            <LocationRowActions
-              location={info.row.original}
-              sites={sites}
-            />
+            <LocationRowActions location={info.row.original} sites={sites} />
           ),
         }),
       ]),

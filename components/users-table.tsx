@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 
-import { setActiveBulk } from "@/app/(dashboard)/users/actions";
+import { setActiveBulk } from "@/app/dashboard/users/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";

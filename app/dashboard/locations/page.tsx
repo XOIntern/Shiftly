@@ -3,7 +3,11 @@ import type { SQL } from "drizzle-orm";
 
 import { site, siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { PAGE_SIZE_OPTIONS, ilikePattern, parseTableSearchParams } from "@/lib/table-params";
+import {
+  PAGE_SIZE_OPTIONS,
+  ilikePattern,
+  parseTableSearchParams,
+} from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -30,7 +34,7 @@ const DEFAULT_ORDER = [asc(site.name), asc(siteLocation.name)];
 // state, count first for pageCount, clamp the page, then fetch one page.
 export default async function LocationsPage({
   searchParams,
-}: PageProps<"/locations">) {
+}: PageProps<"/dashboard/locations">) {
   const actor = await requireHO();
   const { q, page, sort, pageSize } = parseTableSearchParams(
     await searchParams,

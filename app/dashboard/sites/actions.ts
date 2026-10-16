@@ -35,7 +35,7 @@ export async function createSite(name: string): Promise<ActionState> {
     return dbResult(err);
   }
 
-  revalidatePath("/sites");
+  revalidatePath("/dashboard/sites");
   return { ok: true };
 }
 
@@ -65,7 +65,7 @@ export async function updateSite(
     return dbResult(err);
   }
 
-  revalidatePath("/sites");
+  revalidatePath("/dashboard/sites");
   return { ok: true };
 }
 
@@ -89,7 +89,7 @@ export async function toggleSite(id: string): Promise<ActionState> {
     return dbResult(err);
   }
 
-  revalidatePath("/sites");
+  revalidatePath("/dashboard/sites");
   return { ok: true };
 }
 
@@ -115,7 +115,7 @@ export async function deleteSite(id: string): Promise<ActionState> {
     return { ok: false, message: result.message };
   }
 
-  revalidatePath("/sites");
+  revalidatePath("/dashboard/sites");
   return { ok: true };
 }
 
@@ -141,7 +141,7 @@ export async function setActiveBulk(
       .set({ isActive })
       .where(inArray(site.id, validIds))
       .returning({ id: site.id });
-    revalidatePath("/sites");
+    revalidatePath("/dashboard/sites");
     return { ok: true, applied: updated.length };
   } catch (err) {
     return dbResult(err);
@@ -182,7 +182,7 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
     return dbResult(err);
   }
 
-  revalidatePath("/sites");
+  revalidatePath("/dashboard/sites");
   return {
     ok: true,
     applied,

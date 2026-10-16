@@ -60,7 +60,7 @@ export async function createLocation(
     return dbResult(err);
   }
 
-  revalidatePath("/locations");
+  revalidatePath("/dashboard/locations");
   return { ok: true };
 }
 
@@ -109,7 +109,7 @@ export async function updateLocation(
     return dbResult(err);
   }
 
-  revalidatePath("/locations");
+  revalidatePath("/dashboard/locations");
   return { ok: true };
 }
 
@@ -137,7 +137,7 @@ export async function toggleLocation(id: string): Promise<ActionState> {
     return dbResult(err);
   }
 
-  revalidatePath("/locations");
+  revalidatePath("/dashboard/locations");
   return { ok: true };
 }
 
@@ -175,7 +175,7 @@ export async function deleteLocation(id: string): Promise<ActionState> {
     return dbResult(err);
   }
 
-  revalidatePath("/locations");
+  revalidatePath("/dashboard/locations");
   return { ok: true };
 }
 
@@ -201,7 +201,7 @@ export async function setActiveBulk(
       .set({ isActive })
       .where(locationBulkMutationWhere(actor, validIds))
       .returning({ id: siteLocation.id });
-    revalidatePath("/locations");
+    revalidatePath("/dashboard/locations");
     return { ok: true, applied: updated.length };
   } catch (err) {
     return dbResult(err);
@@ -256,7 +256,7 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
     if (boundIds.size > 0) {
       result.message = `${boundIds.size} location${boundIds.size === 1 ? "" : "s"} skipped: Users are still bound to this location`;
     }
-    revalidatePath("/locations");
+    revalidatePath("/dashboard/locations");
     return result;
   } catch (err) {
     return dbResult(err);

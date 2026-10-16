@@ -23,7 +23,7 @@ const DEFAULT_ORDER = [asc(site.name)];
 // exactly one page of rows.
 export default async function SitesPage({
   searchParams,
-}: PageProps<"/sites">) {
+}: PageProps<"/dashboard/sites">) {
   await requireSuperadmin();
   const { q, page, sort, pageSize } = parseTableSearchParams(
     await searchParams,

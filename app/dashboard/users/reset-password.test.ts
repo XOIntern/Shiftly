@@ -92,4 +92,50 @@ describe("resetPassword", () => {
       await db.delete(site).where(eq(site.id, siteA));
     }
   });
+
+  test("resets a better-auth non-uuid ho id (user.id is text, not uuid)", async () => {
+    // better-auth minted ids are 32-char random strings, not uuids.
+    const superActor = "superAcctAaBbCcDdEeFfGgHhIiJjKkLlMm02";
+    const hoTarget = "hoTargetAaBbCcDdEeFfGgHhIiJjKkLlMmN3";
+
+    const mkEmail = (id: string) => `t5-users-${id.slice(0, 8)}@shiftly.test`;
+    const sessionWipesBefore = sessionWipes.length;
+    try {
+      await db.insert(user).values([
+        {
+          id: superActor,
+          name: "T5 Actor Super B",
+          email: mkEmail(superActor),
+          emailVerified: true,
+          role: "superadmin",
+        },
+        {
+          id: hoTarget,
+          name: "T5 HO Target B",
+          email: mkEmail(hoTarget),
+          emailVerified: true,
+          role: "ho",
+        },
+      ]);
+
+      actor = {
+        id: superActor,
+        name: "T5 Actor Super B",
+        email: mkEmail(superActor),
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { resetPassword } = await import("./actions");
+      const result = await resetPassword(hoTarget, "Brand-New-Password-1");
+
+      expect(result.ok).toBe(true);
+      expect(sessionWipes.slice(sessionWipesBefore)).toEqual([hoTarget]);
+    } finally {
+      await db.delete(user).where(eq(user.id, superActor));
+      await db.delete(user).where(eq(user.id, hoTarget));
+    }
+  });
 });

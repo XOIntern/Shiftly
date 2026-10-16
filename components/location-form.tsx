@@ -17,7 +17,7 @@ import {
   deleteLocation,
   toggleLocation,
   updateLocation,
-} from "@/app/(dashboard)/locations/actions";
+} from "@/app/dashboard/locations/actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -108,9 +108,7 @@ function LocationForm({
   location?: LocationRow;
   onSaved: () => void;
 }) {
-  const [siteId, setSiteId] = useState<string | null>(
-    location?.siteId ?? null,
-  );
+  const [siteId, setSiteId] = useState<string | null>(location?.siteId ?? null);
   const [name, setName] = useState(location?.name ?? "");
   const [fieldErrors, setFieldErrors] = useState<LocationFieldErrors>();
   const [message, setMessage] = useState<string>();
@@ -239,8 +237,8 @@ export function CreateLocationButton({ sites }: { sites: SiteOption[] }) {
         <DialogHeader>
           <DialogTitle>New location</DialogTitle>
           <DialogDescription>
-            Locations are the specific workplaces inside a site that workers
-            and their admins get bound to.
+            Locations are the specific workplaces inside a site that workers and
+            their admins get bound to.
           </DialogDescription>
         </DialogHeader>
         <LocationForm sites={sites} onSaved={() => setOpen(false)} />
@@ -335,7 +333,9 @@ function EditLocationDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit location</DialogTitle>
-          <DialogDescription>Update the location&apos;s name.</DialogDescription>
+          <DialogDescription>
+            Update the location&apos;s name.
+          </DialogDescription>
         </DialogHeader>
         <LocationForm
           sites={sites}
@@ -375,8 +375,8 @@ function DeleteLocationDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete location</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently deletes “{location.name}”. Locations referenced
-            by users cannot be deleted.
+            This permanently deletes “{location.name}”. Locations referenced by
+            users cannot be deleted.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

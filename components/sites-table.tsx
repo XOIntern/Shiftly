@@ -3,14 +3,11 @@
 import { createColumnHelper } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 
-import { deleteBulk, setActiveBulk } from "@/app/(dashboard)/sites/actions";
+import { deleteBulk, setActiveBulk } from "@/app/dashboard/sites/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
-import {
-  SiteRowActions,
-  type SiteRow,
-} from "@/components/site-form";
+import { SiteRowActions, type SiteRow } from "@/components/site-form";
 
 const helper = createColumnHelper<typeof dataTableFeatures, SiteRow>();
 

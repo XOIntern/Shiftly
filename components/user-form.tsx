@@ -10,7 +10,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { createUser, setActive, updateUser } from "@/app/(dashboard)/users/actions";
+import {
+  createUser,
+  setActive,
+  updateUser,
+} from "@/app/dashboard/users/actions";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import type { ActionState } from "@/lib/action-state";
 import type { Role } from "@/lib/scope";
@@ -138,12 +142,20 @@ function UserForm({
   // because choosing the location is the point.
   const locationLocked = mode === "edit" && actorRole === "ho";
 
-  const siteItems: { label: string; value: string | null; disabled?: boolean }[] = [
+  const siteItems: {
+    label: string;
+    value: string | null;
+    disabled?: boolean;
+  }[] = [
     { label: "Select a site", value: null, disabled: true },
     ...sites.map(({ id, name }) => ({ label: name, value: id })),
   ];
 
-  const locationItems: { label: string; value: string | null; disabled?: boolean }[] = [
+  const locationItems: {
+    label: string;
+    value: string | null;
+    disabled?: boolean;
+  }[] = [
     { label: "Select a location", value: null, disabled: true },
     ...locations.map(({ id, name, siteName }) => ({
       label: siteName ? `${name} (${siteName})` : name,
@@ -336,7 +348,9 @@ function UserForm({
           </Field>
         ) : null}
         {role === "admin" ? (
-          <Field data-invalid={fieldErrors?.siteLocationId ? "true" : undefined}>
+          <Field
+            data-invalid={fieldErrors?.siteLocationId ? "true" : undefined}
+          >
             <FieldLabel htmlFor={locationFieldId}>Location</FieldLabel>
             <Select
               items={locationItems}
@@ -407,8 +421,8 @@ export function CreateUserButton({
         <DialogHeader>
           <DialogTitle>New user</DialogTitle>
           <DialogDescription>
-            Superadmins run the whole system; head-office users bind one
-            site; admins bind one site location.
+            Superadmins run the whole system; head-office users bind one site;
+            admins bind one site location.
           </DialogDescription>
         </DialogHeader>
         <UserForm

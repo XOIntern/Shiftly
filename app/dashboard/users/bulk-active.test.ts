@@ -265,6 +265,52 @@ describe("setActiveBulk (bulk deactivation)", () => {
     }
   });
 
+  test("deactivates a better-auth non-uuid ho id (user.id is text, not uuid)", async () => {
+    // better-auth minted ids are 32-char random strings, not uuids.
+    const superActor = "superAcctAaBbCcDdEeFfGgHhIiJjKkLlMm01";
+    const hoTarget = "hoTargetAaBbCcDdEeFfGgHhIiJjKkLlMmN2";
+    const mkEmail = (id: string) => `t4-users-${id.slice(0, 8)}@shiftly.test`;
+
+    try {
+      await db.insert(user).values([
+        {
+          id: superActor,
+          name: "T4 Actor Super G",
+          email: mkEmail(superActor),
+          emailVerified: true,
+          role: "superadmin",
+        },
+        {
+          id: hoTarget,
+          name: "T4 HO Target G",
+          email: mkEmail(hoTarget),
+          emailVerified: true,
+          role: "ho",
+        },
+      ]);
+
+      actor = {
+        id: superActor,
+        name: "T4 Actor Super G",
+        email: mkEmail(superActor),
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { setActiveBulk } = await import("./actions");
+      const result = await setActiveBulk([hoTarget], false);
+
+      expect(result.ok).toBe(true);
+      expect(result.applied).toBe(1);
+      expect(await isActive(hoTarget)).toBe(false);
+    } finally {
+      await db.delete(user).where(eq(user.id, superActor));
+      await db.delete(user).where(eq(user.id, hoTarget));
+    }
+  });
+
   test("an unbound ho (siteId null) matches nothing, fail closed", async () => {
     const hoActor = randomUUID();
     const adminA = randomUUID();

@@ -18,7 +18,7 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       // All additional fields are guarded with `input: false`: provisioning
-      // writes rows directly (app/(dashboard)/users/actions.ts,
+      // writes rows directly (app/dashboard/users/actions.ts,
       // scripts/seed-admin.ts) and reads happen fresh from the DB
       // (lib/session.ts). `input: true` here would let any logged-in user
       // grant themselves `role: "superadmin"` via /api/auth/update-user

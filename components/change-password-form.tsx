@@ -2,7 +2,7 @@
 
 import { useId, useState, useTransition } from "react";
 
-import { changePassword } from "@/app/(dashboard)/settings/actions";
+import { changePassword } from "@/app/dashboard/settings/actions";
 import type { ActionState } from "@/lib/action-state";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ export function ChangePasswordForm() {
   const [succeeded, setSucceeded] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
 
@@ -47,7 +47,7 @@ export function ChangePasswordForm() {
 
   return (
     <form onSubmit={handleSubmit}>
-      <FieldGroup className="max-w-sm gap-4">
+      <FieldGroup className="max-w-xl gap-4">
         {message ? (
           <Alert variant="destructive" role="alert">
             <InfoIcon />

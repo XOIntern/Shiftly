@@ -33,10 +33,11 @@ function bindingLabel(row: {
 }): string | null {
   if (row.role === "superadmin") return null;
   if (row.role === "ho") return row.siteName;
-  // Admins read "location (site)"; a malformed binding has no label.
+  // Admins read "site (location)" — site first, matching the Locations table
+  // order; a malformed binding has no label.
   return row.locationName
     ? row.locationSiteName
-      ? `${row.locationName} (${row.locationSiteName})`
+      ? `${row.locationSiteName} (${row.locationName})`
       : row.locationName
     : null;
 }
@@ -46,7 +47,7 @@ function bindingLabel(row: {
 // malformed-admin rule.
 export default async function UsersPage({
   searchParams,
-}: PageProps<"/users">) {
+}: PageProps<"/dashboard/users">) {
   // Server-side HO guard; the actions repeat it for direct calls.
   const actor = await requireHO();
   const { q, page, sort, pageSize } = parseTableSearchParams(

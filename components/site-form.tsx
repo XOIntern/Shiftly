@@ -12,7 +12,12 @@ import { toast } from "sonner";
 
 import type { ActionState } from "@/lib/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import { createSite, deleteSite, toggleSite, updateSite } from "@/app/(dashboard)/sites/actions";
+import {
+  createSite,
+  deleteSite,
+  toggleSite,
+  updateSite,
+} from "@/app/dashboard/sites/actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,13 +71,7 @@ function showFailure(
   if (result.message) setMessage(result.message);
 }
 
-function SiteForm({
-  site,
-  onSaved,
-}: {
-  site?: SiteRow;
-  onSaved: () => void;
-}) {
+function SiteForm({ site, onSaved }: { site?: SiteRow; onSaved: () => void }) {
   const [name, setName] = useState(site?.name ?? "");
   const [fieldErrors, setFieldErrors] = useState<SiteFieldErrors>();
   const [message, setMessage] = useState<string>();

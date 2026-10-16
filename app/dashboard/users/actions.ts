@@ -3,7 +3,6 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { eq, inArray } from "drizzle-orm";
-import { z } from "zod";
 import { hashPassword } from "better-auth/crypto";
 
 import { account, siteLocation, user } from "@/drizzle/schema";
@@ -178,7 +177,7 @@ export async function createUser(input: {
     throw err;
   }
 
-  revalidatePath("/users");
+  revalidatePath("/dashboard/users");
   return { ok: true };
 }
 
@@ -240,7 +239,7 @@ export async function updateUser(
     return mapped ? { ok: false, message: mapped } : { ok: false, message: GENERIC_ERROR };
   }
 
-  revalidatePath("/users");
+  revalidatePath("/dashboard/users");
   return { ok: true };
 }
 
@@ -253,9 +252,6 @@ export async function resetPassword(
   const parsed = userPasswordSchema.safeParse({ newPassword });
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
-  }
-  if (!z.uuid().safeParse(id).success) {
-    return { ok: false, message: "Invalid user id." };
   }
 
   const gated = await loadManagedTarget(actor, id);
@@ -273,7 +269,7 @@ export async function resetPassword(
   // A new hash fences new logins only — every live session dies with it.
   await deleteUserSessions(id);
 
-  revalidatePath("/users");
+  revalidatePath("/dashboard/users");
   return { ok: true };
 }
 
@@ -282,11 +278,6 @@ export async function setActive(
   isActive: boolean,
 ): Promise<ActionState> {
   const current = await requireHO();
-
-  const idParsed = z.uuid().safeParse(id);
-  if (!idParsed.success) {
-    return { ok: false, message: "Invalid user id." };
-  }
 
   if (!isActive && id === current.id) {
     return { ok: false, message: "You cannot deactivate your own account" };
@@ -313,7 +304,7 @@ export async function setActive(
   // inactive (e.g. if they lapsed mid-session) can't resurrect.
   await deleteUserSessions(id);
 
-  revalidatePath("/users");
+  revalidatePath("/dashboard/users");
   return { ok: true };
 }
 
@@ -329,9 +320,11 @@ export async function setActiveBulk(
 ): Promise<ActionState> {
   const current = await requireHO();
 
-  const validIds = [...new Set(ids)].filter((id) =>
-    z.uuid().safeParse(id).success,
-  );
+  // user.id is a text column — better-auth ids are 32-char random strings,
+  // not uuids, so a uuid check would reject every real account here. The
+  // site_location join + permission gate below already fail closed on any
+  // id that matches no row.
+  const validIds = [...new Set(ids)].filter((id) => id.length > 0);
   if (validIds.length === 0) {
     return { ok: false, message: "No users selected." };
   }
@@ -359,7 +352,7 @@ export async function setActiveBulk(
       }) && (isActive || target.id !== current.id),
   );
   if (managed.length === 0) {
-    revalidatePath("/users");
+    revalidatePath("/dashboard/users");
     return { ok: true, applied: 0 };
   }
 
@@ -383,6 +376,6 @@ export async function setActiveBulk(
     return { ok: false, message: GENERIC_ERROR };
   }
 
-  revalidatePath("/users");
+  revalidatePath("/dashboard/users");
   return { ok: true, applied };
 }

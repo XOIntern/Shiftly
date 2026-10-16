@@ -30,6 +30,6 @@ export async function changePassword(
     return changePasswordErrorState(err);
   }
 
-  revalidatePath("/settings");
+  revalidatePath("/dashboard/settings");
   return { ok: true };
 }

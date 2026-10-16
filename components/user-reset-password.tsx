@@ -2,7 +2,7 @@
 
 import { useId, useState, useTransition } from "react";
 
-import { resetPassword } from "@/app/(dashboard)/users/actions";
+import { resetPassword } from "@/app/dashboard/users/actions";
 import type { ActionState } from "@/lib/action-state";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,8 +71,7 @@ export function ResetPasswordDialog({
           <DialogTitle>Reset password</DialogTitle>
           <DialogDescription>
             Set a new password for “{user.name}”. Their current password stops
-            working immediately. All their signed-in devices will be logged
-            out.
+            working immediately. All their signed-in devices will be logged out.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>

@@ -40,17 +40,17 @@ const superadminNavMain = [
   },
   {
     title: "Sites",
-    url: "/sites",
+    url: "/dashboard/sites",
     icon: <BuildingIcon />,
   },
   {
     title: "Locations",
-    url: "/locations",
+    url: "/dashboard/locations",
     icon: <Building2Icon />,
   },
   {
     title: "Users",
-    url: "/users",
+    url: "/dashboard/users",
     icon: <UserIcon />,
   },
 ];
@@ -63,27 +63,27 @@ const hoNavMain = [
   },
   {
     title: "Locations",
-    url: "/locations",
+    url: "/dashboard/locations",
     icon: <Building2Icon />,
   },
   {
     title: "Users",
-    url: "/users",
+    url: "/dashboard/users",
     icon: <UserIcon />,
   },
   {
     title: "Roster",
-    url: "/roster",
+    url: "/dashboard/roster",
     icon: <CalendarRangeIcon />,
   },
   {
     title: "Attendance",
-    url: "/attendance",
+    url: "/dashboard/attendance",
     icon: <ClockIcon />,
   },
   {
     title: "Workers",
-    url: "/workers",
+    url: "/dashboard/workers",
     icon: <UsersIcon />,
   },
 ];
@@ -96,17 +96,17 @@ const adminNavMain = [
   },
   {
     title: "Roster",
-    url: "/roster",
+    url: "/dashboard/roster",
     icon: <CalendarRangeIcon />,
   },
   {
     title: "Attendance",
-    url: "/attendance",
+    url: "/dashboard/attendance",
     icon: <ClockIcon />,
   },
   {
     title: "Workers",
-    url: "/workers",
+    url: "/dashboard/workers",
     icon: <UsersIcon />,
   },
 ];
@@ -114,7 +114,7 @@ const adminNavMain = [
 const navSecondary = [
   {
     title: "Settings",
-    url: "/settings",
+    url: "/dashboard/settings",
     icon: <SettingsIcon />,
   },
 ];

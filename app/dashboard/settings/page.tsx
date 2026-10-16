@@ -1,5 +1,11 @@
 import { ChangePasswordForm } from "@/components/change-password-form";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 export default function SettingsPage() {
   return (
@@ -8,7 +14,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Roster rules</CardTitle>
-          <CardDescription className="max-w-md">
+          <CardDescription>
             Roster rules and configuration with per-site overrides and a change
             history. Changes take effect without a code deploy.
           </CardDescription>
