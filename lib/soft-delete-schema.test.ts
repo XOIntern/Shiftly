@@ -5,6 +5,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { db } from "./db";
 import { pgErrorCode } from "./db-errors";
+import { deleteSiteGuarded } from "./site-delete";
 import { site, siteLocation, user } from "../drizzle/schema";
 
 // Task 1 of the soft-delete epic (GitHub #37): site, site_location and user
@@ -221,6 +222,101 @@ describe("soft delete partial unique indexes (issue #37 task 1)", () => {
       expect(liveSites).toEqual([{ id: siteId }]);
     } finally {
       await db.delete(user).where(eq(user.id, userId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+});
+
+// Task 3 of the soft-delete epic (GitHub #39): deleteSiteGuarded's guards
+// consider only LIVE rows, and the final write soft-deletes instead of a
+// hard DELETE. Pinned issue #17 messages are reused verbatim.
+describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
+  test("soft-deleted location does not block; the site row survives soft-deleted", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `soft-del-guard-a-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Soft Deleted Location",
+      });
+
+      // Before soft-deleting, the same location still blocks the delete.
+      const before = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
+      expect(before).toEqual({
+        ok: false,
+        message: "Locations still exist under this site",
+      });
+
+      await db
+        .update(siteLocation)
+        .set({ deletedAt: sql`now()` })
+        .where(eq(siteLocation.id, locationId));
+
+      // The soft-deleted location no longer blocks.
+      const result = await db.transaction((tx) => deleteSiteGuarded(tx, siteId));
+      expect(result).toEqual({ ok: true });
+
+      // The site row survives as a soft delete, not a hard one.
+      const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
+      expect(siteRow).toBeTruthy();
+      expect(siteRow.deletedAt).not.toBeNull();
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("soft-deleted directly-bound user does not block deleting the site", async () => {
+    const siteId = randomUUID();
+    const deletedUserId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `soft-del-guard-b-${siteId}` });
+      await db.insert(user).values({
+        id: deletedUserId,
+        name: "Soft Deleted Bound Ho",
+        email: `soft-del-guard-b-${deletedUserId}@shiftly.test`,
+        emailVerified: true,
+        role: "ho",
+        siteId,
+      });
+      await db.update(user).set({ deletedAt: sql`now()` }).where(eq(user.id, deletedUserId));
+
+      const result = await db.transaction((tx) => deleteSiteGuarded(tx, siteId));
+      expect(result).toEqual({ ok: true });
+
+      const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
+      expect(siteRow.deletedAt).not.toBeNull();
+    } finally {
+      await db.delete(user).where(eq(user.id, deletedUserId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("live location still blocks with the pinned message", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `soft-del-guard-live-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Still Live Location",
+      });
+
+      const result = await db.transaction((tx) => deleteSiteGuarded(tx, siteId));
+      expect(result).toEqual({
+        ok: false,
+        message: "Locations still exist under this site",
+      });
+    } finally {
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
     }

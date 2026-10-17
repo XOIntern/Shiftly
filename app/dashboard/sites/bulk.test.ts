@@ -105,9 +105,13 @@ describe("sites bulk actions", () => {
       expect(result.blocked).toBe(1);
       expect(result.message).toContain("Locations still exist");
 
-      const rows = await db.select({ id: site.id }).from(site);
-      expect(rows.find((row) => row.id === empty)).toBeUndefined();
-      expect(rows.find((row) => row.id === guarded)).toBeDefined();
+      const rows = await db
+        .select({ id: site.id, deletedAt: site.deletedAt })
+        .from(site);
+      // Soft-delete epic #39: "deleted" now means deletedAt set, not a
+      // vanished row.
+      expect(rows.find((row) => row.id === empty)?.deletedAt).not.toBeNull();
+      expect(rows.find((row) => row.id === guarded)?.deletedAt).toBeNull();
 
       // The guarded site is still intact: the bulk guard refuses it as a
       // skipped row, never a failure of the batch.

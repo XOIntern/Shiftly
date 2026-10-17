@@ -453,8 +453,11 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
       );
       expect(result).toEqual({ ok: true });
 
+      // Soft-delete epic #39: the write is now an UPDATE setting deleted_at,
+      // so the row survives with a non-null deletedAt instead of vanishing.
       const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
-      expect(siteRow).toBeUndefined();
+      expect(siteRow).toBeTruthy();
+      expect(siteRow.deletedAt).not.toBeNull();
     } finally {
       await db.delete(site).where(eq(site.id, siteId));
     }
