@@ -1,4 +1,4 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError } from "better-auth/api";
 import { eq } from "drizzle-orm";
@@ -7,8 +7,44 @@ import { db } from "./db";
 
 const { user } = schema;
 
+// Better Auth resolves email/password sign-in through
+// internalAdapter.findUserByEmail, which queries the adapter's findOne with
+// only `email = ?` — no deleted_at filter and no ORDER BY
+// (@better-auth/drizzle-adapter findOne / better-auth
+// dist/db/internal-adapter.mjs findUserByEmail). Once a soft-deleted row and
+// a live row may share an email (the partial unique index allows exactly
+// that), sign-in could resolve the deleted row's account and fail with
+// "Invalid password" or FORBIDDEN — breaking the "emails of deleted rows are
+// reusable" contract. The wrapper resolves a user lookup to the LIVE row
+// whenever one matches; when only a deleted row matches (plain sign-in to a
+// deleted account) it falls back to the original lookup so the session hook
+// below still answers FORBIDDEN with the generic inactive message. All other
+// models and methods delegate untouched.
+const liveUsersOnly =
+  (adapter: ReturnType<typeof drizzleAdapter>) => (options: BetterAuthOptions) => {
+    const instance = adapter(options);
+    return {
+      ...instance,
+      findOne: async (args: Parameters<typeof instance.findOne>[0]) => {
+        if (args.model !== "user") return instance.findOne(args);
+        // `{ value: null }` is what the adapter's where-clause transform
+        // maps to `IS NULL`, so the clause rides the normal path instead of
+        // bypassing schema-aware field resolution.
+        const live = await instance.findOne({
+          ...args,
+          where: [
+            ...(args.where ?? []),
+            { field: "deletedAt", value: null, connector: "AND" },
+          ],
+        });
+        if (live !== null) return live;
+        return instance.findOne(args);
+      },
+    };
+  };
+
 export const auth = betterAuth({
-  database: drizzleAdapter(db, { provider: "pg", schema }),
+  database: liveUsersOnly(drizzleAdapter(db, { provider: "pg", schema })),
   emailAndPassword: {
     enabled: true,
     // Better Auth 1.7.7 supports this option (enforced in
@@ -46,6 +82,16 @@ export const auth = betterAuth({
       isActive: {
         type: "boolean",
         input: false,
+      },
+      // Only here so the adapter's where-clause transform accepts the
+      // `deletedAt IS NULL` clause the liveUsersOnly wrapper appends —
+      // fields unknown to the Better Auth schema are rejected before ever
+      // reaching drizzle. The column itself stays managed by provisioning
+      // and the deleteUser action; `input: false` keeps it that way.
+      deletedAt: {
+        type: "date",
+        input: false,
+        required: false, // live rows: NULL
       },
     },
   },
