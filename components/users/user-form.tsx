@@ -7,11 +7,13 @@ import {
   PencilIcon,
   PlusIcon,
   PowerIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
   createUser,
+  deleteUser,
   setActive,
   updateUser,
 } from "@/app/dashboard/users/actions";
@@ -471,9 +473,9 @@ export function UserRowActions({
   sites: SiteOption[];
   locations: LocationOption[];
 }) {
-  const [dialog, setDialog] = useState<"edit" | "reset" | "toggle" | null>(
-    null,
-  );
+  const [dialog, setDialog] = useState<
+    "edit" | "reset" | "toggle" | "delete" | null
+  >(null);
   const [pending] = useTransition();
 
   return (
@@ -507,6 +509,13 @@ export function UserRowActions({
             <KeyRoundIcon />
             Reset password
           </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setDialog("delete")}
+          >
+            <Trash2Icon />
+            Delete
+          </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
       {/* Controlled dialogs live outside the menu popup so the menu can
@@ -531,6 +540,13 @@ export function UserRowActions({
       <ToggleUserDialog
         user={user}
         open={dialog === "toggle"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      />
+      <DeleteUserDialog
+        user={user}
+        open={dialog === "delete"}
         onOpenChange={(open) => {
           if (!open) setDialog(null);
         }}
@@ -625,5 +641,52 @@ function EditUserDialog({
         />
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DeleteUserDialog({
+  user,
+  open,
+  onOpenChange,
+}: {
+  user: UserRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+
+  function handleConfirm() {
+    startTransition(async () => {
+      const result = await deleteUser(user.id);
+      if (result.ok) {
+        onOpenChange(false);
+        return;
+      }
+      toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete “{user.name}”?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This cannot be undone. The account will be hidden from the list,
+            and all signed-in devices will be logged out.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={pending}
+            onClick={handleConfirm}
+          >
+            {pending ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

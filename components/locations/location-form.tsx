@@ -433,8 +433,8 @@ function DeleteLocationDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete location</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently deletes “{location.name}”. Locations referenced by
-            users cannot be deleted.
+            “{location.name}” will be hidden from the list. Locations
+            referenced by users cannot be deleted.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
