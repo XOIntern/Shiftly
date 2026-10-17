@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ilike } from "drizzle-orm";
+import { and, asc, count, eq, ilike, isNull } from "drizzle-orm";
 
 import { site } from "@/drizzle/schema";
 import { db } from "@/lib/db";
@@ -35,8 +35,11 @@ export default async function SitesPage({
     PAGE_SIZE_OPTIONS,
   );
   const pattern = ilikePattern(q);
-  // Null-safe and(...) composes search + filters.
+  // Null-safe and(...) composes search + filters. The deletedAt predicate
+  // keeps soft-deleted sites (soft-delete epic #40) out of both the count
+  // and the listing — this one `where` feeds both queries below.
   const where = and(
+    isNull(site.deletedAt),
     ...(pattern ? [ilike(site.name, pattern)] : []),
     ...(status ? [eq(site.isActive, status === "active")] : []),
   );

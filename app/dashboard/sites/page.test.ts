@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site } from "@/drizzle/schema";
@@ -379,6 +379,36 @@ describe("sites page server queries (issue #20)", () => {
       for (const id of generated) {
         await db.delete(site).where(eq(site.id, id));
       }
+    }
+  });
+
+  test("soft-deleted sites do not appear in the table (issue #40)", async () => {
+    const token = `t4-sites-del-${randomUUID().slice(0, 8)}`;
+    const liveId = randomUUID();
+    const deletedId = randomUUID();
+    try {
+      await db.insert(site).values([
+        { id: liveId, name: `${token}-live` },
+        { id: deletedId, name: `${token}-gone` },
+      ]);
+      await db.update(site).set({ deletedAt: sql`now()` }).where(eq(site.id, deletedId));
+
+      actor = {
+        id: randomUUID(),
+        name: "Sites Page Sa",
+        email: `t4-sites-page-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const props = await renderSites({ q: token });
+
+      expect(props.sites.map((row) => row.id)).toEqual([liveId]);
+      expect(props.total).toBe(1);
+    } finally {
+      await db.delete(site).where(eq(site.id, liveId));
+      await db.delete(site).where(eq(site.id, deletedId));
     }
   });
 });
