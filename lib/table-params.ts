@@ -23,6 +23,12 @@ export type StatusFilter = "active" | "inactive" | null;
 
 export type RawSearchParams = Record<string, string | string[] | undefined>;
 
+// Site ids are uuids in the schema, so the URL param is gated on uuid shape
+// — the real whitelist is dynamic (rows in the sites table) and enforced by
+// parameterized lookup: a well-formed but unknown uuid yields an empty
+// result, never a SQL error. Plain string check keeps this framework-free.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Role enum as plain strings — table-params stays framework-free, so it
 // cannot import lib/scope (which pulls in drizzle + the db client).
 const ROLES = ["superadmin", "ho", "admin"] as const;
@@ -38,6 +44,7 @@ export function parseTableSearchParams(
   sorts: TableSort[];
   status: StatusFilter;
   role: (typeof ROLES)[number] | null;
+  siteId: string | null;
   pageSize: number;
 } {
   const first = (key: string): string | undefined => {
@@ -84,8 +91,10 @@ export function parseTableSearchParams(
     roleValue && (ROLES as readonly string[]).includes(roleValue)
       ? (roleValue as (typeof ROLES)[number])
       : null;
+  const siteIdValue = first("siteId");
+  const siteId = siteIdValue && UUID_RE.test(siteIdValue) ? siteIdValue : null;
 
-  return { q, page, sorts, status, role, pageSize };
+  return { q, page, sorts, status, role, siteId, pageSize };
 }
 
 // undefined for empty q; otherwise "%q%" with \, %, _ backslash-escaped so

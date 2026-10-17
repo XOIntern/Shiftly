@@ -18,6 +18,7 @@ describe("parseTableSearchParams", () => {
       sorts: [],
       status: null,
       role: null,
+      siteId: null,
       pageSize: 10,
     });
   });
@@ -33,6 +34,7 @@ describe("parseTableSearchParams", () => {
       sorts: [{ columnId: "name", dir: "asc" }],
       status: null,
       role: null,
+      siteId: null,
       pageSize: 10,
     });
   });
@@ -132,6 +134,36 @@ describe("parseTableSearchParams", () => {
       expect(parseTableSearchParams(raw({ role: ["ho", "junk"] })).role).toBe(
         "ho",
       );
+    });
+  });
+
+  describe("siteId", () => {
+    test("is null when the param is absent or empty", () => {
+      expect(parseTableSearchParams(raw({})).siteId).toBeNull();
+      expect(parseTableSearchParams(raw({ siteId: "" })).siteId).toBeNull();
+    });
+
+    test("parses a well-formed uuid", () => {
+      const uuid = "123e4567-e89b-12d3-a456-426614174000";
+      expect(parseTableSearchParams(raw({ siteId: uuid })).siteId).toBe(uuid);
+    });
+
+    test("is null for anything that is not a uuid shape", () => {
+      // The whitelist is dynamic (site ids live in the DB), so only the
+      // shape is gated here — an unknown-but-valid uuid yields an empty
+      // result, never a SQL error.
+      expect(
+        parseTableSearchParams(raw({ siteId: "not-a-uuid" })).siteId,
+      ).toBeNull();
+      expect(
+        parseTableSearchParams(raw({ siteId: "123e4567-e89b-12d3-a456" }))
+          .siteId,
+      ).toBeNull();
+      // Array values use the first element, like q/page/sort do.
+      expect(
+        parseTableSearchParams(raw({ siteId: ["not-a-uuid", "123e4567-e89b-12d3-a456-426614174000"] }))
+          .siteId,
+      ).toBeNull();
     });
   });
 

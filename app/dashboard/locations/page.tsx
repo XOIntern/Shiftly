@@ -37,7 +37,7 @@ export default async function LocationsPage({
   searchParams,
 }: PageProps<"/dashboard/locations">) {
   const actor = await requireHO();
-  const { q, status, page, sorts, pageSize } = parseTableSearchParams(
+  const { q, status, siteId, page, sorts, pageSize } = parseTableSearchParams(
     await searchParams,
     PAGE_SIZE_OPTIONS,
   );
@@ -52,12 +52,18 @@ export default async function LocationsPage({
       ? eq(siteLocation.siteId, actor.siteId)
       : sql`false`;
 
+  // Site filter is a superadmin tool: a ho is already scoped to one site at
+  // the data level, so the URL param is never consulted for them.
+  const siteFilter: SQL | undefined =
+    isSuperadmin && siteId ? eq(siteLocation.siteId, siteId) : undefined;
+
   const pattern = ilikePattern(q);
   // Name-only search; the joined site name is deliberately not searched
   // (locked decision 3). Null-safe and(...) composes scope+search+filters.
   const where = and(
     ...(pattern ? [ilike(siteLocation.name, pattern)] : []),
     ...(status ? [eq(siteLocation.isActive, status === "active")] : []),
+    ...(siteFilter ? [siteFilter] : []),
     ...(scope ? [scope] : []),
   );
 
@@ -119,6 +125,7 @@ export default async function LocationsPage({
           <LocationsTable
             locations={locations}
             sites={sites satisfies SiteOption[]}
+            showSiteFilter={isSuperadmin}
             pageCount={pageCount}
             total={rowCount}
           />

@@ -62,6 +62,90 @@ async function renderLocations(
 
 // t3- prefixed real-DB fixtures; uuid slices keep suites collision-free.
 describe("locations page server queries (issue #21)", () => {
+  test("superadmin siteId filter keeps only that site's locations; junk shows all", async () => {
+    const siteA = randomUUID();
+    const siteB = randomUUID();
+    const locA = randomUUID();
+    const locB = randomUUID();
+    try {
+      await db.insert(site).values([
+        { id: siteA, name: `t4-loc-site-a-${siteA}` },
+        { id: siteB, name: `t4-loc-site-b-${siteB}` },
+      ]);
+      await db.insert(siteLocation).values([
+        { id: locA, siteId: siteA, name: "t4-loc-alpha" },
+        { id: locB, siteId: siteB, name: "t4-loc-beta" },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Loc Sa",
+        email: `t4-loc-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      // Shared dev DB: other suites' locations may exist, so the unfiltered
+      // and junk renders assert presence, while the filtered one is exact.
+      const all = await renderLocations();
+      const allIds = all.locations.map((l) => l.id);
+      expect(allIds).toContain(locA);
+      expect(allIds).toContain(locB);
+
+      const filtered = await renderLocations({ siteId: siteA });
+      expect(filtered.locations.map((l) => l.id)).toEqual([locA]);
+      expect(filtered.total).toBe(1);
+
+      // Whitelist (uuid shape): anything else parses to no filter.
+      const junk = await renderLocations({ siteId: "junk" as never });
+      const junkIds = junk.locations.map((l) => l.id);
+      expect(junkIds).toContain(locA);
+      expect(junkIds).toContain(locB);
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locA));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locB));
+      await db.delete(site).where(eq(site.id, siteA));
+      await db.delete(site).where(eq(site.id, siteB));
+    }
+  });
+
+  test("a ho's siteId param is ignored — scope keeps its own site's rows", async () => {
+    const siteA = randomUUID();
+    const siteB = randomUUID();
+    const locA = randomUUID();
+    const locB = randomUUID();
+    try {
+      await db.insert(site).values([
+        { id: siteA, name: `t4-loc-site-a-${siteA}` },
+        { id: siteB, name: `t4-loc-site-b-${siteB}` },
+      ]);
+      await db.insert(siteLocation).values([
+        { id: locA, siteId: siteA, name: "t4-loc-own" },
+        { id: locB, siteId: siteB, name: "t4-loc-foreign" },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Loc Ho",
+        email: `t4-loc-${randomUUID()}@shiftly.test`,
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const crafted = await renderLocations({ siteId: siteB });
+      expect(crafted.locations.map((l) => l.id)).toEqual([locA]);
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locA));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locB));
+      await db.delete(site).where(eq(site.id, siteA));
+      await db.delete(site).where(eq(site.id, siteB));
+    }
+  });
+
   test("ho actor: search matches name only (address field removed), scoped to its site", async () => {
     const siteA = randomUUID();
     const siteB = randomUUID();

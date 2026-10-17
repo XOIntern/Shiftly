@@ -7,6 +7,7 @@ import { deleteBulk, setActiveBulk } from "@/app/dashboard/locations/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { SiteFilter } from "@/components/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -30,11 +31,13 @@ function StatusBadge({ isActive }: { isActive: boolean }) {
 export function LocationsTable({
   locations,
   sites,
+  showSiteFilter,
   pageCount,
   total,
 }: {
   locations: LocationRow[];
   sites: SiteOption[];
+  showSiteFilter: boolean;
   pageCount: number;
   total: number;
 }) {
@@ -82,7 +85,12 @@ export function LocationsTable({
       total={total}
       emptyMessage="No locations yet."
       getRowId={(row) => row.id}
-      filters={<StatusFilter />}
+      filters={
+        <>
+          {showSiteFilter ? <SiteFilter sites={sites} /> : null}
+          <StatusFilter />
+        </>
+      }
       selectionToolbar={({ count, ids, rows, clear }) => (
         <BulkToolbar
           entityName="location"
