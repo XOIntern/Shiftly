@@ -342,7 +342,9 @@ export async function setActiveBulk(
     })
     .from(user)
     .leftJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
-    .where(inArray(user.id, validIds));
+    // Soft-deleted rows are invisible to the page; activating/deactivating
+    // one would silently resurrect a hidden account's flag.
+    .where(and(inArray(user.id, validIds), isNull(user.deletedAt)));
 
   const managed = candidates.filter(
     (target) =>
@@ -361,10 +363,15 @@ export async function setActiveBulk(
     const updated = await db
       .update(user)
       .set({ isActive })
+      // Same weld as deleteUser: a row deleted between the candidate select
+      // and this write must not be resurrected by the bulk path.
       .where(
-        inArray(
-          user.id,
-          managed.map((target) => target.id),
+        and(
+          inArray(
+            user.id,
+            managed.map((target) => target.id),
+          ),
+          isNull(user.deletedAt),
         ),
       )
       .returning({ id: user.id });
