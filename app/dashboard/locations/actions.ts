@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { siteLocation, user } from "@/drizzle/schema";
@@ -155,11 +155,12 @@ export async function deleteLocation(id: string): Promise<ActionState> {
   }
 
   // Location admins are the rows that bind a site_location; anything else is
-  // caught by the driver-side FK as a backstop.
+  // caught by the driver-side FK as a backstop. Only LIVE users count — an
+  // already soft-deleted user must not resurrect its own binding.
   const bound = await db
     .select({ id: user.id })
     .from(user)
-    .where(eq(user.siteLocationId, id))
+    .where(and(eq(user.siteLocationId, id), isNull(user.deletedAt)))
     .limit(1);
   if (bound.length > 0) {
     return { ok: false, message: "Users are still bound to this location" };
@@ -167,7 +168,8 @@ export async function deleteLocation(id: string): Promise<ActionState> {
 
   try {
     await db
-      .delete(siteLocation)
+      .update(siteLocation)
+      .set({ deletedAt: new Date() })
       // Weld (issue #17 Task 2): same ownership-in-WHERE as update/toggle,
       // with the bound-users pre-check above intact for its message.
       .where(locationMutationWhere(actor, id));
@@ -208,10 +210,11 @@ export async function setActiveBulk(
   }
 }
 
-// Bulk location unregistration. Rows with admins still bound are skipped
-// (not fatal) with the same guard message the single-row path gives: the
-// bound check rides the same ownership WHERE, so foreign locations can
-// never leak into either count.
+// Bulk location unregistration. Rows with LIVE admins still bound are
+// skipped (not fatal) with the same guard message the single-row path
+// gives: the bound check rides the same ownership WHERE, so foreign
+// locations can never leak into either counts. The write soft-deletes —
+// deleted_at is set, the row itself stays.
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const actor = await requireHO();
 
@@ -231,7 +234,9 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
       siteLocation,
       eq(user.siteLocationId, siteLocation.id),
     )
-    .where(locationBulkMutationWhere(actor, validIds));
+    .where(
+      and(locationBulkMutationWhere(actor, validIds), isNull(user.deletedAt)),
+    );
 
   const boundIds = new Set(
     boundRows
@@ -241,7 +246,8 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
 
   try {
     const deleted = await db
-      .delete(siteLocation)
+      .update(siteLocation)
+      .set({ deletedAt: new Date() })
       .where(
         locationBulkMutationWhere(
           actor,

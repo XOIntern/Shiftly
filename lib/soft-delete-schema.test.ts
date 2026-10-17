@@ -1,12 +1,13 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { describe, expect, test } from "bun:test";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { describe, expect, mock, test } from "bun:test";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { db } from "./db";
 import { pgErrorCode } from "./db-errors";
 import { deleteSiteGuarded } from "./site-delete";
 import { site, siteLocation, user } from "../drizzle/schema";
+import type { SessionUser } from "./session";
 
 // Task 1 of the soft-delete epic (GitHub #37): site, site_location and user
 // gain a nullable deleted_at and their unique constraints become partial
@@ -318,6 +319,259 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
       });
     } finally {
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+});
+
+// The location delete actions resolve their actor through requireHO —
+// swapped for a stub (same pattern as app/dashboard/users/page.test.ts) so
+// the real server actions run against the test database without a Next
+// request context. The mock swaps the WHOLE module across bun's single test
+// process, so every export other suites may resolve must exist here.
+let actor: SessionUser;
+mock.module("@/lib/session", () => ({
+  getUser: async () => actor,
+  requireUser: async () => actor,
+  requireHO: async () => actor,
+  requireSuperadmin: async () => actor,
+}));
+// No Next request context under bun test — revalidation is a no-op stub.
+mock.module("next/cache", () => ({
+  revalidatePath: () => {},
+}));
+
+function hoActorFor(siteId: string): SessionUser {
+  return {
+    id: randomUUID(),
+    name: "Soft Del HO",
+    email: `soft-del-loc-${randomUUID()}@shiftly.test`,
+    role: "ho",
+    siteId,
+    siteLocationId: null,
+    isActive: true,
+  };
+}
+
+// Task 5 of the soft-delete epic (GitHub #41): deleteLocation/deleteBulk
+// soft-delete (deleted_at) instead of a hard DELETE, their bound-user guards
+// ignore soft-deleted users, and the ownership welds never match a deleted
+// row — so a deleted location answers "Location not found." everywhere.
+describe("location delete actions soft-delete (issue #41 task 5)", () => {
+  test("deleteLocation soft-deletes instead of removing the row", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `soft-del-act-a-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Soft Delete Me",
+      });
+      actor = hoActorFor(siteId);
+
+      const { deleteLocation } = await import(
+        "../app/dashboard/locations/actions"
+      );
+      const result = await deleteLocation(locationId);
+      expect(result).toEqual({ ok: true });
+
+      // The row survives as a soft delete, not a hard one.
+      const [row] = await db
+        .select()
+        .from(siteLocation)
+        .where(eq(siteLocation.id, locationId));
+      expect(row).toBeTruthy();
+      expect(row.deletedAt).not.toBeNull();
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("a location with only soft-deleted bound users is deletable", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+    const deletedAdminId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `soft-del-act-b-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Only Deleted Admin",
+      });
+      await db.insert(user).values({
+        id: deletedAdminId,
+        name: "Soft Deleted Admin",
+        email: `soft-del-act-${deletedAdminId}@shiftly.test`,
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locationId,
+      });
+      await db
+        .update(user)
+        .set({ deletedAt: sql`now()` })
+        .where(eq(user.id, deletedAdminId));
+      actor = hoActorFor(siteId);
+
+      const { deleteLocation } = await import(
+        "../app/dashboard/locations/actions"
+      );
+      const result = await deleteLocation(locationId);
+      expect(result).toEqual({ ok: true });
+
+      const [row] = await db
+        .select()
+        .from(siteLocation)
+        .where(eq(siteLocation.id, locationId));
+      expect(row.deletedAt).not.toBeNull();
+    } finally {
+      await db.delete(user).where(eq(user.id, deletedAdminId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("a location with a live bound user still refuses (pinned message)", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+    const liveAdminId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `soft-del-act-c-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Live Admin Bound",
+      });
+      await db.insert(user).values({
+        id: liveAdminId,
+        name: "Live Admin",
+        email: `soft-del-act-${liveAdminId}@shiftly.test`,
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locationId,
+      });
+      actor = hoActorFor(siteId);
+
+      const { deleteLocation } = await import(
+        "../app/dashboard/locations/actions"
+      );
+      const result = await deleteLocation(locationId);
+      expect(result).toEqual({
+        ok: false,
+        message: "Users are still bound to this location",
+      });
+
+      // The refusal writes nothing: the location stays live.
+      const [row] = await db
+        .select()
+        .from(siteLocation)
+        .where(eq(siteLocation.id, locationId));
+      expect(row.deletedAt).toBeNull();
+    } finally {
+      await db.delete(user).where(eq(user.id, liveAdminId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("an already-deleted location answers 'Location not found.'", async () => {
+    const siteId = randomUUID();
+    const locationId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `soft-del-act-d-${siteId}` });
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: "Already Gone",
+        deletedAt: sql`now()`,
+      });
+      actor = hoActorFor(siteId);
+
+      const { deleteLocation } = await import(
+        "../app/dashboard/locations/actions"
+      );
+      const result = await deleteLocation(locationId);
+      expect(result).toEqual({ ok: false, message: "Location not found." });
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("deleteBulk: deleted-location-with-bound-user is neither applied nor blocked; live-bound blocks; free applies", async () => {
+    const siteId = randomUUID();
+    const free = randomUUID();
+    const liveBound = randomUUID();
+    const deletedBound = randomUUID();
+    const liveAdminId = randomUUID();
+    const stuckAdminId = randomUUID();
+
+    try {
+      await db.insert(site).values([{ id: siteId, name: `soft-del-act-e-${siteId}` }]);
+      await db.insert(siteLocation).values([
+        { id: free, siteId, name: "Bulk Free" },
+        { id: liveBound, siteId, name: "Bulk Live Bound" },
+        // Soft-deleted earlier, its admin binding left behind: the bulk
+        // write must not resurrect it, and it must not count as blocked.
+        { id: deletedBound, siteId, name: "Bulk Already Deleted", deletedAt: sql`now()` },
+      ]);
+      await db.insert(user).values([
+        {
+          id: liveAdminId,
+          name: "Bulk Live Admin",
+          email: `soft-del-act-${liveAdminId}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: liveBound,
+        },
+        {
+          id: stuckAdminId,
+          name: "Bulk Stuck Admin",
+          email: `soft-del-act-${stuckAdminId}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: deletedBound,
+        },
+      ]);
+      actor = hoActorFor(siteId);
+
+      const { deleteBulk } = await import(
+        "../app/dashboard/locations/actions"
+      );
+      const result = await deleteBulk([free, liveBound, deletedBound]);
+
+      // "Do what you can": the free row applies, the live-bound one is
+      // skipped with the pinned guard message, and the already-deleted row
+      // is invisible to both counts.
+      expect(result.ok).toBe(true);
+      expect(result.applied).toBe(1);
+      expect(result.blocked).toBe(1);
+      expect(result.message).toContain(
+        "Users are still bound to this location",
+      );
+
+      // Free: soft-deleted, not removed. Live-bound: untouched. The
+      // already-deleted row: still deleted, never re-touched.
+      const rows = await db
+        .select({ id: siteLocation.id, deletedAt: siteLocation.deletedAt })
+        .from(siteLocation)
+        .where(inArray(siteLocation.id, [free, liveBound, deletedBound]));
+      const deletedAtOf = (id: string) =>
+        rows.find((row) => row.id === id)?.deletedAt;
+      expect(deletedAtOf(free)).not.toBeNull();
+      expect(deletedAtOf(liveBound)).toBeNull();
+      expect(deletedAtOf(deletedBound)).not.toBeNull();
+    } finally {
+      await db.delete(user).where(eq(user.id, liveAdminId));
+      await db.delete(user).where(eq(user.id, stuckAdminId));
+      await db
+        .delete(siteLocation)
+        .where(inArray(siteLocation.id, [free, liveBound, deletedBound]));
       await db.delete(site).where(eq(site.id, siteId));
     }
   });

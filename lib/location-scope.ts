@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { siteLocation } from "../drizzle/schema";
 import { db } from "./db";
@@ -25,7 +25,7 @@ export async function locationOwnedByActor(
   const [row] = await db
     .select({ siteId: siteLocation.siteId })
     .from(siteLocation)
-    .where(eq(siteLocation.id, id))
+    .where(and(eq(siteLocation.id, id), isNull(siteLocation.deletedAt)))
     .limit(1);
 
   return !!row && row.siteId === actor.siteId;
@@ -36,21 +36,32 @@ export async function locationOwnedByActor(
 // (TOCTOU) window closes even without the pre-check above. For an ho that
 // means `id = ? AND site_id = actor.siteId`; superadmin keeps the plain
 // `id = ?`. An unbound ho gets `WHERE false` — fail closed on a row it
-// cannot scope to.
+// cannot scope to. Since the soft-delete epic, both scoping branches also
+// pin deleted_at IS NULL: a deleted location is simply not there.
 export function locationMutationWhere(actor: ScopedActor, id: string) {
-  if (actor.role === "superadmin") return eq(siteLocation.id, id);
+  if (actor.role === "superadmin") {
+    return and(eq(siteLocation.id, id), isNull(siteLocation.deletedAt));
+  }
   if (!actor.siteId) return sql`false`;
-  return and(eq(siteLocation.id, id), eq(siteLocation.siteId, actor.siteId));
+  return and(
+    eq(siteLocation.id, id),
+    eq(siteLocation.siteId, actor.siteId),
+    isNull(siteLocation.deletedAt),
+  );
 }
 
 // The bulk form of locationMutationWhere: the same ownership predicate
 // welded into the statement, over an id list. An unbound ho keeps the
-// `WHERE false` fail-closed shape; a superadmin gets the plain id filter.
+// `WHERE false` fail-closed shape; a superadmin gets the plain id filter —
+// both pinning deleted_at IS NULL, so deleted rows never mutate again.
 export function locationBulkMutationWhere(actor: ScopedActor, ids: string[]) {
-  if (actor.role === "superadmin") return inArray(siteLocation.id, ids);
+  if (actor.role === "superadmin") {
+    return and(inArray(siteLocation.id, ids), isNull(siteLocation.deletedAt));
+  }
   if (!actor.siteId) return sql`false`;
   return and(
     inArray(siteLocation.id, ids),
     eq(siteLocation.siteId, actor.siteId),
+    isNull(siteLocation.deletedAt),
   );
 }

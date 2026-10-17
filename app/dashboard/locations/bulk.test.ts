@@ -132,20 +132,23 @@ describe("locations bulk actions", () => {
       const { deleteBulk } = await import("./actions");
       const result = await deleteBulk([free, bound, foreign]);
 
-      // The free location deletes, the user-bound one is skipped with the
-      // same guard message the single-row path gives, and the foreign one
-      // never even appears in the counts.
+      // The free location soft-deletes (its row survives with deletedAt),
+      // the user-bound one is skipped with the same guard message the
+      // single-row path gives, and the foreign one never even appears in
+      // the counts. Soft-delete epic #41.
       expect(result.ok).toBe(true);
       expect(result.applied).toBe(1);
       expect(result.blocked).toBe(1);
       expect(result.message).toContain("Users are still bound");
 
       const rows = await db
-        .select({ id: siteLocation.id })
+        .select({ id: siteLocation.id, deletedAt: siteLocation.deletedAt })
         .from(siteLocation);
-      expect(rows.find((row) => row.id === free)).toBeUndefined();
-      expect(rows.find((row) => row.id === bound)).toBeDefined();
-      expect(rows.find((row) => row.id === foreign)).toBeDefined();
+      const freeRow = rows.find((row) => row.id === free);
+      expect(freeRow).toBeDefined();
+      expect(freeRow?.deletedAt).not.toBeNull();
+      expect(rows.find((row) => row.id === bound)?.deletedAt).toBeNull();
+      expect(rows.find((row) => row.id === foreign)?.deletedAt).toBeNull();
     } finally {
       await db.delete(user).where(eq(user.id, adminA));
       await db.delete(user).where(eq(user.id, hoActor));
