@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/drizzle/schema";
@@ -30,7 +30,10 @@ export async function getUser(): Promise<SessionUser | null> {
       isActive: user.isActive,
     })
     .from(user)
-    .where(eq(user.id, session.user.id))
+    // A soft-deleted user (GitHub #38) resolves to no user: the stale
+    // session falls through to the signed-out null flow and /login —
+    // never a 500.
+    .where(and(eq(user.id, session.user.id), isNull(user.deletedAt)))
     .limit(1);
 
   if (!row) return null;

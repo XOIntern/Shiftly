@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError } from "better-auth/api";
 import { eq } from "drizzle-orm";
 import * as schema from "../drizzle/schema";
 import { db } from "./db";
@@ -48,22 +49,35 @@ export const auth = betterAuth({
       },
     },
   },
-  // Deactivated users must not be able to mint new sessions: if the
-  // created-session payload is for an inactive user, return `false` so
-  // createWithHooks skips the insert and sign-in fails with
-  // UNAUTHORIZED (dist/db/with-hooks.mjs — `if (result === false) return null;`,
-  // dist/api/routes/sign-in.mjs — null session → FAILED_TO_CREATE_SESSION).
+  // Deactivated users must not be able to mint new sessions. The hook runs
+  // after password verification, so the FORBIDDEN response leaks nothing to
+  // unauthenticated callers — and throwing an APIError (instead of returning
+  // `false`, which Better Auth maps to the generic FAILED_TO_CREATE_SESSION)
+  // is what surfaces the real reason to the login form.
   databaseHooks: {
     session: {
       create: {
         before: async (session) => {
           if (!session.userId) return true;
           const [row] = await db
-            .select({ isActive: user.isActive })
+            .select({ isActive: user.isActive, deletedAt: user.deletedAt })
             .from(user)
             .where(eq(user.id, session.userId))
             .limit(1);
-          return row?.isActive === true;
+          // A soft-deleted user (GitHub #38) must not sign in even though
+          // isActive may still be true. Same generic message as the
+          // inactive branch — no account-status leak.
+          if (row?.deletedAt != null) {
+            throw new APIError("FORBIDDEN", {
+              message: "Your account is inactive.",
+            });
+          }
+          if (row?.isActive !== true) {
+            throw new APIError("FORBIDDEN", {
+              message: "Your account is inactive.",
+            });
+          }
+          return true;
         },
       },
     },
