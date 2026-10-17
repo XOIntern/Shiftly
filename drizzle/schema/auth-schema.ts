@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -6,6 +6,7 @@ import {
   boolean,
   index,
   pgEnum,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -17,26 +18,35 @@ export const userRoleEnum = pgEnum("user_role", ["superadmin", "ho", "admin"]);
 // with access to every site (sites belong to superadmin directly; there is
 // no client entity); ho is a site's head office, scoped to exactly one site;
 // admin is a site-location admin, scoped to exactly one site_location.
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").default(false).notNull(),
-  image: text("image"),
-  role: userRoleEnum("role").notNull().default("admin"),
-  siteId: uuid("site_id").references(() => site.id, {
-    onDelete: "restrict",
-  }),
-  siteLocationId: uuid("site_location_id").references(() => siteLocation.id, {
-    onDelete: "restrict",
-  }),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .$onUpdate(() => /* @__PURE__ */ new Date())
-    .notNull(),
-});
+export const user = pgTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    emailVerified: boolean("email_verified").default(false).notNull(),
+    image: text("image"),
+    role: userRoleEnum("role").notNull().default("admin"),
+    siteId: uuid("site_id").references(() => site.id, {
+      onDelete: "restrict",
+    }),
+    siteLocationId: uuid("site_location_id").references(() => siteLocation.id, {
+      onDelete: "restrict",
+    }),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+    deletedAt: timestamp("deleted_at"),
+  },
+  (table) => [
+    uniqueIndex("user_email_unique")
+      .on(table.email)
+      .where(sql`deleted_at is null`),
+  ],
+);
 
 export const session = pgTable(
   "session",

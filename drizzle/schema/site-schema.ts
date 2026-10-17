@@ -1,10 +1,10 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   pgTable,
   text,
   timestamp,
-  unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -19,8 +19,13 @@ export const site = pgTable(
       .defaultNow()
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
+    deletedAt: timestamp("deleted_at"),
   },
-  (table) => [unique("site_name_unique").on(table.name)],
+  (table) => [
+    uniqueIndex("site_name_unique")
+      .on(table.name)
+      .where(sql`deleted_at is null`),
+  ],
 );
 
 export const siteLocation = pgTable(
@@ -37,9 +42,12 @@ export const siteLocation = pgTable(
       .defaultNow()
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
+    deletedAt: timestamp("deleted_at"),
   },
   (table) => [
-    unique("site_location_site_id_name_unique").on(table.siteId, table.name),
+    uniqueIndex("site_location_site_id_name_unique")
+      .on(table.siteId, table.name)
+      .where(sql`deleted_at is null`),
   ],
 );
 
