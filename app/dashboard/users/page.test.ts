@@ -797,6 +797,9 @@ describe("users page hides soft-deleted rows (issue #44 task 8)", () => {
       };
       const { options } = await renderUsers();
 
+      // Every assertion below lives inside the loop — an empty options array
+      // would skip them all and pass vacuously.
+      expect(options.length).toBeGreaterThan(0);
       for (const option of options) {
         expect(
           (option.sites as Array<{ id: string }>).map((s) => s.id),
