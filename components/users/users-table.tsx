@@ -16,7 +16,7 @@ import {
   UserRowActions,
   type UserFormData,
   type UserRow,
-} from "@/components/user-form";
+} from "@/components/users/user-form";
 import type { Role } from "@/lib/scope";
 
 const helper = createColumnHelper<

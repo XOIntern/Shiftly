@@ -18,8 +18,8 @@ import {
   type SiteOption,
   type UserFormData,
   type UserRow,
-} from "@/components/user-form";
-import { UsersTable } from "@/components/users-table";
+} from "@/components/users/user-form";
+import { UsersTable } from "@/components/users/users-table";
 
 // Deliberate block: the page queries master data behind the HO session check,
 // so there is no static shell worth shipping first. See:

@@ -5,6 +5,16 @@ import { EyeIcon, EyeOffIcon } from "lucide-react";
 
 import { resetPassword } from "@/app/dashboard/users/actions";
 import type { ActionState } from "@/lib/action-state";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,7 +31,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import { InputGroup, InputGroupInput, InputGroupAddon } from "./ui/input-group";
+import { InputGroup, InputGroupInput, InputGroupAddon } from "@/components/ui/input-group";
 
 export function ResetPasswordDialog({
   user,
@@ -35,6 +45,7 @@ export function ResetPasswordDialog({
   const inputId = useId();
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<ActionState["fieldErrors"]>();
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
@@ -44,6 +55,7 @@ export function ResetPasswordDialog({
     if (!next) {
       setNewPassword("");
       setShowPassword(false);
+      setConfirmOpen(false);
       setFieldErrors(undefined);
       setMessage(undefined);
     }
@@ -53,22 +65,26 @@ export function ResetPasswordDialog({
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+    setConfirmOpen(true);
+  }
 
-    setFieldErrors(undefined);
-    setMessage(undefined);
+  function handleConfirm() {
+    if (pending) return;
     startTransition(async () => {
       const result = await resetPassword(user.id, newPassword);
       if (result.ok) {
         handleOpenChange(false);
         return;
       }
+      setConfirmOpen(false);
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
       if (result.message) setMessage(result.message);
     });
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reset password</DialogTitle>
@@ -113,12 +129,30 @@ export function ResetPasswordDialog({
             </Field>
             <DialogFooter>
               <Button type="submit" disabled={pending}>
-                {pending ? "Saving…" : "Reset password"}
+                Reset password
               </Button>
             </DialogFooter>
           </FieldGroup>
         </form>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset password for “{user.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Their current password stops working immediately and all their
+              signed-in devices will be logged out.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" disabled={pending} onClick={handleConfirm}>
+              {pending ? "Resetting…" : "Reset password"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

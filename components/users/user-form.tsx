@@ -35,7 +35,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ResetPasswordDialog } from "@/components/user-reset-password";
+import { ResetPasswordDialog } from "@/components/users/user-reset-password";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -568,7 +568,7 @@ function ToggleUserDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            variant={activating ? "outline" : "destructive"}
+            variant={activating ? undefined : "destructive"}
             disabled={pending}
             onClick={handleConfirm}
           >
