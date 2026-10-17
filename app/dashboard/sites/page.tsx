@@ -10,8 +10,8 @@ import {
 } from "@/lib/table-params";
 import { requireSuperadmin } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
-import { CreateSiteButton } from "@/components/site-form";
-import { SitesTable } from "@/components/sites-table";
+import { CreateSiteButton } from "@/components/sites/site-form";
+import { SitesTable } from "@/components/sites/sites-table";
 
 // Deliberate block: the page queries master data behind the superadmin session
 // check, so there is no static shell worth shipping first. See:

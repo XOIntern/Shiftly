@@ -15,7 +15,11 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { InputGroup, InputGroupInput, InputGroupAddon } from "./ui/input-group";
+import {
+  InputGroup,
+  InputGroupInput,
+  InputGroupAddon,
+} from "../ui/input-group";
 
 export function LoginForm({
   className,

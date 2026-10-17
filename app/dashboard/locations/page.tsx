@@ -14,8 +14,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   CreateLocationButton,
   type SiteOption,
-} from "@/components/location-form";
-import { LocationsTable } from "@/components/locations-table";
+} from "@/components/locations/location-form";
+import { LocationsTable } from "@/components/locations/locations-table";
 
 // Deliberate block: the page queries master data behind the HO session check,
 // so there is no static shell worth shipping first. See:

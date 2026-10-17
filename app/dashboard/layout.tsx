@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { getUser, type SessionUser } from "@/lib/session";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader } from "@/components/sites/site-header";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
@@ -140,9 +140,11 @@ export default async function DashboardLayout({
     avatar: null,
   };
 
-  const navMain = { superadmin: superadminNavMain, ho: hoNavMain, admin: adminNavMain }[
-    user.role
-  ];
+  const navMain = {
+    superadmin: superadminNavMain,
+    ho: hoNavMain,
+    admin: adminNavMain,
+  }[user.role];
 
   return (
     <SidebarProvider
