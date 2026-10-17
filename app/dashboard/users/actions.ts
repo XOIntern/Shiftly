@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 
 import { account, siteLocation, user } from "@/drizzle/schema";
@@ -51,7 +51,7 @@ async function loadManagedTarget(
     })
     .from(user)
     .leftJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
-    .where(eq(user.id, id))
+    .where(and(eq(user.id, id), isNull(user.deletedAt)))
     .limit(1);
 
   if (!target) {
@@ -378,4 +378,38 @@ export async function setActiveBulk(
 
   revalidatePath("/dashboard/users");
   return { ok: true, applied };
+}
+
+// Soft-deletes a user: the row survives with a deleted_at stamp (its email
+// frees up for reuse), the target's live sessions are evicted so the deleted
+// account cannot stay logged in, and the shared gate keeps the actor inside
+// its scope. An already-deleted target answers "User not found." like any
+// missing row — no existence leak.
+export async function deleteUser(id: string): Promise<ActionState> {
+  const current = await requireHO();
+
+  if (id === current.id) {
+    return { ok: false, message: "You cannot delete your own account" };
+  }
+
+  const gated = await loadManagedTarget(current, id);
+  if (!gated.ok) return { ok: false, message: gated.message };
+
+  try {
+    const updated = await db
+      .update(user)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(user.id, id), isNull(user.deletedAt)))
+      .returning({ id: user.id });
+    if (updated.length === 0) {
+      return { ok: false, message: "User not found." };
+    }
+  } catch {
+    return { ok: false, message: GENERIC_ERROR };
+  }
+
+  await deleteUserSessions(id);
+
+  revalidatePath("/dashboard/users");
+  return { ok: true };
 }
