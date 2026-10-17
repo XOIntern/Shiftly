@@ -227,7 +227,18 @@ function UserForm({
         onSaved();
         return;
       }
-      if (result.fieldErrors) setFieldErrors(result.fieldErrors);
+      if (result.fieldErrors) {
+        // Errors for keys without a rendered field (id, form-level parse
+        // messages) would vanish otherwise: lift them into the message slot.
+        const known = ["name", "email", "password", "role", "siteId", "siteLocationId", "form"];
+        const stray = Object.entries(result.fieldErrors).filter(
+          ([key]) => !known.includes(key),
+        );
+        if (stray.length > 0) {
+          setMessage(stray.map(([, value]) => value).join(". "));
+        }
+        setFieldErrors(result.fieldErrors);
+      }
       if (result.message) setMessage(result.message);
     });
   }
