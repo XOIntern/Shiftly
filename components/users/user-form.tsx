@@ -168,7 +168,7 @@ function UserForm({
   }[] = [
     { label: "Select a location", value: null, disabled: true },
     ...locations.map(({ id, name, siteName }) => ({
-      label: siteName ? `${name} (${siteName})` : name,
+      label: siteName ? `${siteName} (${name})` : name,
       value: id,
     })),
   ];
