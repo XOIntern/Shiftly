@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ilike, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { site, siteLocation } from "@/drizzle/schema";
@@ -76,7 +76,7 @@ export default async function LocationsPage({
     .select({ count: count() })
     .from(siteLocation)
     .innerJoin(site, eq(siteLocation.siteId, site.id))
-    .where(where);
+    .where(and(where, isNull(siteLocation.deletedAt)));
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
@@ -85,11 +85,14 @@ export default async function LocationsPage({
       .select({ id: site.id, name: site.name })
       .from(site)
       .where(
-        isSuperadmin
-          ? undefined
-          : actor.siteId
-            ? eq(site.id, actor.siteId)
-            : sql`false`,
+        and(
+          ...(isSuperadmin
+            ? []
+            : actor.siteId
+              ? [eq(site.id, actor.siteId)]
+              : [sql`false`]),
+          isNull(site.deletedAt),
+        ),
       )
       .orderBy(asc(site.name)),
     db
@@ -102,7 +105,7 @@ export default async function LocationsPage({
       })
       .from(siteLocation)
       .innerJoin(site, eq(siteLocation.siteId, site.id))
-      .where(where)
+      .where(and(where, isNull(siteLocation.deletedAt)))
       .orderBy(...order)
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),

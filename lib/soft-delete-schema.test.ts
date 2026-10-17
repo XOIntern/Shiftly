@@ -6,6 +6,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import { pgErrorCode } from "./db-errors";
 import { deleteSiteGuarded } from "./site-delete";
+import { userScopeFilter } from "./scope";
 import { site, siteLocation, user } from "../drizzle/schema";
 import type { SessionUser } from "./session";
 
@@ -572,6 +573,118 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
       await db
         .delete(siteLocation)
         .where(inArray(siteLocation.id, [free, liveBound, deletedBound]));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+});
+
+// Task 6 of the soft-delete epic (GitHub #42): userScopeFilter must exclude
+// soft-deleted users on both branches (site-bound and location-bound) and
+// admins bound to a soft-deleted location. The returned SQL is executed
+// against the real DB, per the plan.
+describe("userScopeFilter excludes soft-deleted rows (issue #42 task 6)", () => {
+  test("ho filter drops a soft-deleted site-bound admin and a deleted location's admin", async () => {
+    const siteId = randomUUID();
+    const liveLocId = randomUUID();
+    const deletedLocId = randomUUID();
+    const liveAdminId = randomUUID();
+    const deletedAdminId = randomUUID();
+    const deadLocAdminId = randomUUID();
+
+    try {
+      await db.insert(site).values([{ id: siteId, name: `scope-del-site-${siteId}` }]);
+      await db.insert(siteLocation).values([
+        { id: liveLocId, siteId, name: "Scope Del Live Loc" },
+        { id: deletedLocId, siteId, name: "Scope Del Dead Loc", deletedAt: sql`now()` },
+      ]);
+      await db.insert(user).values([
+        {
+          id: liveAdminId,
+          name: "Scope Del Live Admin",
+          email: `scope-del-${liveAdminId}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteId,
+          siteLocationId: liveLocId,
+        },
+        {
+          id: deletedAdminId,
+          name: "Scope Del Deleted Admin",
+          email: `scope-del-${deletedAdminId}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteId,
+          siteLocationId: liveLocId,
+        },
+        {
+          id: deadLocAdminId,
+          name: "Scope Del Dead Loc Admin",
+          email: `scope-del-${deadLocAdminId}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteLocationId: deletedLocId,
+        },
+      ]);
+      await db
+        .update(user)
+        .set({ deletedAt: sql`now()` })
+        .where(eq(user.id, deletedAdminId));
+
+      const filter = userScopeFilter({ role: "ho", siteId });
+      const visible = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(filter);
+      // Only the live admin of the live location survives: the soft-deleted
+      // admin drops on the and-wrapped user branch, the dead-location admin
+      // on the subquery branch.
+      expect(visible.map((r) => r.id)).toEqual([liveAdminId]);
+    } finally {
+      await db.delete(user).where(eq(user.id, liveAdminId));
+      await db.delete(user).where(eq(user.id, deletedAdminId));
+      await db.delete(user).where(eq(user.id, deadLocAdminId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, liveLocId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, deletedLocId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("the same admin row appears once it is live again", async () => {
+    const siteId = randomUUID();
+    const locId = randomUUID();
+    const adminId = randomUUID();
+
+    try {
+      await db.insert(site).values([{ id: siteId, name: `scope-rev-site-${siteId}` }]);
+      await db.insert(siteLocation).values([
+        { id: locId, siteId, name: "Scope Revive Loc" },
+      ]);
+      await db.insert(user).values([
+        {
+          id: adminId,
+          name: "Scope Revive Admin",
+          email: `scope-rev-${adminId}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteId,
+          siteLocationId: locId,
+        },
+      ]);
+      await db.update(user).set({ deletedAt: sql`now()` }).where(eq(user.id, adminId));
+
+      const filter = userScopeFilter({ role: "ho", siteId });
+      const whileDeleted = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(filter);
+      expect(whileDeleted).toEqual([]);
+
+      await db.update(user).set({ deletedAt: null }).where(eq(user.id, adminId));
+      const whileLive = await db.select({ id: user.id }).from(user).where(filter);
+      expect(whileLive).toEqual([{ id: adminId }]);
+    } finally {
+      await db.delete(user).where(eq(user.id, adminId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locId));
       await db.delete(site).where(eq(site.id, siteId));
     }
   });

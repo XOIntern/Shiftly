@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation } from "@/drizzle/schema";
@@ -390,6 +390,58 @@ describe("locations page server queries (issue #21)", () => {
     } finally {
       await db.delete(siteLocation).where(eq(siteLocation.siteId, data[0]));
       await db.delete(site).where(eq(site.id, data[0]));
+    }
+  });
+
+  test("soft-deleted locations do not appear in the table (issue #42)", async () => {
+    const token = `t4-loc-del-${randomUUID().slice(0, 8)}`;
+    const siteId = randomUUID();
+    const deletedLocSiteId = randomUUID();
+    const liveId = randomUUID();
+    const deletedId = randomUUID();
+    try {
+      await db.insert(site).values([
+        { id: siteId, name: token },
+        { id: deletedLocSiteId, name: `${token}-site-gone` },
+      ]);
+      await db.insert(siteLocation).values([
+        { id: liveId, siteId, name: `${token}-live` },
+        { id: deletedId, siteId, name: `${token}-gone` },
+      ]);
+      await db
+        .update(siteLocation)
+        .set({ deletedAt: sql`now()` })
+        .where(eq(siteLocation.id, deletedId));
+      await db
+        .update(site)
+        .set({ deletedAt: sql`now()` })
+        .where(eq(site.id, deletedLocSiteId));
+
+      actor = {
+        id: randomUUID(),
+        name: "Loc Del Actor",
+        email: `t4-loc-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const props = await renderLocations({ q: token });
+
+      expect(props.locations.map((l) => l.id)).toEqual([liveId]);
+      expect(props.total).toBe(1);
+      expect(props.pageCount).toBe(1);
+
+      // The site-options list (create dialog) hides soft-deleted sites:
+      // shared dev DB, so assert presence/exclusion rather than exact list.
+      const optionIds = props.sites.map((s) => s.id);
+      expect(optionIds).toContain(siteId);
+      expect(optionIds).not.toContain(deletedLocSiteId);
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, liveId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, deletedId));
+      await db.delete(site).where(eq(site.id, siteId));
+      await db.delete(site).where(eq(site.id, deletedLocSiteId));
     }
   });
 });

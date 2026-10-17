@@ -1,4 +1,4 @@
-import { type SQL, eq, inArray, or, sql } from "drizzle-orm";
+import { type SQL, and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
@@ -72,7 +72,9 @@ export function canManageActorTarget(
 // Listing filter for the /users table (issue #18): a superadmin gets no
 // WHERE (undefined = unfiltered); an ho sees only users bound to its own
 // site — site-bound rows plus admins of the site's locations — and never
-// superadmin or foreign-site rows. A null-bound ho matches nothing.
+// superadmin or foreign-site rows. A null-bound ho matches nothing. Since
+// the soft-delete epic (GitHub #42): soft-deleted users are excluded on
+// both branches, and admins bound to a soft-deleted location drop out too.
 export function userScopeFilter(actor: {
   role: Role;
   siteId: string | null,
@@ -82,9 +84,14 @@ export function userScopeFilter(actor: {
   const siteLocations = db
     .select({ id: siteLocation.id })
     .from(siteLocation)
-    .where(eq(siteLocation.siteId, actor.siteId));
-  return or(
-    eq(user.siteId, actor.siteId),
-    inArray(user.siteLocationId, siteLocations),
+    .where(
+      and(eq(siteLocation.siteId, actor.siteId), isNull(siteLocation.deletedAt)),
+    );
+  return and(
+    or(
+      eq(user.siteId, actor.siteId),
+      inArray(user.siteLocationId, siteLocations),
+    ),
+    isNull(user.deletedAt),
   );
 }

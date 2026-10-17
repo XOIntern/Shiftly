@@ -213,7 +213,7 @@ export async function setActiveBulk(
 // Bulk location unregistration. Rows with LIVE admins still bound are
 // skipped (not fatal) with the same guard message the single-row path
 // gives: the bound check rides the same ownership WHERE, so foreign
-// locations can never leak into either counts. The write soft-deletes —
+// locations can never leak into either count. The write soft-deletes —
 // deleted_at is set, the row itself stays.
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const actor = await requireHO();
