@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation, user } from "@/drizzle/schema";
@@ -703,6 +703,119 @@ describe("users page scoping (issue #18)", () => {
     } finally {
       await db.delete(user).where(inArray(user.id, ids));
       await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+});
+
+// Task 8 of the soft-delete epic (GitHub #44): the users page queries must
+// never surface a soft-deleted row — the listing/count for the superadmin
+// path (userScopeFilter already covers the ho path), and the form option
+// dropdowns for sites and locations.
+describe("users page hides soft-deleted rows (issue #44 task 8)", () => {
+  test("soft-deleted users do not appear in the table", async () => {
+    const siteA = randomUUID();
+    const liveAdminId = randomUUID();
+    const deletedAdminId = randomUUID();
+
+    try {
+      await db.insert(site).values([
+        { id: siteA, name: `t5-users-site-del-${siteA}` },
+      ]);
+      await db.insert(user).values([
+        {
+          id: liveAdminId,
+          name: "T5 Del Live Admin",
+          email: `t5-users-${liveAdminId}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteId: siteA,
+        },
+        {
+          id: deletedAdminId,
+          name: "T5 Del Deleted Admin",
+          email: `t5-users-${deletedAdminId}@shiftly.test`,
+          emailVerified: true,
+          role: "admin",
+          siteId: siteA,
+          deletedAt: sql`now()`,
+        },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T5 Del Sa",
+        email: `t5-users-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const { entries, page } = await renderUsers({
+        q: "T5 Del",
+      });
+
+      // Only the live admin is collected; the soft-deleted one is gone from
+      // both the listing and the count (the shared where clause).
+      expect(entries.map((e) => e.user.id)).toEqual([liveAdminId]);
+      expect(page.total).toBe(1);
+    } finally {
+      await db.delete(user).where(eq(user.id, liveAdminId));
+      await db.delete(user).where(eq(user.id, deletedAdminId));
+      await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+
+  test("soft-deleted sites and locations are absent from the form options", async () => {
+    const siteLive = randomUUID();
+    const siteDeleted = randomUUID();
+    const locLive = randomUUID();
+    const locDeleted = randomUUID();
+
+    try {
+      await db.insert(site).values([
+        { id: siteLive, name: `t5-users-site-live-${siteLive}` },
+        { id: siteDeleted, name: `t5-users-site-dead-${siteDeleted}`, deletedAt: sql`now()` },
+      ]);
+      await db.insert(siteLocation).values([
+        { id: locLive, siteId: siteLive, name: "T5 Users Loc Live" },
+        {
+          id: locDeleted,
+          siteId: siteLive,
+          name: "T5 Users Loc Dead",
+          deletedAt: sql`now()`,
+        },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T5 Opt Sa",
+        email: `t5-users-${randomUUID()}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+      const { options } = await renderUsers();
+
+      for (const option of options) {
+        expect(
+          (option.sites as Array<{ id: string }>).map((s) => s.id),
+        ).not.toContain(siteDeleted);
+        expect(
+          (option.sites as Array<{ id: string }>).map((s) => s.id),
+        ).toContain(siteLive);
+        expect(
+          (option.locations as Array<{ id: string }>).map((l) => l.id),
+        ).not.toContain(locDeleted);
+        expect(
+          (option.locations as Array<{ id: string }>).map((l) => l.id),
+        ).toContain(locLive);
+      }
+    } finally {
+      await db.delete(siteLocation).where(eq(siteLocation.id, locLive));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locDeleted));
+      await db.delete(site).where(eq(site.id, siteLive));
+      await db.delete(site).where(eq(site.id, siteDeleted));
     }
   });
 });

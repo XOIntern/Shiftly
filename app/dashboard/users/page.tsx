@@ -1,4 +1,4 @@
-import { asc, and, count, eq, ilike, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { site, siteLocation, user } from "@/drizzle/schema";
@@ -83,8 +83,12 @@ export default async function UsersPage({
       )
     : undefined;
   // Null-safe and(...) composes the listing scope with search + filters.
+  // The soft-delete guard sits here so both the count and the listing drop
+  // deleted users — userScopeFilter covers the ho path, this covers the
+  // superadmin path where the scope is undefined.
   const scope = userScopeFilter(actor);
   const where = and(
+    isNull(user.deletedAt),
     ...(scope ? [scope] : []),
     ...(search ? [search] : []),
     ...(status ? [eq(user.isActive, status === "active")] : []),
@@ -136,6 +140,8 @@ export default async function UsersPage({
     db
       .select({ id: site.id, name: site.name })
       .from(site)
+      // Form options must not offer a deleted site for provisioning.
+      .where(isNull(site.deletedAt))
       .orderBy(asc(site.name)),
     db
       .select({
@@ -146,6 +152,8 @@ export default async function UsersPage({
       })
       .from(siteLocation)
       .leftJoin(site, eq(siteLocation.siteId, site.id))
+      // Same for a deleted location.
+      .where(isNull(siteLocation.deletedAt))
       .orderBy(asc(site.name), asc(siteLocation.name)),
   ]);
 
