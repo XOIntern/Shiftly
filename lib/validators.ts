@@ -117,7 +117,9 @@ export const changePasswordSchema = z
 // role/binding refine kept.
 export const userUpdateSchema = userBaseSchema
   .omit({ password: true, email: true })
-  .extend({ id: z.uuid() })
+  // The user id is a text column holding Better Auth generated ids
+  // (non-UUID), so it only needs to be present.
+  .extend({ id: z.string().min(1) })
   .refine(roleBindingValid, { message: bindingMessage });
 
 // updateUser's parse: validates an {id, name, role, bindings?} edit against

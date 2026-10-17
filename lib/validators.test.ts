@@ -467,6 +467,15 @@ describe("parseUserUpdate", () => {
     const parsed = parseUserUpdate(id, { name: "X", role: "ho" });
     expect(parsed.success).toBe(false);
   });
+
+  test("accepts a Better Auth generated id that is not a UUID", () => {
+    const parsed = parseUserUpdate("2PcXgGrgbhG1kjiIw3RNpdfWrKA9g5t2", {
+      name: "HO",
+      role: "ho",
+      siteId: "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02",
+    });
+    expect(parsed.success).toBe(true);
+  });
 });
 
 describe("parseUserCreate", () => {
