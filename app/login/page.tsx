@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { LoginForm } from "@/components/locations/login-form";
+import { LoginForm } from "@/components/login/login-form";
 import { getUser } from "@/lib/session";
 import Image from "next/image";
 import Link from "next/link";

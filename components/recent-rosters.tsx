@@ -1,11 +1,11 @@
-import { Badge } from "@/components/ui/badge"
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -13,7 +13,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
+} from "@/components/ui/table";
 
 // Placeholder rows until rosters pass through the roster engine.
 const rosters = [
@@ -59,7 +59,7 @@ const rosters = [
     rostered: 6,
     status: "Draft",
   },
-]
+];
 
 export function RecentRosters() {
   return (
@@ -86,15 +86,16 @@ export function RecentRosters() {
               {rosters.map((roster, index) => (
                 <TableRow key={index}>
                   <TableCell>{roster.week}</TableCell>
-                  <TableCell className="font-medium">
-                    {roster.site}
-                  </TableCell>
+                  <TableCell className="font-medium">{roster.site}</TableCell>
                   <TableCell>{roster.department}</TableCell>
                   <TableCell className="tabular-nums">
                     {roster.rostered}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="px-1.5 text-muted-foreground">
+                    <Badge
+                      variant="outline"
+                      className="px-1.5 text-muted-foreground"
+                    >
                       {roster.status}
                     </Badge>
                   </TableCell>
@@ -105,5 +106,5 @@ export function RecentRosters() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
