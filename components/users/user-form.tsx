@@ -79,6 +79,17 @@ export type LocationOption = {
   siteName: string | null;
 };
 
+// Departments/work areas (issue #66): mirrors the site/location options.
+// Work-area rows key on the site_location so the select can shrink to the
+// target admin's chosen location; the page pre-scopes both option lists.
+export type DepartmentOption = { id: string; name: string; siteId: string };
+
+export type WorkAreaOption = {
+  id: string;
+  name: string;
+  siteLocationId: string;
+};
+
 // One row of the users table — server-selectable fields only.
 export type UserRow = {
   id: string;
@@ -96,6 +107,8 @@ export type UserFormData = {
   role: Role;
   siteId: string | null;
   siteLocationId: string | null;
+  departmentId: string | null;
+  workAreaId: string | null;
 };
 
 const roleItemsAll: { label: string; value: Role }[] = [
@@ -110,6 +123,8 @@ function UserForm({
   user,
   sites,
   locations,
+  departments,
+  workAreas,
   onSaved,
 }: {
   mode: "create" | "edit";
@@ -118,6 +133,8 @@ function UserForm({
   user?: UserFormData;
   sites: SiteOption[];
   locations: LocationOption[];
+  departments: DepartmentOption[];
+  workAreas: WorkAreaOption[];
   onSaved: () => void;
 }) {
   const nameId = useId();
@@ -126,6 +143,8 @@ function UserForm({
   const roleId = useId();
   const siteFieldId = useId();
   const locationFieldId = useId();
+  const departmentFieldId = useId();
+  const workAreaFieldId = useId();
 
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState("");
@@ -137,6 +156,12 @@ function UserForm({
   const [site, setSite] = useState<string | null>(user?.siteId ?? null);
   const [location, setLocation] = useState<string | null>(
     user?.siteLocationId ?? null,
+  );
+  const [department, setDepartment] = useState<string | null>(
+    user?.departmentId ?? null,
+  );
+  const [workArea, setWorkArea] = useState<string | null>(
+    user?.workAreaId ?? null,
   );
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>();
   const [message, setMessage] = useState<string>();
@@ -153,6 +178,9 @@ function UserForm({
   // the location select renders disabled there; creation keeps it editable
   // because choosing the location is the point.
   const locationLocked = mode === "edit" && actorRole === "ho";
+  // Same pin for the target's department: an ho actor never rewrites the
+  // bindings of the admins it manages.
+  const departmentLocked = mode === "edit" && actorRole === "ho";
 
   const siteItems: {
     label: string;
@@ -173,6 +201,32 @@ function UserForm({
       label: siteName ? `${siteName} (${name})` : name,
       value: id,
     })),
+  ];
+
+  // A department is site-scoped: for an ho target the pick must match the
+  // site select; for an admin the page already scopes the options.
+  const departmentItems: {
+    label: string;
+    value: string | null;
+    disabled?: boolean;
+  }[] = [
+    { label: "Select a department", value: null, disabled: true },
+    ...departments
+      .filter((option) => (role === "ho" ? option.siteId === site : true))
+      .map(({ id, name }) => ({ label: name, value: id })),
+  ];
+
+  // Work areas key off the admin's chosen site_location (issue #66): the
+  // list shrinks as the location select moves.
+  const workAreaItems: {
+    label: string;
+    value: string | null;
+    disabled?: boolean;
+  }[] = [
+    { label: "Select a work area", value: null, disabled: true },
+    ...workAreas
+      .filter((option) => option.siteLocationId === location)
+      .map(({ id, name }) => ({ label: name, value: id })),
   ];
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -210,6 +264,12 @@ function UserForm({
           ...(role === "admin"
             ? { siteLocationId: location ?? undefined }
             : {}),
+          ...(role === "admin" || role === "ho"
+            ? { departmentId: department ?? undefined }
+            : {}),
+          ...(role === "admin" && actorRole === "superadmin"
+            ? { workAreaId: workArea ?? undefined }
+            : {}),
         });
       } else {
         const createRole = role ?? "admin";
@@ -222,6 +282,12 @@ function UserForm({
           ...(createRole === "admin"
             ? { siteLocationId: location ?? undefined }
             : {}),
+          ...(createRole === "admin" || createRole === "ho"
+            ? { departmentId: department ?? undefined }
+            : {}),
+          ...(createRole === "admin" && actorRole === "superadmin"
+            ? { workAreaId: workArea ?? undefined }
+            : {}),
         });
       }
 
@@ -232,7 +298,7 @@ function UserForm({
       if (result.fieldErrors) {
         // Errors for keys without a rendered field (id, form-level parse
         // messages) would vanish otherwise: lift them into the message slot.
-        const known = ["name", "email", "password", "role", "siteId", "siteLocationId", "form"];
+        const known = ["name", "email", "password", "role", "siteId", "siteLocationId", "departmentId", "workAreaId", "form"];
         const stray = Object.entries(result.fieldErrors).filter(
           ([key]) => !known.includes(key),
         );
@@ -314,6 +380,8 @@ function UserForm({
               // now-irrelevant binding.
               setSite(null);
               setLocation(null);
+              setDepartment(null);
+              setWorkArea(null);
             }}
           >
             <SelectTrigger id={roleId} className="w-full">
@@ -379,7 +447,11 @@ function UserForm({
               items={locationItems}
               value={location}
               disabled={locationLocked}
-              onValueChange={(value) => setLocation(value as string | null)}
+              onValueChange={(value) => {
+                setLocation(value as string | null);
+                // A location move invalidates the work-area pick.
+                setWorkArea(null);
+              }}
             >
               <SelectTrigger id={locationFieldId} className="w-full">
                 <SelectValue />
@@ -413,6 +485,92 @@ function UserForm({
             ) : null}
           </Field>
         ) : null}
+        {role === "superadmin" || role === null ? null : (
+          // Department binding (issue #66): any ho or admin target may
+          // carry one. An ho target's departments shrink to the chosen
+          // site; an admin target's arrive pre-scoped from the page.
+          <Field
+            data-invalid={fieldErrors?.departmentId ? "true" : undefined}
+          >
+            <FieldLabel htmlFor={departmentFieldId}>Department</FieldLabel>
+            <Select
+              items={departmentItems}
+              value={department}
+              disabled={departmentLocked}
+              onValueChange={(value) => setDepartment(value as string | null)}
+            >
+              <SelectTrigger id={departmentFieldId} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {departmentItems.map((item) => (
+                    <SelectItem
+                      key={item.value ?? "placeholder"}
+                      value={item.value}
+                      disabled={item.disabled}
+                    >
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {departmentLocked ? (
+              <FieldDescription>
+                The department is fixed after creation.
+              </FieldDescription>
+            ) : null}
+            {departmentItems.length === 1 ? (
+              <FieldDescription>
+                No departments available — create one first.
+              </FieldDescription>
+            ) : null}
+            {fieldErrors?.departmentId ? (
+              <FieldError errors={[{ message: fieldErrors.departmentId }]} />
+            ) : null}
+          </Field>
+        )}
+        {role === "admin" && actorRole === "superadmin" ? (
+          // Work-area binding (issue #66): admins only, superadmin-managed
+          // — an ho actor never sets one (the action strips it). Options
+          // key on the target admin's chosen location.
+          <Field
+            data-invalid={fieldErrors?.workAreaId ? "true" : undefined}
+          >
+            <FieldLabel htmlFor={workAreaFieldId}>Work area</FieldLabel>
+            <Select
+              items={workAreaItems}
+              value={workArea}
+              onValueChange={(value) => setWorkArea(value as string | null)}
+            >
+              <SelectTrigger id={workAreaFieldId} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {workAreaItems.map((item) => (
+                    <SelectItem
+                      key={item.value ?? "placeholder"}
+                      value={item.value}
+                      disabled={item.disabled}
+                    >
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {workAreaItems.length === 1 ? (
+              <FieldDescription>
+                No work areas at this location yet — create one first.
+              </FieldDescription>
+            ) : null}
+            {fieldErrors?.workAreaId ? (
+              <FieldError errors={[{ message: fieldErrors.workAreaId }]} />
+            ) : null}
+          </Field>
+        ) : null}
         <DialogFooter>
           <Button type="submit" disabled={pending}>
             {pending ? "Saving…" : "Save"}
@@ -427,10 +585,14 @@ export function CreateUserButton({
   actorRole,
   sites,
   locations,
+  departments,
+  workAreas,
 }: {
   actorRole: Role;
   sites: SiteOption[];
   locations: LocationOption[];
+  departments: DepartmentOption[];
+  workAreas: WorkAreaOption[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -453,6 +615,8 @@ export function CreateUserButton({
           actorRole={actorRole}
           sites={sites}
           locations={locations}
+          departments={departments}
+          workAreas={workAreas}
           onSaved={() => setOpen(false)}
         />
       </DialogContent>
@@ -466,12 +630,16 @@ export function UserRowActions({
   actorRole,
   sites,
   locations,
+  departments,
+  workAreas,
 }: {
   user: UserRow;
   form: UserFormData;
   actorRole: Role;
   sites: SiteOption[];
   locations: LocationOption[];
+  departments: DepartmentOption[];
+  workAreas: WorkAreaOption[];
 }) {
   const [dialog, setDialog] = useState<
     "edit" | "reset" | "toggle" | "delete" | null
@@ -525,6 +693,8 @@ export function UserRowActions({
         user={form}
         sites={sites}
         locations={locations}
+        departments={departments}
+        workAreas={workAreas}
         open={dialog === "edit"}
         onOpenChange={(open) => {
           if (!open) setDialog(null);
@@ -612,6 +782,8 @@ function EditUserDialog({
   user,
   sites,
   locations,
+  departments,
+  workAreas,
   open,
   onOpenChange,
 }: {
@@ -619,6 +791,8 @@ function EditUserDialog({
   user: UserFormData;
   sites: SiteOption[];
   locations: LocationOption[];
+  departments: DepartmentOption[];
+  workAreas: WorkAreaOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -637,6 +811,8 @@ function EditUserDialog({
           user={user}
           sites={sites}
           locations={locations}
+          departments={departments}
+          workAreas={workAreas}
           onSaved={() => onOpenChange(false)}
         />
       </DialogContent>

@@ -1,7 +1,13 @@
 import { and, asc, count, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
-import { site, siteLocation, user } from "@/drizzle/schema";
+import {
+  department,
+  site,
+  siteLocation,
+  user,
+  workArea,
+} from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { buildOrder } from "@/lib/table-order";
 import {
@@ -14,10 +20,12 @@ import { canManageActorTarget, userScopeFilter, type Role } from "@/lib/scope";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   CreateUserButton,
+  type DepartmentOption,
   type LocationOption,
   type SiteOption,
   type UserFormData,
   type UserRow,
+  type WorkAreaOption,
 } from "@/components/users/user-form";
 import { UsersTable } from "@/components/users/users-table";
 
@@ -111,7 +119,8 @@ export default async function UsersPage({
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
-  const [rows, allSites, allLocations] = await Promise.all([
+  const [rows, allSites, allLocations, allDepartments, allWorkAreas] =
+    await Promise.all([
     db
       .select({
         id: user.id,
@@ -121,6 +130,8 @@ export default async function UsersPage({
         isActive: user.isActive,
         userSiteId: user.siteId,
         userSiteLocationId: user.siteLocationId,
+        userDepartmentId: user.departmentId,
+        userWorkAreaId: user.workAreaId,
         siteName: site.name,
         locationName: siteLocation.name,
         locationSiteId: siteLocation.siteId,
@@ -155,6 +166,27 @@ export default async function UsersPage({
       // Same for a deleted location.
       .where(isNull(siteLocation.deletedAt))
       .orderBy(asc(site.name), asc(siteLocation.name)),
+    // Departments/work areas for the dialogs (issue #66), mirroring the
+    // sites/locations fetch: soft-deleted rows never come back as options.
+    db
+      .select({
+        id: department.id,
+        name: department.name,
+        siteId: department.siteId,
+      })
+      .from(department)
+      .where(isNull(department.deletedAt))
+      .orderBy(asc(department.name)),
+    db
+      .select({
+        id: workArea.id,
+        name: workArea.name,
+        siteLocationId: workArea.siteLocationId,
+        siteId: workArea.siteId,
+      })
+      .from(workArea)
+      .where(isNull(workArea.deletedAt))
+      .orderBy(asc(workArea.name)),
   ]);
 
   // An ho provisions into its own site only: locations are pre-filtered so
@@ -165,6 +197,17 @@ export default async function UsersPage({
       ? allLocations.filter((location) => location.siteId === actor.siteId)
       : allLocations;
   const sites: SiteOption[] = actor.role === "ho" ? [] : allSites;
+  // Both new option lists shrink to the ho actor's own site (departments
+  // are site-scoped; work areas carry their department's site). The
+  // actions re-check the scope server-side either way.
+  const departments: DepartmentOption[] =
+    actor.role === "ho"
+      ? allDepartments.filter((option) => option.siteId === actor.siteId)
+      : allDepartments;
+  const workAreas: WorkAreaOption[] =
+    actor.role === "ho"
+      ? allWorkAreas.filter((option) => option.siteId === actor.siteId)
+      : allWorkAreas;
 
   const entries = rows.map((row) => ({
     user: {
@@ -181,6 +224,8 @@ export default async function UsersPage({
       role: row.role,
       siteId: row.userSiteId,
       siteLocationId: row.userSiteLocationId,
+      departmentId: row.userDepartmentId,
+      workAreaId: row.userWorkAreaId,
     } satisfies UserFormData,
     canManage: canManageActorTarget(actor, row),
   }));
@@ -199,6 +244,8 @@ export default async function UsersPage({
           actorRole={actor.role}
           sites={sites}
           locations={locations}
+          departments={departments}
+          workAreas={workAreas}
         />
       </div>
       <Card>
@@ -208,6 +255,8 @@ export default async function UsersPage({
             actorRole={actor.role}
             sites={sites}
             locations={locations}
+            departments={departments}
+            workAreas={workAreas}
             pageCount={pageCount}
             total={rowCount}
           />

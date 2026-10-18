@@ -12,11 +12,13 @@ import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import {
+  type DepartmentOption,
   type LocationOption,
   type SiteOption,
   UserRowActions,
   type UserFormData,
   type UserRow,
+  type WorkAreaOption,
 } from "@/components/users/user-form";
 import type { Role } from "@/lib/scope";
 
@@ -34,6 +36,8 @@ export function UsersTable({
   actorRole,
   sites,
   locations,
+  departments,
+  workAreas,
   pageCount,
   total,
 }: {
@@ -41,6 +45,8 @@ export function UsersTable({
   actorRole: Role;
   sites: SiteOption[];
   locations: LocationOption[];
+  departments: DepartmentOption[];
+  workAreas: WorkAreaOption[];
   pageCount: number;
   total: number;
 }) {
@@ -108,11 +114,13 @@ export function UsersTable({
                 actorRole={actorRole}
                 sites={sites}
                 locations={locations}
+                departments={departments}
+                workAreas={workAreas}
               />
             ) : null,
         }),
       ]),
-    [actorRole, sites, locations],
+    [actorRole, sites, locations, departments, workAreas],
   );
 
   return (

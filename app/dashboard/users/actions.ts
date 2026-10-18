@@ -5,9 +5,13 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 
-import { account, siteLocation, user } from "@/drizzle/schema";
+import { account, department, siteLocation, user, workArea } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { mapDbError, pgErrorCode } from "@/lib/db-errors";
+import {
+  mapDbError,
+  pgErrorCode,
+  pgErrorConstraint,
+} from "@/lib/db-errors";
 import { canManageActorTarget, type Role } from "@/lib/scope";
 import { requireHO, type SessionUser } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
@@ -38,6 +42,8 @@ async function loadManagedTarget(
         role: Role;
         siteId: string | null;
         siteLocationId: string | null;
+        departmentId: string | null;
+        workAreaId: string | null;
       };
     }
   | { ok: false; message: string }
@@ -47,6 +53,8 @@ async function loadManagedTarget(
       role: user.role,
       siteId: user.siteId,
       siteLocationId: user.siteLocationId,
+      departmentId: user.departmentId,
+      workAreaId: user.workAreaId,
       locationSiteId: siteLocation.siteId,
     })
     .from(user)
@@ -73,8 +81,84 @@ async function loadManagedTarget(
       role: target.role,
       siteId: target.siteId,
       siteLocationId: target.siteLocationId,
+      departmentId: target.departmentId,
+      workAreaId: target.workAreaId,
     },
   };
+}
+
+// Maps a statement's 23503 to the field whose FK constraint fired. The
+// fallback keeps the old role-driven routing for the site/location
+// bindings (which carry no per-constraint message of their own here).
+function fkFieldErrors(
+  err: unknown,
+  role: Role,
+): { ok: false; fieldErrors: Record<string, string> } {
+  const constraint = pgErrorConstraint(err);
+  if (constraint === "user_department_id_department_id_fk") {
+    return {
+      ok: false,
+      fieldErrors: { departmentId: "Selected department no longer exists" },
+    };
+  }
+  if (constraint === "user_work_area_id_work_area_id_fk") {
+    return {
+      ok: false,
+      fieldErrors: { workAreaId: "Selected work area no longer exists" },
+    };
+  }
+  // The final role's own binding FK fired: admins point at site_location,
+  // ho rows at site. Superadmins carry no FK-bearing binding, so a 23503
+  // there is impossible.
+  return role === "ho"
+    ? { ok: false, fieldErrors: { siteId: "Selected site no longer exists" } }
+    : {
+        ok: false,
+        fieldErrors: {
+          siteLocationId: "Selected location no longer exists",
+        },
+      };
+}
+
+// Verifies a department id a client may bind: it must exist un-deleted and
+// (for a site-scoped actor) sit inside that actor's site. A deleted or
+// foreign department reads as "must belong to your site", matching the
+// work-areas actions' scope error for the same field.
+async function departmentAllowsBinding(
+  departmentId: string,
+  siteId: string | null,
+): Promise<boolean> {
+  const [dept] = await db
+    .select({ siteId: department.siteId })
+    .from(department)
+    .where(and(eq(department.id, departmentId), isNull(department.deletedAt)))
+    .limit(1);
+  return !!dept && dept.siteId === siteId;
+}
+
+// Loads an un-deleted work area for the pairing net below: a missing row
+// (or a foreign site_location) is reported to the caller. A nonexistent id
+// falls through to the insert so the user.work_area FK's 23503 carries its
+// own "no longer exists" message; a genuine pair mismatch answers at the
+// field instead (the plain FK only checks existence — a cross-location
+// pairing would otherwise persist silently).
+async function loadWorkAreaBinding(
+  workAreaId: string,
+): Promise<{ siteLocationId: string } | null> {
+  const [wa] = await db
+    .select({ siteLocationId: workArea.siteLocationId })
+    .from(workArea)
+    .where(and(eq(workArea.id, workAreaId), isNull(workArea.deletedAt)))
+    .limit(1);
+  return wa ?? null;
+}
+
+const WORK_AREA_PAIRING_FIELD_ERRORS = {
+  workAreaId: "Work area must belong to the selected location",
+} as const;
+
+function workAreaPairingError() {
+  return { ok: false, fieldErrors: WORK_AREA_PAIRING_FIELD_ERRORS };
 }
 
 export async function createUser(input: {
@@ -84,6 +168,8 @@ export async function createUser(input: {
   role: string;
   siteId?: string | null;
   siteLocationId?: string | null;
+  departmentId?: string | null;
+  workAreaId?: string | null;
 }): Promise<ActionState> {
   const actor = await requireHO();
 
@@ -103,6 +189,32 @@ export async function createUser(input: {
   // to the single binding the final role carries (both null for superadmin).
   const siteId = parsed.data.siteId ?? null;
   const siteLocationId = parsed.data.siteLocationId ?? null;
+
+  // Departments are site-scoped: an ho actor's pick must live in their
+  // own site (soft-deleted departments are not bindable). Superadmin
+  // actors may bind any department to the targets they provision.
+  let departmentId = parsed.data.departmentId ?? null;
+  if (actor.role === "ho" && departmentId) {
+    if (!(await departmentAllowsBinding(departmentId, actor.siteId))) {
+      return {
+        ok: false,
+        fieldErrors: { departmentId: "Department must belong to your site" },
+      };
+    }
+  }
+
+  // An ho actor never sets a work area — that binding belongs to admins
+  // and is managed by superadmins; the raw client value is dropped here
+  // (the validator keeps workAreaId for admin targets regardless of actor).
+  // A superadmin's pick must pair with the admin's location.
+  let workAreaId = actor.role === "ho" ? null : (parsed.data.workAreaId ?? null);
+  if (workAreaId && role === "admin") {
+    const bound = await loadWorkAreaBinding(workAreaId);
+    if (bound && bound.siteLocationId !== siteLocationId) {
+      return workAreaPairingError();
+    }
+    // bound === null → let the statement's own FK answer.
+  }
 
   if (actor.role === "ho") {
     if (!siteLocationId) {
@@ -148,6 +260,8 @@ export async function createUser(input: {
         role,
         siteId,
         siteLocationId,
+        departmentId,
+        workAreaId,
         isActive: true,
       });
       await tx.insert(account).values({
@@ -160,17 +274,7 @@ export async function createUser(input: {
     });
   } catch (err) {
     if (pgErrorCode(err) === "23503") {
-      // The final role's own binding FK fired: admins point at
-      // site_location, ho rows at site. Superadmins carry no FK-bearing
-      // binding, so a 23503 there is impossible.
-      return role === "ho"
-        ? { ok: false, fieldErrors: { siteId: "Selected site no longer exists" } }
-        : {
-            ok: false,
-            fieldErrors: {
-              siteLocationId: "Selected location no longer exists",
-            },
-          };
+      return fkFieldErrors(err, role);
     }
     const mapped = mapDbError(err, { kind: "email" });
     if (mapped) return { ok: false, fieldErrors: { email: mapped } };
@@ -188,6 +292,8 @@ export async function updateUser(
     role: string;
     siteId?: string | null;
     siteLocationId?: string | null;
+    departmentId?: string | null;
+    workAreaId?: string | null;
   },
 ): Promise<ActionState> {
   const actor = await requireHO();
@@ -204,7 +310,8 @@ export async function updateUser(
   // An ho actor may not change the role or binding — both stay pinned to
   // the target's current values, whatever the payload carried. A
   // superadmin actor may switch the role; the bindings follow the new one
-  // (ho: siteId only; admin: siteLocationId only; superadmin: none).
+  // (ho: siteId + optional department; admin: siteLocationId + optional
+  // department/work area; superadmin: none).
   const role: Role = actor.role === "ho" ? target.role : parsed.data.role;
   const siteId = role === "ho" ? (parsed.data.siteId ?? null) : null;
   const siteLocationId =
@@ -213,11 +320,44 @@ export async function updateUser(
       : actor.role === "ho"
         ? (target.siteLocationId ?? null)
         : (parsed.data.siteLocationId ?? null);
+  // Departments/work areas follow the same actor gate: on an ho or admin
+  // target the department may be set (only a superadmin actor may change
+  // it — an ho's edit never rewrites the target's bindings); a work area
+  // belongs to admins alone. Superadmin targets carry neither.
+  const departmentId =
+    role === "superadmin"
+      ? null
+      : actor.role === "ho"
+        ? (target.departmentId ?? null)
+        : (parsed.data.departmentId ?? null);
+  const workAreaId =
+    role !== "admin"
+      ? null
+      : actor.role === "ho"
+        ? (target.workAreaId ?? null)
+        : (parsed.data.workAreaId ?? null);
+
+  // Same pairing net for edits: an admin target's work area must hang off
+  // its (input- or target-pinned) site_location. A ho actor's pick is
+  // already pinned to the target, so this only bites superadmin edits.
+  if (workAreaId && siteLocationId) {
+    const bound = await loadWorkAreaBinding(workAreaId);
+    if (bound && bound.siteLocationId !== siteLocationId) {
+      return workAreaPairingError();
+    }
+  }
 
   try {
     const updated = await db
       .update(user)
-      .set({ name: parsed.data.name, role, siteId, siteLocationId })
+      .set({
+        name: parsed.data.name,
+        role,
+        siteId,
+        siteLocationId,
+        departmentId,
+        workAreaId,
+      })
       .where(eq(user.id, id))
       .returning({ id: user.id });
     if (updated.length === 0) {
@@ -225,15 +365,9 @@ export async function updateUser(
     }
   } catch (err) {
     if (pgErrorCode(err) === "23503") {
-      // Same binding-FK routing as createUser.
-      return role === "ho"
-        ? { ok: false, fieldErrors: { siteId: "Selected site no longer exists" } }
-        : {
-            ok: false,
-            fieldErrors: {
-              siteLocationId: "Selected location no longer exists",
-            },
-          };
+      // The new FK constraints route per-constraint; anything else falls
+      // back to the role-driven site/location messages (fkFieldErrors).
+      return fkFieldErrors(err, role);
     }
     const mapped = mapDbError(err, { kind: "email" });
     return mapped ? { ok: false, message: mapped } : { ok: false, message: GENERIC_ERROR };
