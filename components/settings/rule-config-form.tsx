@@ -62,6 +62,28 @@ export type RuleLocationOption = {
   siteName: string;
 };
 
+// The dialog renders error slots for scope, siteLocationId, intValue and
+// boolValue. Refusals keyed to any other field — the null-bound ho's siteId
+// ("Site is required.") has no rendered slot — lift into the message slot,
+// matching the user-form convention; form-level errors stay rendered.
+export function splitRuleFieldErrors(fieldErrors: Record<string, string>): {
+  fieldErrors: Record<string, string>;
+  message: string | undefined;
+} {
+  const known = ["scope", "siteLocationId", "intValue", "boolValue", "form"];
+  const split: Record<string, string> = {};
+  let message: string | undefined;
+  for (const [key, value] of Object.entries(fieldErrors)) {
+    if (known.includes(key)) {
+      split[key] = value;
+    } else {
+      message ??= "";
+      message = message ? `${message}. ${value}` : value;
+    }
+  }
+  return { fieldErrors: split, message };
+}
+
 // Sanity ranges mirrored from lib/rule-config-validators.ts so the inputs
 // nudge before the server roundtrip; the action stays authoritative.
 const INT_BOUNDS: Partial<Record<RuleKey, { min: number; max?: number }>> = {
@@ -189,14 +211,13 @@ function RuleEditForm({
         return;
       }
       if (result.fieldErrors) {
-        const known = ["scope", "siteId", "siteLocationId", "intValue", "boolValue", "form"];
-        const stray = Object.entries(result.fieldErrors).filter(
-          ([key]) => !known.includes(key),
-        );
-        if (stray.length > 0) {
-          setMessage(stray.map(([, value]) => value).join(". "));
-        }
-        setFieldErrors(result.fieldErrors);
+        // Errors for keys without a rendered field — the null-bound ho's
+        // siteId ("Site is required.") has no slot in this dialog — lift
+        // into the message slot (user-form convention) instead of hanging
+        // on an error map no element reads.
+        const split = splitRuleFieldErrors(result.fieldErrors);
+        setFieldErrors(split.fieldErrors);
+        if (split.message) setMessage(split.message);
       }
       if (result.message) setMessage(result.message);
     });
