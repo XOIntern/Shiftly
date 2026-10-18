@@ -398,6 +398,72 @@ describe("users bindings (department/work-area, issue #66)", () => {
     });
   });
 
+  test("superadmin create binds a SOFT-DELETED departmentId → field error, nothing persists", async () => {
+    const deadDept2 = randomUUID();
+    // Soft-deleted department inside a real location scope: the FK sees the
+    // physical row, so only the load path can catch it.
+    await db.insert(department).values({
+      id: deadDept2,
+      siteId: siteA,
+      name: "T9 Dept Dead Bind",
+      deletedAt: new Date(),
+    });
+    try {
+      actor = superActorRow;
+      const { createUser } = await import("./actions");
+      const email = `t9-super-dead-dept-${randomUUID()}@shiftly.test`;
+      const result = await createUser({
+        name: "T9 Dead Dept Bind",
+        email,
+        password: "password123",
+        role: "admin",
+        siteLocationId: locA,
+        departmentId: deadDept2,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors).toEqual({
+        departmentId: "Selected department no longer exists",
+      });
+      const [row] = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.email, email));
+      expect(row).toBeUndefined();
+    } finally {
+      await db.delete(department).where(eq(department.id, deadDept2));
+    }
+  });
+
+  test("superadmin update binds a SOFT-DELETED departmentId on an ho target → field error, binding unchanged", async () => {
+    const deadDept3 = randomUUID();
+    await db.insert(department).values({
+      id: deadDept3,
+      siteId: siteA,
+      name: "T9 Dept Dead Upd",
+      deletedAt: new Date(),
+    });
+    try {
+      actor = superActorRow;
+      const id = await mintUser({ role: "ho", siteId: siteA });
+      const { updateUser } = await import("./actions");
+      const result = await updateUser(id, {
+        name: "T9 HO Dead Dept",
+        role: "ho",
+        siteId: siteA,
+        departmentId: deadDept3,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors).toEqual({
+        departmentId: "Selected department no longer exists",
+      });
+      const row = await loadBindings(id);
+      expect(row?.departmentId).toBe(null);
+      expect(row?.siteId).toBe(siteA);
+    } finally {
+      await db.delete(department).where(eq(department.id, deadDept3));
+    }
+  });
+
   test("ho actor edit pins the target admin's existing bindings (dept/wa preserved)", async () => {
     actor = hoActorRow;
     const id = await mintUser({

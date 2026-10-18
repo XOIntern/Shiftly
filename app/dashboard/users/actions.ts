@@ -136,6 +136,30 @@ async function departmentAllowsBinding(
   return !!dept && dept.siteId === siteId;
 }
 
+// Superadmin actors carry no department net — the user_department FK's
+// existence-only check would silently persist a binding to a physically
+// present but soft-deleted row. This load mirrors the ho path's deletedAt
+// weld: null → the row doesn't exist and the FK's 23503 carries its own
+// "no longer exists" message; a found-but-deleted row answers before the
+// FK with that same message.
+const DEPARTMENT_GONE_ERROR = {
+  ok: false as const,
+  fieldErrors: {
+    departmentId: "Selected department no longer exists" as const,
+  },
+};
+
+async function loadDepartmentBinding(
+  departmentId: string,
+): Promise<{ deleted: boolean } | null> {
+  const [dept] = await db
+    .select({ deletedAt: department.deletedAt })
+    .from(department)
+    .where(eq(department.id, departmentId))
+    .limit(1);
+  return dept ? { deleted: dept.deletedAt !== null } : null;
+}
+
 // Loads a work area for the pairing net below (un-scoped: soft-deleted rows
 // are looked up too, since the FK sees them). null → the row doesn't exist
 // and the statement's own FK carries the "no longer exists" message; a
@@ -206,7 +230,9 @@ export async function createUser(input: {
 
   // Departments are site-scoped: an ho actor's pick must live in their
   // own site (soft-deleted departments are not bindable). Superadmin
-  // actors may bind any department to the targets they provision.
+  // actors may bind any department to the targets they provision — but a
+  // physically present soft-deleted row is caught by the load below, since
+  // the FK checks existence only.
   let departmentId = parsed.data.departmentId ?? null;
   if (actor.role === "ho" && departmentId) {
     if (!(await departmentAllowsBinding(departmentId, actor.siteId))) {
@@ -214,6 +240,10 @@ export async function createUser(input: {
         ok: false,
         fieldErrors: { departmentId: "Department must belong to your site" },
       };
+    }
+  } else if (actor.role === "superadmin" && departmentId) {
+    if ((await loadDepartmentBinding(departmentId))?.deleted) {
+      return DEPARTMENT_GONE_ERROR;
     }
   }
 
@@ -366,6 +396,15 @@ export async function updateUser(
       if (bound.siteLocationId !== siteLocationId) {
         return workAreaPairingError();
       }
+    }
+  }
+
+  // Same soft-delete weld for the superadmin edit path (mirrors the work
+  // area net above; the ho path pins the target's own department, so only
+  // a superadmin actor's fresh pick needs this net).
+  if (actor.role === "superadmin" && departmentId) {
+    if ((await loadDepartmentBinding(departmentId))?.deleted) {
+      return DEPARTMENT_GONE_ERROR;
     }
   }
 
