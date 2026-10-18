@@ -11,7 +11,11 @@ import { requireHO, type SessionUser } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { locationCreateSchema, locationUpdateSchema } from "@/lib/validators";
-import { locationMutationWhere, locationOwnedByActor, locationBulkMutationWhere } from "@/lib/location-scope";
+import {
+  locationMutationWhere,
+  locationOwnedByActor,
+  locationBulkMutationWhere,
+} from "@/lib/location-scope";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -28,12 +32,15 @@ function effectiveSiteId(
   actor: SessionUser,
   inputSiteId: string | undefined,
 ): string | undefined {
-  return actor.role === "superadmin" ? inputSiteId : (actor.siteId ?? undefined);
+  return actor.role === "superadmin"
+    ? inputSiteId
+    : (actor.siteId ?? undefined);
 }
 
-export async function createLocation(
-  input: { siteId?: string; name: string },
-): Promise<ActionState> {
+export async function createLocation(input: {
+  siteId?: string;
+  name: string;
+}): Promise<ActionState> {
   const actor = await requireHO();
 
   const parsed = locationCreateSchema.safeParse({
@@ -190,8 +197,8 @@ export async function setActiveBulk(
 ): Promise<ActionState> {
   const actor = await requireHO();
 
-  const validIds = [...new Set(ids)].filter((id) =>
-    z.uuid().safeParse(id).success,
+  const validIds = [...new Set(ids)].filter(
+    (id) => z.uuid().safeParse(id).success,
   );
   if (validIds.length === 0) {
     return { ok: false, message: "No locations selected." };
@@ -218,8 +225,8 @@ export async function setActiveBulk(
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const actor = await requireHO();
 
-  const validIds = [...new Set(ids)].filter((id) =>
-    z.uuid().safeParse(id).success,
+  const validIds = [...new Set(ids)].filter(
+    (id) => z.uuid().safeParse(id).success,
   );
   if (validIds.length === 0) {
     return { ok: false, message: "No locations selected." };
@@ -230,10 +237,7 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const boundRows = await db
     .select({ id: user.siteLocationId })
     .from(user)
-    .innerJoin(
-      siteLocation,
-      eq(user.siteLocationId, siteLocation.id),
-    )
+    .innerJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
     .where(
       and(locationBulkMutationWhere(actor, validIds), isNull(user.deletedAt)),
     );
