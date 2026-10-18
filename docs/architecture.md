@@ -2,14 +2,16 @@
 
 | | |
 |---|---|
-| Version | 0.2 (Draft) |
+| Version | 0.3 |
 | Source | Derived from PRD v0.2 |
 | Status | Awaiting review; some decisions still TBD (see section 10) |
 | Audience | Developers building Shiftly |
 
-> This document describes the **target architecture** (nothing is implemented yet; the repo is still a scaffold). All decisions that are not yet final are marked **TBD** so they are not mistaken for agreed-upon choices.
+> This document describes the **target architecture**; the repo now implements its foundation — Better Auth with three roles, PostgreSQL via Drizzle ORM, and dashboard CRUD for sites, site_locations, users, and workers (roster/attendance/reporting pages are descriptive stubs). Decisions that are not yet final remain marked **TBD** so they are not mistaken for agreed-upon choices.
 >
 > **Revision (Oct 2026):** the `client` entity was removed. The domain model is now `site` 1:N `site_locations`, with three roles — **superadmin** (full access), **HO** (one site), **admin** (one site_location). Operational data (departments, workers, MP requests, rates) lives at the location level.
+>
+> **Update (Oct 2026):** the formerly-TBD database (PostgreSQL), ORM/migrations (Drizzle), and session auth (Better Auth, email + password) are now decided and partially implemented — see sections 2, 6, and 10.
 
 ---
 
@@ -50,13 +52,15 @@ The operational hierarchy: a **site** (e.g. Nestle) is managed by exactly **1 HO
 
 | Layer | Choice | Status |
 |---|---|---|
-| Framework | Next.js 16 (App Router) | Scaffolded |
-| UI | React 19, Tailwind CSS 4 | Scaffolded |
-| Language | TypeScript | Scaffolded |
-| Runtime / package manager | Bun | Scaffolded |
-| Database | PostgreSQL (recommended by PRD) | **TBD** |
-| Authentication | Session-based (email + password), optional MFA in a later phase | **TBD** |
-| Hosting / deployment | | **TBD** |
+| Framework | Next.js 16 (App Router) | Implemented |
+| UI | React 19, Tailwind CSS 4, shadcn/ui | Implemented |
+| Language | TypeScript | Implemented |
+| Runtime / package manager | Bun | Implemented |
+| Database | PostgreSQL 18 (docker compose for local & prod) | Implemented |
+| ORM / migrations | Drizzle ORM + drizzle-kit (`drizzle/schema/`, `drizzle/migrations/`) | Implemented |
+| Authentication | Better Auth — session-based (email + password), three roles; optional MFA in a later phase | Implemented (MFA not yet) |
+| Hosting / deployment | Docker images (`Dockerfile`, `compose.prod.yaml`); external host | External host **TBD** |
+| Tests | Bun's built-in test runner (`bun test`), DB-backed suites need the compose Postgres | Implemented |
 
 Rationale for PostgreSQL (from the PRD): scheduling data is relational and query-rich, and data integrity matters for attendance and the audit trail.
 
@@ -82,7 +86,7 @@ graph TB
         end
         SVC["Cross-module services:<br/>scope guard (location/site) · audit trail ·<br/>CSV/Excel export/import"]
     end
-    DB[("PostgreSQL<br/>(TBD)")]
+    DB[("PostgreSQL")]
     FILES["Worker import &<br/>report export (CSV/Excel)"]
 
     UI --> AUTH & MD & REQ & RULES & ROSTER & ATT & REP & PAY
@@ -243,6 +247,7 @@ erDiagram
 
 Schema design notes:
 
+- **Implemented so far**: `site`, `site_location`, and `user` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`) with FK-restricted parent references, `is_active` flags, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
 - **No client entity**: the earlier Client → Site hierarchy was removed (Oct 2026 revision). What used to be "the client" (Nestle Group) is now a **site**; what used to be "a site with a city" is now a **site_location**. Client companies remain external counterparties — they convey MP requirements manually — but are not tables in the system.
 - **Site is framework, location is operations**: a `SITE` carries its name and its HO binding; departments, shift definitions, workers, MP requests, and location rates all live under `SITE_LOCATION`.
 - **Multi-site & multi-location from day one**: every operational table carries a `site_location` reference (its site is derivable through it), so data isolation never depends on a "single site" assumption.
@@ -268,11 +273,11 @@ Note: the client (e.g. Nestle) has no access to the application; MP requirements
 
 ### 7.2 Enforcement at the data level
 
-The principle from PRD US-11: scoping is enforced **at the data/authorization level, not by hiding UI**. The intended implementation (target architecture):
+The principle from PRD US-11: scoping is enforced **at the data/authorization level, not by hiding UI**. The implementation status:
 
-1. Every user session carries its scope: superadmin = "all", HO = one site (covering all of its site_locations), Admin = one site_location.
-2. All access to operational data (workers, roster, attendance, MP requests, site configuration) goes through a single data-access layer that **must** inject the location filter (for Admin) or the site filter (for HO) from the session; superadmin bypasses filters. Domain modules have no query path that bypasses it.
-3. Session-based authentication (email + password) on the server; optional MFA in a later phase. **TBD** until the auth decision.
+1. Every user session carries its scope: superadmin = "all", HO = one site (covering all of its site_locations), Admin = one site_location — implemented in `lib/scope.ts` (`scopeOf`, `canManageUser`, `userScopeFilter`).
+2. All access to operational data (workers, roster, attendance, MP requests, site configuration) goes through a single data-access layer that **must** inject the location filter (for Admin) or the site filter (for HO) from the session; superadmin bypasses filters. Domain modules have no query path that bypasses it. (Implemented for the user/site/location modules; the roster/attendance modules don't exist yet.)
+3. Session-based authentication via Better Auth (email + password) on the server, mounted at `app/api/auth/[...all]/route.ts`; soft-deleted users are blocked from sign-in and their sessions evicted. Optional MFA in a later phase.
 
 ---
 
@@ -313,15 +318,17 @@ Two side paths (daily requests, force majeure) modify the running-day roster and
 
 ## 10. Open Technical Decisions (TBD)
 
-| # | Decision | Option recommended by PRD | When it must be final |
-|---|---|---|---|
-| 1 | Database | PostgreSQL | Before starting master data (first MVP weeks) |
-| 2 | Session auth library/approach | Session-based email + password | Before the Auth & RBAC module |
-| 3 | Hosting & deployment | TBD | Before the pilot |
-| 4 | ORM/schema migration tooling | TBD (follows the DB choice) | Alongside #1 |
-| 5 | Background job strategy (e.g. v1.1 notifications) | TBD | Before v1.1 |
+| # | Decision | Status |
+|---|---|---|
+| 1 | Database | **Decided (Oct 2026): PostgreSQL 18**, docker compose for local dev and prod bundles |
+| 2 | Session auth library/approach | **Decided (Oct 2026): Better Auth** — session-based email + password |
+| 3 | Hosting & deployment | Partially decided: Docker (`Dockerfile`, `compose.prod.yaml`); **external host still TBD** — before the pilot |
+| 4 | ORM/schema migration tooling | **Decided (Oct 2026): Drizzle ORM + drizzle-kit** |
+| 5 | Background job strategy (e.g. v1.1 notifications) | **TBD** — before v1.1 |
 
 Decisions the PRD **has already locked** and are not being reopened: a deterministic engine (not generative AI), scope-based isolation at the data level (location for Admin, site for HO, full access for superadmin), the **Oct 2026 domain-model revision** (no client entity; `site` 1:N `site_locations`; roles superadmin/HO/admin; departments, workers, MP requests, and rates at the location level), all rules config-driven, no worker self-service, no payslips/deductions.
+
+Decisions made since (see the table above): PostgreSQL + Drizzle ORM, Better Auth session authentication, Docker for packaging.
 
 ---
 
