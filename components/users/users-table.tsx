@@ -9,6 +9,7 @@ import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { RoleFilter } from "@/components/role-filter";
 import { StatusFilter } from "@/components/status-filter";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import {
   type LocationOption,
@@ -90,14 +91,7 @@ export function UsersTable({
           id: "isActive",
           header: "Status",
           meta: { thClassName: "min-w-[110px]", sortable: true },
-          cell: (info) =>
-            info.getValue() ? (
-              <Badge variant="secondary">Active</Badge>
-            ) : (
-              <Badge variant="outline" className="px-1.5 text-muted-foreground">
-                Inactive
-              </Badge>
-            ),
+          cell: (info) => <StatusBadge isActive={info.getValue()} />,
         }),
         helper.display({
           id: "actions",

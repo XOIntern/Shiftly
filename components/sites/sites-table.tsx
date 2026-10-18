@@ -1,13 +1,13 @@
 "use client";
 
 import { createColumnHelper } from "@tanstack/react-table";
-import { Badge } from "@/components/ui/badge";
 
 import { deleteBulk, setActiveBulk } from "@/app/dashboard/sites/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { StatusFilter } from "@/components/status-filter";
+import { StatusBadge } from "@/components/status-badge";
 import { SiteRowActions, type SiteRow } from "@/components/sites/site-form";
 
 const helper = createColumnHelper<typeof dataTableFeatures, SiteRow>();
@@ -25,14 +25,7 @@ const columns = helper.columns([
   helper.accessor("isActive", {
     header: "Status",
     meta: { thClassName: "min-w-[100px]", sortable: true },
-    cell: (info) =>
-      info.getValue() ? (
-        <Badge variant="secondary">Active</Badge>
-      ) : (
-        <Badge variant="outline" className="px-1.5 text-muted-foreground">
-          Inactive
-        </Badge>
-      ),
+    cell: (info) => <StatusBadge isActive={info.getValue()} />,
   }),
   helper.display({
     id: "actions",

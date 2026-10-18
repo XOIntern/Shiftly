@@ -1,4 +1,4 @@
-import { ChangePasswordForm } from "@/components/change-password-form";
+import { ChangePasswordForm } from "@/components/settings/change-password-form";
 import {
   Card,
   CardContent,

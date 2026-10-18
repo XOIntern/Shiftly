@@ -9,7 +9,7 @@ import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import {
   LocationRowActions,
   type LocationRow,
@@ -17,16 +17,6 @@ import {
 } from "@/components/locations/location-form";
 
 const helper = createColumnHelper<typeof dataTableFeatures, LocationRow>();
-
-function StatusBadge({ isActive }: { isActive: boolean }) {
-  return isActive ? (
-    <Badge variant="secondary">Active</Badge>
-  ) : (
-    <Badge variant="outline" className="px-1.5 text-muted-foreground">
-      Inactive
-    </Badge>
-  );
-}
 
 export function LocationsTable({
   locations,

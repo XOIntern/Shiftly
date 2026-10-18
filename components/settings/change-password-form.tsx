@@ -12,7 +12,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import { InputGroup, InputGroupInput, InputGroupAddon } from "./ui/input-group";
+import { InputGroup, InputGroupInput, InputGroupAddon } from "../ui/input-group";
 import { EyeIcon, EyeOffIcon, InfoIcon, Loader2Icon } from "lucide-react";
 
 export function ChangePasswordForm() {
