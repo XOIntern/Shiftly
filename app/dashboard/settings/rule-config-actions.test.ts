@@ -81,13 +81,17 @@ async function sweepLeftoverFixtures(): Promise<void> {
       .where(inArray(rosterRuleConfig.siteId, leakedSiteIds));
   }
   // A global-scoped C5 row carries no siteId, so the site-keyed sweep above
-  // cannot see it — the guard tests seed and write C6/C5 rows at global
-  // scope, and a run killed between RED and GREEN leaves one behind.
+  // cannot see it. This suite is the only writer of global C5 rows through
+  // the action and only ever writes 3–5, so the value predicate is this
+  // suite's fingerprint — a dev-configured global C5 outside that range
+  // survives. A crash between a refused write's guards (RED state) or mid
+  // accepted-write cleanup is what this block cleans up.
   await db
     .delete(rosterRuleConfig)
     .where(
       and(
         eq(rosterRuleConfig.ruleKey, "C5"),
+        inArray(rosterRuleConfig.intValue, [3, 4, 5]),
         isNull(rosterRuleConfig.siteId),
         isNull(rosterRuleConfig.siteLocationId),
       ),
@@ -396,6 +400,45 @@ describe("updateRuleConfig C5 descendant guard (issue #55)", () => {
       intValue: 9,
       deleted: true,
     });
+    const superId = await seedUser("superadmin", null);
+    const globalC5Before = await snapshotGlobalRowIds("C5");
+
+    try {
+      actor = {
+        id: superId,
+        name: "T5 Super",
+        email: mkEmail(superId),
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C5",
+        scope: "global",
+        intValue: 3,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(await auditCountFor(superId)).toBe(1);
+    } finally {
+      await deleteNewGlobalRows(globalC5Before, "C5");
+      await cleanup(superId, [siteA]);
+    }
+  });
+
+  test("ignores C6 rows under a soft-deleted site when guarding a global C5 write", async () => {
+    const siteA = await seedSite();
+    await seedRuleRow({ ruleKey: "C6", siteId: siteA, intValue: 5 });
+    // The site-delete flow soft-deletes while leaving its live config rows
+    // in place — a stranded row under a deleted site must not dead-end
+    // every future global C5 lower behind an unfixable refusal.
+    await db
+      .update(site)
+      .set({ deletedAt: new Date() })
+      .where(eq(site.id, siteA));
     const superId = await seedUser("superadmin", null);
     const globalC5Before = await snapshotGlobalRowIds("C5");
 

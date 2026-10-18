@@ -214,8 +214,17 @@ export async function findStrandedC6Rows(
       locationName: siteLocation.name,
     })
     .from(rosterRuleConfig)
-    .innerJoin(site, eq(rosterRuleConfig.siteId, site.id))
-    .leftJoin(siteLocation, eq(rosterRuleConfig.siteLocationId, siteLocation.id))
+    .innerJoin(
+      site,
+      and(eq(rosterRuleConfig.siteId, site.id), isNull(site.deletedAt)),
+    )
+    .leftJoin(
+      siteLocation,
+      and(
+        eq(rosterRuleConfig.siteLocationId, siteLocation.id),
+        isNull(siteLocation.deletedAt),
+      ),
+    )
     .where(
       and(
         eq(rosterRuleConfig.ruleKey, "C6"),
