@@ -423,4 +423,98 @@ describe("users bindings (department/work-area, issue #66)", () => {
     expect(row?.departmentId).toBe(deptA);
     expect(row?.workAreaId).toBe(waA);
   });
+
+  test("superadmin create binds a SOFT-DELETED work area at the right location → field error, nothing persists", async () => {
+    const deadWa = randomUUID();
+    await db.insert(workArea).values({
+      id: deadWa,
+      departmentId: deptA,
+      siteLocationId: locA,
+      siteId: siteA,
+      name: "T9 WA Dead Create",
+      deletedAt: new Date(),
+    });
+    try {
+      actor = superActorRow;
+      const { createUser } = await import("./actions");
+      const email = `t9-dead-wa-create-${randomUUID()}@shiftly.test`;
+      const result = await createUser({
+        name: "T9 Dead WA Create",
+        email,
+        password: "password123",
+        role: "admin",
+        siteLocationId: locA,
+        workAreaId: deadWa,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors).toEqual({
+        workAreaId: "Selected work area no longer exists",
+      });
+      const [row] = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.email, email));
+      expect(row).toBeUndefined();
+    } finally {
+      await db.delete(workArea).where(eq(workArea.id, deadWa));
+    }
+  });
+
+  test("superadmin UPDATE binds a SOFT-DELETED work area at the right location → field error, binding unchanged", async () => {
+    const deadWa = randomUUID();
+    await db.insert(workArea).values({
+      id: deadWa,
+      departmentId: deptA,
+      siteLocationId: locA,
+      siteId: siteA,
+      name: "T9 WA Dead Update",
+      deletedAt: new Date(),
+    });
+    try {
+      actor = superActorRow;
+      const id = await mintUser({ role: "admin", siteLocationId: locA });
+      const { updateUser } = await import("./actions");
+      const result = await updateUser(id, {
+        name: "T9 Dead WA Update",
+        role: "admin",
+        siteLocationId: locA,
+        departmentId: deptA,
+        workAreaId: deadWa,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors).toEqual({
+        workAreaId: "Selected work area no longer exists",
+      });
+      const row = await loadBindings(id);
+      expect(row?.workAreaId).toBe(null);
+      expect(row?.siteLocationId).toBe(locA);
+    } finally {
+      await db.delete(workArea).where(eq(workArea.id, deadWa));
+    }
+  });
+
+  test("ho edit of a drifted admin (pre-existing mismatched work area) succeeds — net not applied to ho", async () => {
+    actor = hoActorRow;
+    const id = await mintUser({ role: "admin", siteLocationId: locA });
+    // Drift seeded directly: the target already carries a work area that
+    // does not pair with its location. The ho edit pins these values, so
+    // the pairing net must not re-check them for an ho actor.
+    await db
+      .update(user)
+      .set({ workAreaId: waB })
+      .where(eq(user.id, id));
+    const { updateUser } = await import("./actions");
+    const result = await updateUser(id, {
+      name: "T9 Drifted Admin Edited",
+      role: "admin",
+      siteLocationId: locA,
+      departmentId: deptA,
+      workAreaId: randomUUID(),
+    });
+    expect(result.ok).toBe(true);
+    const row = await loadBindings(id);
+    expect(row?.workAreaId).toBe(waB);
+    expect(row?.siteLocationId).toBe(locA);
+  });
 });
+

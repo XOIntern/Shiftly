@@ -136,22 +136,36 @@ async function departmentAllowsBinding(
   return !!dept && dept.siteId === siteId;
 }
 
-// Loads an un-deleted work area for the pairing net below: a missing row
-// (or a foreign site_location) is reported to the caller. A nonexistent id
-// falls through to the insert so the user.work_area FK's 23503 carries its
-// own "no longer exists" message; a genuine pair mismatch answers at the
-// field instead (the plain FK only checks existence — a cross-location
-// pairing would otherwise persist silently).
+// Loads a work area for the pairing net below (un-scoped: soft-deleted rows
+// are looked up too, since the FK sees them). null → the row doesn't exist
+// and the statement's own FK carries the "no longer exists" message; a
+// deleted:true row is reported so the caller can answer with that same
+// message before the FK can silently bind it. A location mismatch answers
+// at the field instead (the plain FK only checks existence — a
+// cross-location pairing would otherwise persist silently).
 async function loadWorkAreaBinding(
   workAreaId: string,
-): Promise<{ siteLocationId: string } | null> {
+): Promise<{ siteLocationId: string; deleted: boolean } | null> {
   const [wa] = await db
-    .select({ siteLocationId: workArea.siteLocationId })
+    .select({
+      siteLocationId: workArea.siteLocationId,
+      deletedAt: workArea.deletedAt,
+    })
     .from(workArea)
-    .where(and(eq(workArea.id, workAreaId), isNull(workArea.deletedAt)))
+    .where(eq(workArea.id, workAreaId))
     .limit(1);
-  return wa ?? null;
+  return wa ? { siteLocationId: wa.siteLocationId, deleted: wa.deletedAt !== null } : null;
 }
+
+// A work area the net's lookup found physically present but soft-deleted
+// (or a pairing mismatches) → "no longer exists" instead of letting the
+// FK's existence-only check persist the binding silently.
+const WORK_AREA_GONE_ERROR = {
+  ok: false as const,
+  fieldErrors: {
+    workAreaId: "Selected work area no longer exists" as const,
+  },
+};
 
 const WORK_AREA_PAIRING_FIELD_ERRORS = {
   workAreaId: "Work area must belong to the selected location",
@@ -210,10 +224,13 @@ export async function createUser(input: {
   let workAreaId = actor.role === "ho" ? null : (parsed.data.workAreaId ?? null);
   if (workAreaId && role === "admin") {
     const bound = await loadWorkAreaBinding(workAreaId);
-    if (bound && bound.siteLocationId !== siteLocationId) {
-      return workAreaPairingError();
+    if (bound) {
+      if (bound.deleted) return WORK_AREA_GONE_ERROR;
+      if (bound.siteLocationId !== siteLocationId) {
+        return workAreaPairingError();
+      }
     }
-    // bound === null → let the statement's own FK answer.
+    // bound === null (row not present at all) → let the statement's own FK answer.
   }
 
   if (actor.role === "ho") {
@@ -338,12 +355,17 @@ export async function updateUser(
         : (parsed.data.workAreaId ?? null);
 
   // Same pairing net for edits: an admin target's work area must hang off
-  // its (input- or target-pinned) site_location. A ho actor's pick is
-  // already pinned to the target, so this only bites superadmin edits.
-  if (workAreaId && siteLocationId) {
+  // its (input-)site_location. Scoped to superadmin actors only — an ho
+  // actor's workAreaId is pinned to the target's current value, so the net
+  // would reject every edit of a drifted/pre-existing row with an error
+  // the ho cannot resolve (the select is never rendered for them).
+  if (actor.role === "superadmin" && workAreaId && siteLocationId) {
     const bound = await loadWorkAreaBinding(workAreaId);
-    if (bound && bound.siteLocationId !== siteLocationId) {
-      return workAreaPairingError();
+    if (bound) {
+      if (bound.deleted) return WORK_AREA_GONE_ERROR;
+      if (bound.siteLocationId !== siteLocationId) {
+        return workAreaPairingError();
+      }
     }
   }
 
