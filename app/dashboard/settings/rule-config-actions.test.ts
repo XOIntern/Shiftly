@@ -255,6 +255,91 @@ describe("updateRuleConfig (issue #52 task 5)", () => {
     }
   });
 
+  test("refuses a ho's global-scope write with a field error and no audit row", async () => {
+    const siteA = await seedSite();
+    const hoId = await seedUser("ho", siteA);
+
+    try {
+      actor = {
+        id: hoId,
+        name: "T5 HO",
+        email: mkEmail(hoId),
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C3",
+        scope: "global",
+        boolValue: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.scope).toBeTruthy();
+      expect(await auditCountFor(hoId)).toBe(0);
+      // Nothing leaked to the global base either.
+      const globals = await db
+        .select({ id: rosterRuleConfig.id })
+        .from(rosterRuleConfig)
+        .where(
+          and(
+            eq(rosterRuleConfig.ruleKey, "C3"),
+            isNull(rosterRuleConfig.siteId),
+            isNull(rosterRuleConfig.siteLocationId),
+          ),
+        );
+      expect(globals).toEqual([]);
+    } finally {
+      await cleanup(hoId, [siteA]);
+    }
+  });
+
+  test("refuses a superadmin site-scope write with a field error and no audit row", async () => {
+    // A superadmin is unbound and the input carries no site selector, so a
+    // site-scoped write has no writable target — it must refuse, never
+    // silently fall through to the global base.
+    const superId = await seedUser("superadmin", null);
+
+    try {
+      actor = {
+        id: superId,
+        name: "T5 Super",
+        email: mkEmail(superId),
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C7",
+        scope: "site",
+        boolValue: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.siteId).toBeTruthy();
+      expect(await auditCountFor(superId)).toBe(0);
+      const globals = await db
+        .select({ id: rosterRuleConfig.id })
+        .from(rosterRuleConfig)
+        .where(
+          and(
+            eq(rosterRuleConfig.ruleKey, "C7"),
+            isNull(rosterRuleConfig.siteId),
+            isNull(rosterRuleConfig.siteLocationId),
+          ),
+        );
+      expect(globals).toEqual([]);
+    } finally {
+      await cleanup(superId, []);
+    }
+  });
+
   test("rejects a malformed siteLocationId with a field error, not a throw", async () => {
     // A client-reachable call with garbage in the uuid column must answer a
     // field error — the ownership query must never see the raw value.

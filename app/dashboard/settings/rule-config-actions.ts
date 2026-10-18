@@ -26,7 +26,7 @@ import { ruleConfigSchema } from "@/lib/rule-config-validators";
 // location deleted between check and write — so every driver error falls
 // back to the generic message.
 function dbResult(err: unknown): ActionState {
-  void err;
+  console.error("updateRuleConfig driver error:", err);
   return { ok: false, message: GENERIC_ERROR };
 }
 
