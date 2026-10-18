@@ -1,9 +1,10 @@
-import { relations, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {
   boolean,
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -48,16 +49,13 @@ export const siteLocation = pgTable(
     uniqueIndex("site_location_site_id_name_unique")
       .on(table.siteId, table.name)
       .where(sql`deleted_at is null`),
+    // Plain (non-partial) unique CONSTRAINT on the parent pair so the
+    // composite FK from work_area(site_location_id, site_id) resolves at
+    // FK-creation time (see ./department-schema.ts comment).
+    unique("site_location_id_site_id_unique").on(table.id, table.siteId),
   ],
 );
 
-export const siteRelations = relations(site, ({ many }) => ({
-  locations: many(siteLocation),
-}));
-
-export const siteLocationRelations = relations(siteLocation, ({ one }) => ({
-  site: one(site, {
-    fields: [siteLocation.siteId],
-    references: [site.id],
-  }),
-}));
+// siteRelations / siteLocationRelations moved to ./department-schema (GitHub
+// #58): extending them with departments/workAreas from here would create an
+// import cycle with that file. The barrel re-exports them unchanged.
