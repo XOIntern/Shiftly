@@ -173,33 +173,40 @@ export default async function WorkAreasPage({
         ),
       )
       .orderBy(asc(siteLocation.name)),
-    // Dialog/SiteFilter site options, scoped like the locations page: an
-    // ho sees their own site; an admin sees their binding's site; an
-    // unbound actor sees nothing.
-    db
-      .select({ id: site.id, name: site.name })
-      .from(site)
-      .innerJoin(
-        siteLocation,
-        isSuperadmin
-          ? sql`false`
-          : eq(site.id, siteLocation.siteId),
-      )
-      .where(
-        and(
-          ...(isSuperadmin
-            ? []
-            : isHo
-              ? actor.siteId
-                ? [eq(site.id, actor.siteId)]
-                : [sql`false`]
-              : actor.siteLocationId
-                ? [eq(siteLocation.id, actor.siteLocationId)]
-                : [sql`false`]),
-          isNull(site.deletedAt),
-        ),
-      )
-      .orderBy(asc(site.name)),
+    // Dialog/SiteFilter site options, selected straight from site like the
+    // locations page, with per-role branches: superadmin sees all sites;
+    // an ho their own site; an admin their binding's site via their
+    // site_location row (mirroring departments' derivation); an unbound
+    // actor gets nothing (sql`false`).
+    isSuperadmin
+      ? db
+          .select({ id: site.id, name: site.name })
+          .from(site)
+          .where(isNull(site.deletedAt))
+          .orderBy(asc(site.name))
+      : isHo
+        ? actor.siteId
+          ? db
+              .select({ id: site.id, name: site.name })
+              .from(site)
+              .where(
+                and(eq(site.id, actor.siteId), isNull(site.deletedAt)),
+              )
+              .orderBy(asc(site.name))
+          : Promise.resolve([])
+        : actor.siteLocationId
+          ? db
+              .selectDistinct({ id: site.id, name: site.name })
+              .from(site)
+              .innerJoin(siteLocation, eq(site.id, siteLocation.siteId))
+              .where(
+                and(
+                  eq(siteLocation.id, actor.siteLocationId),
+                  isNull(site.deletedAt),
+                ),
+              )
+              .orderBy(asc(site.name))
+          : Promise.resolve([]),
     db
       .select({
         id: workArea.id,

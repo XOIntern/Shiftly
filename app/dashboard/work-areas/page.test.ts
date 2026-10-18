@@ -29,6 +29,8 @@ type WorkAreaNode = {
   }>;
   departments?: Array<{ id: string; name: string }>;
   siteLocations?: Array<{ id: string; name: string }>;
+  sites?: Array<{ id: string; name: string }>;
+  showSiteFilter?: boolean;
   pageCount?: number;
   total?: number;
 };
@@ -199,6 +201,21 @@ describe("work-areas page server queries (issue #64)", () => {
       expect(junkIds).toContain(fx.ids.waA1);
       expect(junkIds).toContain(fx.ids.waA2);
       expect(junkIds).toContain(fx.ids.waB1);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("superadmin SiteFilter receives all site options (no zero-row join)", async () => {
+    const fx = await seedWorkAreaFixtures();
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const page = await renderWorkAreas();
+      expect(page.showSiteFilter).toBe(true);
+      const siteIds = page.sites?.map((s) => s.id) ?? [];
+      expect(siteIds).toContain(fx.ids.siteA);
+      expect(siteIds).toContain(fx.ids.siteB);
     } finally {
       await fx.cleanup();
     }
