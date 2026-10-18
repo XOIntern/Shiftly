@@ -15,6 +15,7 @@ import {
   CreateWorkAreaButton,
   DepartmentOption,
   type SiteLocationOption,
+  type SiteOption,
 } from "@/components/work-areas/work-area-form";
 import { WorkAreasTable } from "@/components/work-areas/work-areas-table";
 
@@ -148,7 +149,7 @@ export default async function WorkAreasPage({
     departmentsQuery = Promise.resolve([]);
   }
 
-  const [departments, siteLocations, workAreas] = await Promise.all([
+  const [departments, siteLocations, sites, workAreas] = await Promise.all([
     departmentsQuery,
     db
       .select({
@@ -172,6 +173,33 @@ export default async function WorkAreasPage({
         ),
       )
       .orderBy(asc(siteLocation.name)),
+    // Dialog/SiteFilter site options, scoped like the locations page: an
+    // ho sees their own site; an admin sees their binding's site; an
+    // unbound actor sees nothing.
+    db
+      .select({ id: site.id, name: site.name })
+      .from(site)
+      .innerJoin(
+        siteLocation,
+        isSuperadmin
+          ? sql`false`
+          : eq(site.id, siteLocation.siteId),
+      )
+      .where(
+        and(
+          ...(isSuperadmin
+            ? []
+            : isHo
+              ? actor.siteId
+                ? [eq(site.id, actor.siteId)]
+                : [sql`false`]
+              : actor.siteLocationId
+                ? [eq(siteLocation.id, actor.siteLocationId)]
+                : [sql`false`]),
+          isNull(site.deletedAt),
+        ),
+      )
+      .orderBy(asc(site.name)),
     db
       .select({
         id: workArea.id,
@@ -205,6 +233,11 @@ export default async function WorkAreasPage({
         <CreateWorkAreaButton
           departments={departments satisfies DepartmentOption[]}
           siteLocations={siteLocations satisfies SiteLocationOption[]}
+          pinnedLocationName={
+            actor.role === "admin"
+              ? siteLocations[0]?.name
+              : undefined
+          }
         />
       </div>
       <Card>
@@ -213,6 +246,11 @@ export default async function WorkAreasPage({
             workAreas={workAreas}
             departments={departments satisfies DepartmentOption[]}
             siteLocations={siteLocations satisfies SiteLocationOption[]}
+            pinnedLocationName={
+              actor.role === "admin" ? siteLocations[0]?.name : undefined
+            }
+            showSiteFilter={isSuperadmin}
+            sites={sites satisfies SiteOption[]}
             pageCount={pageCount}
             total={rowCount}
           />

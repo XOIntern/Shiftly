@@ -146,7 +146,10 @@ export default async function DepartmentsPage({
           </p>
         </div>
         {isHo || isSuperadmin ? (
-          <CreateDepartmentButton sites={sites satisfies SiteOption[]} />
+          <CreateDepartmentButton
+            sites={sites satisfies SiteOption[]}
+            showSiteSelect={isSuperadmin}
+          />
         ) : null}
       </div>
       <Card>
