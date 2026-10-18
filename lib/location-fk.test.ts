@@ -343,7 +343,11 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
     const locationId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `del-site-a-${siteId}` });
+      await db.insert(site).values({
+        id: siteId,
+        name: `del-site-a-${siteId}`,
+        isActive: false,
+      });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -377,7 +381,11 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
     const userId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `del-site-b-${siteId}` });
+      await db.insert(site).values({
+        id: siteId,
+        name: `del-site-b-${siteId}`,
+        isActive: false,
+      });
       await db.insert(user).values({
         id: userId,
         name: "Site Bound Ho",
@@ -408,7 +416,11 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
     const userId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `del-site-c-${siteId}` });
+      await db.insert(site).values({
+        id: siteId,
+        name: `del-site-c-${siteId}`,
+        isActive: false,
+      });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -442,11 +454,15 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
     }
   });
 
-  test("positive control: an empty site deletes in one transaction", async () => {
+  test("positive control: an empty inactive site deletes in one transaction", async () => {
     const siteId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `del-site-ok-${siteId}` });
+      await db.insert(site).values({
+        id: siteId,
+        name: `del-site-ok-${siteId}`,
+        isActive: false,
+      });
 
       const result = await db.transaction((tx) =>
         deleteSiteGuarded(tx, siteId),
@@ -461,5 +477,35 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
     } finally {
       await db.delete(site).where(eq(site.id, siteId));
     }
+  });
+
+  test("positive control: an empty ACTIVE site is refused — deactivate first (issue #46 guard 0)", async () => {
+    const siteId = randomUUID();
+
+    try {
+      await db.insert(site).values({ id: siteId, name: `del-site-active-${siteId}` });
+
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
+      expect(result).toEqual({
+        ok: false,
+        message: "Deactivate the site before deleting it",
+      });
+
+      // The row stays live: not archived, no deletedAt set.
+      const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
+      expect(siteRow).toBeTruthy();
+      expect(siteRow.deletedAt).toBeNull();
+    } finally {
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("a nonexistent site id answers 'Site not found.' instead of silently passing (issue #46)", async () => {
+    const result = await db.transaction((tx) =>
+      deleteSiteGuarded(tx, randomUUID()),
+    );
+    expect(result).toEqual({ ok: false, message: "Site not found." });
   });
 });
