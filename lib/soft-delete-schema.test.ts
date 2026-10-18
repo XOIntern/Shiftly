@@ -239,7 +239,11 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
     const locationId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-guard-a-${siteId}` });
+      await db.insert(site).values({
+        id: siteId,
+        name: `soft-del-guard-a-${siteId}`,
+        isActive: false,
+      });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -279,7 +283,11 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
     const deletedUserId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-guard-b-${siteId}` });
+      await db.insert(site).values({
+        id: siteId,
+        name: `soft-del-guard-b-${siteId}`,
+        isActive: false,
+      });
       await db.insert(user).values({
         id: deletedUserId,
         name: "Soft Deleted Bound Ho",
@@ -306,7 +314,11 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
     const locationId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-guard-live-${siteId}` });
+      await db.insert(site).values({
+        id: siteId,
+        name: `soft-del-guard-live-${siteId}`,
+        isActive: false,
+      });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -320,6 +332,23 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
       });
     } finally {
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("an already-soft-deleted site answers 'Site not found.' (issue #46 guard 0)", async () => {
+    const siteId = randomUUID();
+
+    try {
+      await db.insert(site).values({
+        id: siteId,
+        name: `soft-del-guard-gone-${siteId}`,
+        deletedAt: sql`now()`,
+      });
+
+      const result = await db.transaction((tx) => deleteSiteGuarded(tx, siteId));
+      expect(result).toEqual({ ok: false, message: "Site not found." });
+    } finally {
       await db.delete(site).where(eq(site.id, siteId));
     }
   });

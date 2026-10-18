@@ -80,7 +80,10 @@ describe("sites bulk actions", () => {
     const locA = randomUUID();
 
     try {
-      await db.insert(site).values([siteRow(empty), siteRow(guarded)]);
+      await db.insert(site).values([
+        { ...siteRow(empty), isActive: false },
+        { ...siteRow(guarded), isActive: false },
+      ]);
       await db.insert(siteLocation).values([
         { id: locA, siteId: guarded, name: "T4 Sites Bulk Loc" },
       ]);
@@ -125,6 +128,48 @@ describe("sites bulk actions", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(site).where(eq(site.id, empty));
       await db.delete(site).where(eq(site.id, guarded));
+    }
+  });
+
+  test("deleteBulk: an active site is a skipped row, an inactive one applies (issue #46)", async () => {
+    const active = randomUUID();
+    const inactive = randomUUID();
+
+    try {
+      await db.insert(site).values([
+        siteRow(active),
+        { ...siteRow(inactive), isActive: false },
+      ]);
+
+      actor = {
+        id: randomUUID(),
+        name: "T4 Superadmin Actor",
+        email: `t4-sites-${active}@shiftly.test`,
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { deleteBulk } = await import("./actions");
+      const result = await deleteBulk([active, inactive]);
+
+      expect(result.ok).toBe(true);
+      expect(result.applied).toBe(1);
+      expect(result.blocked).toBe(1);
+      expect(result.message).toContain(
+        "Deactivate the site before deleting it",
+      );
+
+      // The active site survives unarchived; the inactive one soft-deletes.
+      const rows = await db
+        .select({ id: site.id, deletedAt: site.deletedAt })
+        .from(site);
+      expect(rows.find((row) => row.id === active)?.deletedAt).toBeNull();
+      expect(rows.find((row) => row.id === inactive)?.deletedAt).not.toBeNull();
+    } finally {
+      await db.delete(site).where(eq(site.id, active));
+      await db.delete(site).where(eq(site.id, inactive));
     }
   });
 

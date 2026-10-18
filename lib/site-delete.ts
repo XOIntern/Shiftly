@@ -11,13 +11,16 @@ export type DeleteSiteGuardResult =
   | { ok: true }
   | { ok: false; message: string };
 
-// deleteSite's guarded core (issue #17 Task 2): the three relation guards
+// deleteSite's guarded core (issue #17 Task 2): the four relation guards
 // and the write share the caller's transaction, so a site can never lose
 // rows while a guard races a write — guards returning early roll nothing
 // back (they only ever ran reads). Guard order and message strings are
 // pinned by issue #17; the FK backstop stay as the action's catch outside.
 // Since the soft-delete epic (#39), guards match only live rows and the
-// final write soft-deletes (deletedAt), never a hard DELETE.
+// final write soft-deletes (deletedAt), never a hard DELETE. Since #46,
+// guard (0) demands an inactive site: deactivation is the explicit first
+// step of winding a site down, and an unknown or already-deleted id is
+// "Site not found." instead of a silent no-op.
 //
 // Exported for tests (lib/location-fk.test.ts drives it inside a real
 // transaction), mirroring how locationOwnedByActor serves as the actions'
@@ -26,6 +29,20 @@ export async function deleteSiteGuarded(
   tx: Tx,
   id: string,
 ): Promise<DeleteSiteGuardResult> {
+  // (0) The site exists, is live, and is inactive — deactivation comes
+  // before any delete.
+  const [row] = await tx
+    .select({ isActive: site.isActive })
+    .from(site)
+    .where(and(eq(site.id, id), isNull(site.deletedAt)))
+    .limit(1);
+  if (!row) {
+    return { ok: false, message: "Site not found." };
+  }
+  if (row.isActive) {
+    return { ok: false, message: "Deactivate the site before deleting it" };
+  }
+
   // (a) Live locations under the site.
   const [location] = await tx
     .select({ id: siteLocation.id })

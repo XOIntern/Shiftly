@@ -319,8 +319,9 @@ function DeleteSiteDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete site</AlertDialogTitle>
           <AlertDialogDescription>
-            “{site.name}” will be hidden from the list. Sites referenced by
-            live locations or users cannot be deleted.
+            Deactivate the site first, then delete it. “{site.name}” will be
+            hidden from the list. Sites referenced by live locations or users
+            cannot be deleted.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
