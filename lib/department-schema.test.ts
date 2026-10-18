@@ -3,7 +3,7 @@ import { getTableName } from "drizzle-orm";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 
 import { department, workArea } from "../drizzle/schema";
-import { site, siteLocation } from "../drizzle/schema";
+import { siteLocation } from "../drizzle/schema";
 
 // Task 1 of the departments & work areas epic (GitHub #57/#58): the
 // `department` and `work_area` tables exist with the soft-delete column

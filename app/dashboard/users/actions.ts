@@ -233,7 +233,7 @@ export async function createUser(input: {
   // actors may bind any department to the targets they provision — but a
   // physically present soft-deleted row is caught by the load below, since
   // the FK checks existence only.
-  let departmentId = parsed.data.departmentId ?? null;
+  const departmentId = parsed.data.departmentId ?? null;
   if (actor.role === "ho" && departmentId) {
     if (!(await departmentAllowsBinding(departmentId, actor.siteId))) {
       return {
@@ -251,7 +251,7 @@ export async function createUser(input: {
   // and is managed by superadmins; the raw client value is dropped here
   // (the validator keeps workAreaId for admin targets regardless of actor).
   // A superadmin's pick must pair with the admin's location.
-  let workAreaId = actor.role === "ho" ? null : (parsed.data.workAreaId ?? null);
+  const workAreaId = actor.role === "ho" ? null : (parsed.data.workAreaId ?? null);
   if (workAreaId && role === "admin") {
     const bound = await loadWorkAreaBinding(workAreaId);
     if (bound) {

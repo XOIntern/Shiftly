@@ -319,7 +319,7 @@ describe("users bindings (department/work-area, issue #66)", () => {
     const { createUser } = await import("./actions");
     const key = randomUUID();
     const email = `t9-ho-wa-${key}@shiftly.test`;
-    const result = await createUser({
+    await createUser({
       name: "T9 Admin Tampered WA",
       email,
       password: "password123",

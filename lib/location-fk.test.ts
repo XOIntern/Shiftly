@@ -7,7 +7,12 @@ import { db } from "./db";
 import { pgErrorCode } from "./db-errors";
 import { locationMutationWhere, locationOwnedByActor } from "./location-scope";
 import { deleteSiteGuarded } from "./site-delete";
-import { site, siteLocation, user } from "../drizzle/schema";
+import {
+  department,
+  site,
+  siteLocation,
+  user,
+} from "../drizzle/schema";
 
 // Real dev DB (docker shiftly-postgres :5433): proves the site_location ->
 // user FK is enforced with ON DELETE RESTRICT by hitting the constraint the
@@ -450,6 +455,47 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
     } finally {
       await db.delete(user).where(eq(user.id, userId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
+      await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+
+  test("(d) site with a live department is refused; both rows survive (issue #67)", async () => {
+    const siteId = randomUUID();
+    const departmentId = randomUUID();
+
+    try {
+      await db.insert(site).values({
+        id: siteId,
+        name: `del-site-d-${siteId}`,
+        isActive: false,
+      });
+      await db.insert(department).values({
+        id: departmentId,
+        siteId,
+        name: "Blocking Department",
+      });
+
+      // Guard (a2) sits after the locations guard: a site whose locations
+      // are gone but whose departments remain is refused here.
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
+      expect(result).toEqual({
+        ok: false,
+        message: "Departments still exist under this site",
+      });
+
+      // No partial writes: both rows survive.
+      const [dept] = await db
+        .select()
+        .from(department)
+        .where(eq(department.id, departmentId));
+      expect(dept).toBeTruthy();
+      const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
+      expect(siteRow).toBeTruthy();
+      expect(siteRow.deletedAt).toBeNull();
+    } finally {
+      await db.delete(department).where(eq(department.id, departmentId));
       await db.delete(site).where(eq(site.id, siteId));
     }
   });

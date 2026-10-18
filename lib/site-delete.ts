@@ -1,6 +1,11 @@
 import { and, eq, isNull } from "drizzle-orm";
 
-import { site, siteLocation, user } from "../drizzle/schema";
+import {
+  department,
+  site,
+  siteLocation,
+  user,
+} from "../drizzle/schema";
 import { db } from "./db";
 
 // Transaction type produced by drizzle's db.transaction callback, so both
@@ -51,6 +56,18 @@ export async function deleteSiteGuarded(
     .limit(1);
   if (location) {
     return { ok: false, message: "Locations still exist under this site" };
+  }
+
+  // (a2) Live departments under the site (issue #67). Work areas hang off
+  // departments through the composite FK that pins the same site, so this
+  // one check covers both subtrees; only the topmost layer is named.
+  const [dept] = await tx
+    .select({ id: department.id })
+    .from(department)
+    .where(and(eq(department.siteId, id), isNull(department.deletedAt)))
+    .limit(1);
+  if (dept) {
+    return { ok: false, message: "Departments still exist under this site" };
   }
 
   // (b) Live users bound directly to the site.
