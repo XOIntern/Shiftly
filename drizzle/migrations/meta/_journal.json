@@ -57,6 +57,13 @@
       "when": 1792361219149,
       "tag": "0007_smooth_agent_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792362597358,
+      "tag": "0008_bouncy_molly_hayes",
+      "breakpoints": true
     }
   ]
 }

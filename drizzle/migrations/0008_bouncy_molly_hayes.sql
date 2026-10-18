@@ -1,0 +1,2 @@
+ALTER TABLE "user" ADD COLUMN "department_id" uuid;--> statement-breakpoint
+ALTER TABLE "user" ADD CONSTRAINT "user_department_id_department_id_fk" FOREIGN KEY ("department_id") REFERENCES "public"."department"("id") ON DELETE restrict ON UPDATE no action;
