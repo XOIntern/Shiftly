@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { describe, expect, mock, test } from "bun:test";
-import { and, eq, isNull } from "drizzle-orm";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
+import { and, eq, inArray, isNull, like } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -45,6 +45,62 @@ mock.module("next/cache", () => ({
 }));
 
 const mkEmail = (id: string) => `t5-rules-${id}@shiftly.test`;
+
+// Self-healing sweep (test hygiene): the per-test finally blocks below
+// clean up on assertion failures, but a killed run (SIGKILL/timeout) skips
+// them — leaked fixtures then crowd the shared dev DB's users list and can
+// break other suites' page-based tests. Before the suite runs, delete any
+// rows left over from earlier interrupted runs, matched ONLY by this
+// suite's fingerprints (site-name/email prefixes, the seeded location
+// name) — never a broad unfiltered delete. Child-first against the FKs:
+// audits (restrict user+site deletes) → config rows → users (siteId FK
+// restricts the site delete) → locations → sites.
+async function sweepLeftoverFixtures(): Promise<void> {
+  const leakedSites = await db
+    .select({ id: site.id })
+    .from(site)
+    .where(like(site.name, "t5-rules-site-%"));
+  const leakedSiteIds = leakedSites.map((s) => s.id);
+  const leakedUsers = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(like(user.email, "t5-rules-%"));
+  const leakedUserIds = leakedUsers.map((u) => u.id);
+
+  // Every audit this suite writes carries a leaked actor; the site predicate
+  // is belt-and-braces for actor rows that were themselves already swept.
+  if (leakedUserIds.length > 0) {
+    await db.delete(auditLog).where(inArray(auditLog.actorId, leakedUserIds));
+  }
+  if (leakedSiteIds.length > 0) {
+    await db.delete(auditLog).where(inArray(auditLog.siteId, leakedSiteIds));
+    // Location-level config rows carry their parent site's id (CHECK weld),
+    // so siteId alone targets site- and location-scoped rows alike.
+    await db
+      .delete(rosterRuleConfig)
+      .where(inArray(rosterRuleConfig.siteId, leakedSiteIds));
+  }
+
+  if (leakedUserIds.length > 0) {
+    await db.delete(user).where(inArray(user.id, leakedUserIds));
+  }
+
+  if (leakedSiteIds.length > 0) {
+    await db
+      .delete(siteLocation)
+      .where(
+        and(
+          inArray(siteLocation.siteId, leakedSiteIds),
+          eq(siteLocation.name, "T5 Rule Loc"),
+        ),
+      );
+    await db.delete(site).where(inArray(site.id, leakedSiteIds));
+  }
+}
+
+beforeAll(async () => {
+  await sweepLeftoverFixtures();
+});
 
 async function seedUser(
   role: SessionUser["role"],
