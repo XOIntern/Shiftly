@@ -9,7 +9,7 @@
 
 > This document describes the **target architecture**; the repo now implements its foundation — Better Auth with three roles, PostgreSQL via Drizzle ORM, and dashboard CRUD for sites, site_locations, users, workers, departments, and work areas (roster/attendance/reporting pages are descriptive stubs). Decisions that are not yet final remain marked **TBD** so they are not mistaken for agreed-upon choices.
 >
-> **Revision (Oct 2026):** the `client` entity was removed. The domain model is now `site` 1:N `site_locations`, with three roles — **superadmin** (full access), **HO** (one site), **admin** (one site_location). Operational data (departments, workers, MP requests, rates) lives at the location level.
+> **Revision (Oct 2026):** the `client` entity was removed. The domain model is now `site` 1:N `site_locations`, with three roles — **superadmin** (full access), **HO** (one site), **admin** (one site_location). Operational data (departments, workers, MP requests, rates) lives at the location level (departments were later moved to the site level — see the latest revision note).
 >
 > **Update (Oct 2026):** the formerly-TBD database (PostgreSQL), ORM/migrations (Drizzle), and session auth (Better Auth, email + password) are now decided and partially implemented — see sections 2, 6, and 10.
 >
@@ -346,7 +346,7 @@ Decisions made since (see the table above): PostgreSQL + Drizzle ORM, Better Aut
 |---|---|
 | Daily operational pages | Per-shift attendance loads in < 2 seconds for ~200 workers; pagination and no heavy assets |
 | Engine performance | Roster generation < 30 seconds for a full site (~1,400 workers) |
-| Scale | ~7 departments x 200 workers per site_location; multi-site & multi-location correct in the schema from day one |
+| Scale | ~7 departments per site x 200 workers per site_location; multi-site & multi-location correct in the schema from day one |
 | Weak networks | Daily operational pages are payload-efficient (not a PWA/offline in v1; re-evaluated in v2.0) |
 | 3-shift operations | No maintenance windows during operational hours without notice |
 | Sensitive data security | Rates/salary editable by HO only, always audited, not exposed externally; worker personal data (NIK, etc.) access is restricted |
