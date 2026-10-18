@@ -464,30 +464,42 @@ describe("users bindings (department/work-area, issue #66)", () => {
     }
   });
 
-  test("ho actor edit pins the target admin's existing bindings (dept/wa preserved)", async () => {
+  test("ho actor edit of an admin picks an own-site department → the pick persists (golden path)", async () => {
     actor = hoActorRow;
-    const id = await mintUser({
-      role: "admin",
-      siteLocationId: locA,
-      // Seed the bindings directly — ho edits must preserve them.
-    });
-    await db
-      .update(user)
-      .set({ departmentId: deptA, workAreaId: waA })
-      .where(eq(user.id, id));
+    const id = await mintUser({ role: "admin", siteLocationId: locA });
+    // Seed a work area directly — the ho never sets one on edit.
+    await db.update(user).set({ workAreaId: waA }).where(eq(user.id, id));
     const { updateUser } = await import("./actions");
-    // Tampered foreign ids in the payload get ignored: bindings stay pinned.
     const result = await updateUser(id, {
-      name: "T9 Admin Pinned",
+      name: "T9 Golden Path",
       role: "admin",
       siteLocationId: locA,
-      departmentId: deptB,
+      departmentId: deptA,
       workAreaId: randomUUID(),
     });
     expect(result.ok).toBe(true);
     const row = await loadBindings(id);
     expect(row?.departmentId).toBe(deptA);
+    // The pick persists; the work area stays pinned to the target's own.
     expect(row?.workAreaId).toBe(waA);
+  });
+
+  test("ho actor update picks a FOREIGN department → per-field error, nothing changes", async () => {
+    actor = hoActorRow;
+    const id = await mintUser({ role: "admin", siteLocationId: locA });
+    const { updateUser } = await import("./actions");
+    const result = await updateUser(id, {
+      name: "T9 Foreign Dept Edit",
+      role: "admin",
+      siteLocationId: locA,
+      departmentId: deptB,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors).toEqual({
+      departmentId: "Department must belong to your site",
+    });
+    const row = await loadBindings(id);
+    expect(row?.departmentId).toBe(null);
   });
 
   test("superadmin create binds a SOFT-DELETED work area at the right location → field error, nothing persists", async () => {
