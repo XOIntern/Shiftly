@@ -7,11 +7,13 @@
 | Status | Awaiting review; some decisions still TBD (see section 10) |
 | Audience | Developers building Shiftly |
 
-> This document describes the **target architecture**; the repo now implements its foundation — Better Auth with three roles, PostgreSQL via Drizzle ORM, and dashboard CRUD for sites, site_locations, users, and workers (roster/attendance/reporting pages are descriptive stubs). Decisions that are not yet final remain marked **TBD** so they are not mistaken for agreed-upon choices.
+> This document describes the **target architecture**; the repo now implements its foundation — Better Auth with three roles, PostgreSQL via Drizzle ORM, and dashboard CRUD for sites, site_locations, users, workers, departments, and work areas (roster/attendance/reporting pages are descriptive stubs). Decisions that are not yet final remain marked **TBD** so they are not mistaken for agreed-upon choices.
 >
 > **Revision (Oct 2026):** the `client` entity was removed. The domain model is now `site` 1:N `site_locations`, with three roles — **superadmin** (full access), **HO** (one site), **admin** (one site_location). Operational data (departments, workers, MP requests, rates) lives at the location level.
 >
 > **Update (Oct 2026):** the formerly-TBD database (PostgreSQL), ORM/migrations (Drizzle), and session auth (Better Auth, email + password) are now decided and partially implemented — see sections 2, 6, and 10.
+>
+> **Revision (Oct 2026):** departments moved from the site_location level to the **site** level, and a new **work_area** entity was added. `department` is parented under `site`; `work_area` is scoped by both a `site_location` and a `department`, guarded by composite foreign keys that require the location and department to belong to the same site. Workers, MP requests, and rates remain at the location level.
 
 ---
 
@@ -190,13 +192,15 @@ Core entities (from PRD 4.1):
 ```mermaid
 erDiagram
     SITE ||--o{ SITE_LOCATION : "has (1:N)"
-    SITE_LOCATION ||--o{ DEPARTMENT : "owns"
+    SITE ||--o{ DEPARTMENT : "owns"
     SITE_LOCATION ||--o{ SHIFT_DEFINITION : "owns"
     SITE_LOCATION ||--o{ ROSTER_PLAN : "owns"
     SITE_LOCATION ||--o{ MP_REQUEST : "receives"
     SITE ||--o{ RULE_CONFIG : "site-level overrides (HO)"
     SITE ||--o{ RATE_CONFIG : "site-level rates"
     SITE_LOCATION ||--o{ RATE_CONFIG : "location rates"
+    DEPARTMENT ||--o{ WORK_AREA : "supports"
+    SITE_LOCATION ||--o{ WORK_AREA : "hosts"
     DEPARTMENT ||--o{ WORKER : "houses"
     WORKER ||--o{ ROSTER_ASSIGNMENT : "assigned"
     WORKER ||--o{ ATTENDANCE_RECORD : "recorded"
@@ -206,6 +210,8 @@ erDiagram
     SHIFT_DEFINITION ||--o{ RATE_CONFIG : "rate per shift"
     USER }o--o| SITE : "HO bound to 1 site"
     USER }o--o| SITE_LOCATION : "Admin bound to 1 location"
+    USER }o--o| DEPARTMENT : "optional department binding"
+    USER }o--o| WORK_AREA : "optional work-area binding"
     USER ||--o{ AUDIT_LOG : "performs"
 
     SITE {
@@ -247,11 +253,13 @@ erDiagram
 
 Schema design notes:
 
-- **Implemented so far**: `site`, `site_location`, and `user` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`) with FK-restricted parent references, `is_active` flags, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
+- **Implemented so far**: `site`, `site_location`, `user`, `department`, and `work_area` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`, `drizzle/schema/department-schema.ts`) with FK-restricted parent references, `is_active` flags, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). `site` and `site_location` carry `(id, site_id)` unique keys so the `work_area` composite FKs can enforce same-site scoping at the DB level. Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
+- **Deletion guards**: a `site` is refused deletion while live departments exist under it; existing departments, site_locations, and users have their own guards (users check department/work-area bindings first).
 - **No client entity**: the earlier Client → Site hierarchy was removed (Oct 2026 revision). What used to be "the client" (Nestle Group) is now a **site**; what used to be "a site with a city" is now a **site_location**. Client companies remain external counterparties — they convey MP requirements manually — but are not tables in the system.
-- **Site is framework, location is operations**: a `SITE` carries its name and its HO binding; departments, shift definitions, workers, MP requests, and location rates all live under `SITE_LOCATION`.
+- **Site is framework, location is operations**: a `SITE` carries its name and its HO binding; shift definitions, workers, MP requests, and location rates all live under `SITE_LOCATION`. Departments (Oct 2026 revision) are **site-level**: a `DEPARTMENT` belongs to one `site` and is shared by that site's `site_locations`.
+- **Work areas**: a `WORK_AREA` sits at the intersection of a `SITE_LOCATION` and a `DEPARTMENT`. It carries denormalized `site_id` with composite foreign keys — `(department_id, site_id)` → `department` and `(site_location_id, site_id)` → `site_location` — so a work area physically cannot mix a department and a location from different sites. Partial unique `(site_location_id, name)` ignoring soft-deleted rows.
 - **Multi-site & multi-location from day one**: every operational table carries a `site_location` reference (its site is derivable through it), so data isolation never depends on a "single site" assumption.
-- **User bindings**: `role` ∈ (superadmin, ho, admin). The HO carries exactly one `siteId`; the Admin carries exactly one `siteLocationId`; the superadmin is bound to nothing and has full access.
+- **User bindings**: `role` ∈ (superadmin, ho, admin). The HO carries exactly one `siteId`; the Admin carries exactly one `siteLocationId`; the superadmin is bound to nothing and has full access. Users may additionally carry an optional `departmentId` and `workAreaId` (nullable FKs, delete-restricted; scoped management mirrors the department/work-area modules).
 - **Versioned RosterPlan**: publishing creates a new version recorded in the audit trail; post-publish edits produce the next version.
 - **AttendanceRecord without a roster**: attendance for a worker without a roster entry remains possible, flagged as an exception (dispensation) with a trail.
 - **Hierarchical RuleConfig**: a global row as the base, per-site rows as overrides (managed by HO). The same resolution pattern is used by RateConfig (section 8).
@@ -326,7 +334,7 @@ Two side paths (daily requests, force majeure) modify the running-day roster and
 | 4 | ORM/schema migration tooling | **Decided (Oct 2026): Drizzle ORM + drizzle-kit** |
 | 5 | Background job strategy (e.g. v1.1 notifications) | **TBD** — before v1.1 |
 
-Decisions the PRD **has already locked** and are not being reopened: a deterministic engine (not generative AI), scope-based isolation at the data level (location for Admin, site for HO, full access for superadmin), the **Oct 2026 domain-model revision** (no client entity; `site` 1:N `site_locations`; roles superadmin/HO/admin; departments, workers, MP requests, and rates at the location level), all rules config-driven, no worker self-service, no payslips/deductions.
+Decisions the PRD **has already locked** and are not being reopened: a deterministic engine (not generative AI), scope-based isolation at the data level (location for Admin, site for HO, full access for superadmin), the **Oct 2026 domain-model revision** (no client entity; `site` 1:N `site_locations`; roles superadmin/HO/admin; departments at the site level with `work_area` as the department x location junction; workers, MP requests, and rates at the location level), all rules config-driven, no worker self-service, no payslips/deductions.
 
 Decisions made since (see the table above): PostgreSQL + Drizzle ORM, Better Auth session authentication, Docker for packaging.
 
