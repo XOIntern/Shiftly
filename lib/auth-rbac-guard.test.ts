@@ -162,6 +162,19 @@ describe("auth rbac guards (final review C1 + I2)", () => {
     await cleanup(userId);
   });
 
+  test("I2: sign-in for a deactivated user reports the account as inactive", async () => {
+    const userId = await createUser({ isActive: false });
+    const email = `auth-guard-${userId}@shiftly.test`;
+    const failure = await auth.api
+      .signInEmail({ body: { email, password: TEST_PASSWORD } })
+      .then(() => ({ message: "signed-in" }))
+      .catch((err: unknown) => ({
+        message: (err as { body?: { message?: string } }).body?.message ?? "",
+      }));
+    expect(failure.message).toBe("Your account is inactive.");
+    await cleanup(userId);
+  });
+
   test("I2: reactivation wipes stale minted tokens, then sign-in works", async () => {
     // Simulates the stale-token hazard: a session that predates
     // deactivation, plus the deactivate/reactivate steps setActive performs
