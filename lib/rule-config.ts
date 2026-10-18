@@ -1,6 +1,6 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 
-import { auditLog, rosterRuleConfig, siteLocation } from "../drizzle/schema";
+import { auditLog, rosterRuleConfig, site, siteLocation } from "../drizzle/schema";
 import { db } from "./db";
 import { resolveRules, type RuleConfigRow } from "./engine/resolve";
 import type { EffectiveRules } from "./engine/types";
@@ -173,4 +173,63 @@ function scopeWhere(scope: RuleScope) {
     case "location":
       return liveLocation(scope.siteId, scope.siteLocationId);
   }
+}
+
+// Live C6 rows that a C5 write would strand — descendants of the write's
+// scope whose break length exceeds the new trigger, leaving a scope where
+// effective C6 > effective C5. A global write sees every site- and
+// location-level C6 row; a site write sees only that site's location rows.
+// Value-less rows (int_value null) and soft-deleted rows never count.
+export interface StrandedC6 {
+  level: "site" | "location";
+  siteId: string;
+  siteLocationId: string | null;
+  value: number;
+  siteName: string;
+  locationName: string | null;
+}
+
+export async function findStrandedC6Rows(
+  newC5: number,
+  scope: { kind: "global" } | { kind: "site"; siteId: string },
+): Promise<StrandedC6[]> {
+  const descendantWhere =
+    scope.kind === "global"
+      ? and(
+          isNotNull(rosterRuleConfig.siteId),
+          isNull(rosterRuleConfig.deletedAt),
+        )
+      : and(
+          eq(rosterRuleConfig.siteId, scope.siteId),
+          isNotNull(rosterRuleConfig.siteLocationId),
+          isNull(rosterRuleConfig.deletedAt),
+        );
+
+  const rows = await db
+    .select({
+      siteId: rosterRuleConfig.siteId,
+      siteLocationId: rosterRuleConfig.siteLocationId,
+      intValue: rosterRuleConfig.intValue,
+      siteName: site.name,
+      locationName: siteLocation.name,
+    })
+    .from(rosterRuleConfig)
+    .innerJoin(site, eq(rosterRuleConfig.siteId, site.id))
+    .leftJoin(siteLocation, eq(rosterRuleConfig.siteLocationId, siteLocation.id))
+    .where(
+      and(
+        eq(rosterRuleConfig.ruleKey, "C6"),
+        gt(rosterRuleConfig.intValue, newC5),
+        descendantWhere,
+      ),
+    );
+
+  return rows.map((row) => ({
+    level: row.siteLocationId === null ? "site" : "location",
+    siteId: row.siteId!,
+    siteLocationId: row.siteLocationId,
+    value: row.intValue!,
+    siteName: row.siteName,
+    locationName: row.locationName,
+  }));
 }

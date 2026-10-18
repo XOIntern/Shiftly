@@ -12,6 +12,7 @@ import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { resolveRules } from "@/lib/engine/resolve";
 import type { RuleKey } from "@/lib/engine/types";
 import {
+  findStrandedC6Rows,
   loadGlobalRows,
   loadLocationRows,
   loadSiteRows,
@@ -168,6 +169,36 @@ export async function updateRuleConfig(input: {
   });
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
+  }
+
+  // A C5 lowered at global or site scope must not strand live C6 rows at
+  // descendant scopes (effective C6 > effective C5 below it) — surface the
+  // config mistake instead of letting the validator see a broken invariant.
+  // A location-level C5 has no descendants to strand, so it is unguarded.
+  if (
+    parsed.data.ruleKey === "C5" &&
+    parsed.data.intValue != null &&
+    scopeResult.scope.kind !== "location"
+  ) {
+    const stranded = await findStrandedC6Rows(
+      parsed.data.intValue,
+      scopeResult.scope,
+    );
+    if (stranded.length > 0) {
+      const targets = stranded
+        .map((row) =>
+          row.level === "site"
+            ? row.siteName
+            : `${row.locationName} (${row.siteName})`,
+        )
+        .sort();
+      return {
+        ok: false,
+        fieldErrors: {
+          intValue: `Break trigger (C5 = ${parsed.data.intValue}) is below an existing break length (C6) at: ${targets.join(", ")}. Raise C5 or lower those C6 overrides first.`,
+        },
+      };
+    }
   }
 
   try {
