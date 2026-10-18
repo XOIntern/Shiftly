@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
+import { z } from "zod";
 
 import { siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
@@ -87,10 +88,10 @@ async function resolveScope(
     return { ok: true, scope: { kind: "site", siteId } };
   }
 
-  // Location scope: the location must exist, be live, and belong to the
-  // actor's effective site; the scope's siteId is derived from the row's
-  // actual parent, so the (siteId, siteLocationId) pair can never
-  // disagree — inconsistent pairs are unwritable through this action.
+  // Location scope: the id is validated (a uuid string) BEFORE the
+  // ownership query — a malformed one must answer a field error, not let
+  // the DB throw 22P02 out of the unguarded select (parse-first is the
+  // mandated convention chain).
   if (!input.siteLocationId) {
     return {
       ok: false,
@@ -100,6 +101,21 @@ async function resolveScope(
       },
     };
   }
+  if (!z.uuid().safeParse(input.siteLocationId).success) {
+    return {
+      ok: false,
+      error: {
+        ok: false,
+        fieldErrors: {
+          siteLocationId: "Invalid location id.",
+        },
+      },
+    };
+  }
+  // The location must exist, be live, and belong to the actor's effective
+  // site; the scope's siteId is derived from the row's actual parent, so
+  // the (siteId, siteLocationId) pair can never disagree — inconsistent
+  // pairs are unwritable through this action.
   const [location] = await db
     .select({ siteId: siteLocation.siteId })
     .from(siteLocation)

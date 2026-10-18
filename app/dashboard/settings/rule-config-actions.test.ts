@@ -199,6 +199,39 @@ describe("updateRuleConfig (issue #52 task 5)", () => {
     }
   });
 
+  test("rejects a malformed siteLocationId with a field error, not a throw", async () => {
+    // A client-reachable call with garbage in the uuid column must answer a
+    // field error — the ownership query must never see the raw value.
+    const siteA = await seedSite();
+    const hoId = await seedUser("ho", siteA);
+
+    try {
+      actor = {
+        id: hoId,
+        name: "T5 HO",
+        email: mkEmail(hoId),
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C1",
+        scope: "location",
+        siteLocationId: "not-a-uuid",
+        intValue: 6,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.siteLocationId).toBeTruthy();
+      expect(await auditCountFor(hoId)).toBe(0);
+    } finally {
+      await cleanup(hoId, [siteA]);
+    }
+  });
+
   test("rejects a location override outside the actor's site", async () => {
     const siteA = await seedSite();
     const siteB = await seedSite();
