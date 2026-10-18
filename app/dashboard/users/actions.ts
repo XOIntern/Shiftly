@@ -354,11 +354,15 @@ export async function updateUser(
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
-  // An ho actor may not change the role or binding — both stay pinned to
-  // the target's current values, whatever the payload carried. A
+  // An ho actor may not change the role, site or site_location — those stay
+  // pinned to the target's current values, whatever the payload carried. A
   // superadmin actor may switch the role; the bindings follow the new one
   // (ho: siteId + optional department; admin: siteLocationId + optional
-  // department/work area; superadmin: none).
+  // department/work area; superadmin: none). An ho actor's department pick
+  // IS read (verified below against the actor's site — this is issue #66's
+  // golden path: an ho editing an admin picks a department and it
+  // persists); only the work area stays pinned to the target (an ho never
+  // sets one).
   const role: Role = actor.role === "ho" ? target.role : parsed.data.role;
   const siteId = role === "ho" ? (parsed.data.siteId ?? null) : null;
   const siteLocationId =
@@ -367,15 +371,15 @@ export async function updateUser(
       : actor.role === "ho"
         ? (target.siteLocationId ?? null)
         : (parsed.data.siteLocationId ?? null);
-  // Departments/work areas follow the same actor gate: on an ho or admin
-  // target the department may be set (only a superadmin actor may change
-  // it — an ho's edit never rewrites the target's bindings); a work area
-  // belongs to admins alone. Superadmin targets carry neither.
+  // Departments/work areas: on an ho or admin target the department may
+  // be set (read from the actor-verified input); a work area belongs to
+  // admins alone and stays pinned to the target's current value.
+  // Superadmin targets carry neither.
   const departmentId =
     role === "superadmin"
       ? null
       : actor.role === "ho"
-        ? (target.departmentId ?? null)
+        ? (parsed.data.departmentId ?? null)
         : (parsed.data.departmentId ?? null);
   const workAreaId =
     role !== "admin"
@@ -399,9 +403,19 @@ export async function updateUser(
     }
   }
 
+  // An ho actor's department pick is site-scoped, exactly like on create:
+  // a foreign (or soft-deleted) pick answers at the field.
+  if (actor.role === "ho" && departmentId) {
+    if (!(await departmentAllowsBinding(departmentId, actor.siteId))) {
+      return {
+        ok: false,
+        fieldErrors: { departmentId: "Department must belong to your site" },
+      };
+    }
+  }
+
   // Same soft-delete weld for the superadmin edit path (mirrors the work
-  // area net above; the ho path pins the target's own department, so only
-  // a superadmin actor's fresh pick needs this net).
+  // area net above; the ho path's site weld already covers deleted rows).
   if (actor.role === "superadmin" && departmentId) {
     if ((await loadDepartmentBinding(departmentId))?.deleted) {
       return DEPARTMENT_GONE_ERROR;

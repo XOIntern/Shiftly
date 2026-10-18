@@ -176,11 +176,11 @@ function UserForm({
 
   // An ho actor cannot change a binding on edit (the action pins it), so
   // the location select renders disabled there; creation keeps it editable
-  // because choosing the location is the point.
+  // because choosing the location is the point. The department is NOT
+  // pinned this way: the action lets an ho pick their own site's
+  // department on an edit (issue #66 golden path) — the select stays
+  // usable and the payload's departmentId is sent as-is.
   const locationLocked = mode === "edit" && actorRole === "ho";
-  // Same pin for the target's department: an ho actor never rewrites the
-  // bindings of the admins it manages.
-  const departmentLocked = mode === "edit" && actorRole === "ho";
 
   const siteItems: {
     label: string;
@@ -496,7 +496,6 @@ function UserForm({
             <Select
               items={departmentItems}
               value={department}
-              disabled={departmentLocked}
               onValueChange={(value) => setDepartment(value as string | null)}
             >
               <SelectTrigger id={departmentFieldId} className="w-full">
@@ -516,11 +515,6 @@ function UserForm({
                 </SelectGroup>
               </SelectContent>
             </Select>
-            {departmentLocked ? (
-              <FieldDescription>
-                The department is fixed after creation.
-              </FieldDescription>
-            ) : null}
             {departmentItems.length === 1 ? (
               <FieldDescription>
                 No departments available — create one first.
