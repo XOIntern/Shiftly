@@ -12,7 +12,7 @@ import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { resolveRules } from "@/lib/engine/resolve";
 import type { RuleKey } from "@/lib/engine/types";
 import {
-  findStrandedC6Rows,
+  findC6Violations,
   loadGlobalRows,
   loadLocationRows,
   loadSiteRows,
@@ -171,27 +171,18 @@ export async function updateRuleConfig(input: {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
-  // A C5 lowered at global or site scope must not strand live C6 rows at
-  // descendant scopes (effective C6 > effective C5 below it) — surface the
-  // config mistake instead of letting the validator see a broken invariant.
-  // A location-level C5 has no descendants to strand, so it is unguarded.
-  if (
-    parsed.data.ruleKey === "C5" &&
-    parsed.data.intValue != null &&
-    scopeResult.scope.kind !== "location"
-  ) {
-    const stranded = await findStrandedC6Rows(
+  // A C5 write must never leave effective C6 above it — not at the write's
+  // own scope (same-scope, inherited or default C6) and not at any location
+  // below (the #56 effective check; a site row every location overrides is
+  // inert and does not block). Surface the mistake instead of letting the
+  // validator see a broken invariant.
+  if (parsed.data.ruleKey === "C5" && parsed.data.intValue != null) {
+    const violations = await findC6Violations(
       parsed.data.intValue,
       scopeResult.scope,
     );
-    if (stranded.length > 0) {
-      const targets = stranded
-        .map((row) =>
-          row.level === "site"
-            ? row.siteName
-            : `${row.locationName} (${row.siteName})`,
-        )
-        .sort();
+    if (violations.length > 0) {
+      const targets = violations.map((v) => v.label).sort();
       return {
         ok: false,
         fieldErrors: {

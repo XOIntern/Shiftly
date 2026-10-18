@@ -1,9 +1,9 @@
-import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 
 import { auditLog, rosterRuleConfig, site, siteLocation } from "../drizzle/schema";
 import { db } from "./db";
 import { resolveRules, type RuleConfigRow } from "./engine/resolve";
-import type { EffectiveRules } from "./engine/types";
+import { DEFAULT_RULES, type EffectiveRules } from "./engine/types";
 
 // The scope a config row (and its audit entry) belongs to. A location-level
 // scope always names its parent site — mirrored by the table's CHECK weld.
@@ -175,70 +175,170 @@ function scopeWhere(scope: RuleScope) {
   }
 }
 
-// Live C6 rows that a C5 write would strand — descendants of the write's
-// scope whose break length exceeds the new trigger, leaving a scope where
-// effective C6 > effective C5. A global write sees every site- and
-// location-level C6 row; a site write sees only that site's location rows.
-// Value-less rows (int_value null) and soft-deleted rows never count.
-export interface StrandedC6 {
-  level: "site" | "location";
-  siteId: string;
-  siteLocationId: string | null;
-  value: number;
-  siteName: string;
-  locationName: string | null;
+// Where a C5 write would leave effective C6 above the new trigger (GitHub
+// #56). Unlike a raw row scan, the check judges the *effective* C6 — the
+// most-specific live row, else the built-in default — at the write's own
+// scope and at every live location below it. A site-level C6 row that
+// every live location overrides is inert and never blocks; a violation
+// inherited from the global row or the default does block, which a
+// descendant-row scan cannot see. Value-less (int_value null) and
+// soft-deleted rows never count.
+export interface C6Violation {
+  label: string;
 }
 
-export async function findStrandedC6Rows(
+export async function findC6Violations(
   newC5: number,
-  scope: { kind: "global" } | { kind: "site"; siteId: string },
-): Promise<StrandedC6[]> {
-  const descendantWhere =
+  scope: RuleScope,
+): Promise<C6Violation[]> {
+  const defaultC6 = DEFAULT_RULES.c6.value;
+  const siteFilter =
     scope.kind === "global"
-      ? and(
+      ? undefined
+      : eq(rosterRuleConfig.siteId, scope.siteId);
+
+  const [globalRows, siteRows, locationRows, liveLocations] = await Promise.all([
+    db
+      .select({ intValue: rosterRuleConfig.intValue })
+      .from(rosterRuleConfig)
+      .where(and(eq(rosterRuleConfig.ruleKey, "C6"), liveGlobal())),
+    db
+      .select({
+        siteId: rosterRuleConfig.siteId,
+        intValue: rosterRuleConfig.intValue,
+        siteName: site.name,
+      })
+      .from(rosterRuleConfig)
+      .innerJoin(
+        site,
+        and(eq(rosterRuleConfig.siteId, site.id), isNull(site.deletedAt)),
+      )
+      .where(
+        and(
+          eq(rosterRuleConfig.ruleKey, "C6"),
           isNotNull(rosterRuleConfig.siteId),
+          isNull(rosterRuleConfig.siteLocationId),
           isNull(rosterRuleConfig.deletedAt),
-        )
-      : and(
-          eq(rosterRuleConfig.siteId, scope.siteId),
+          siteFilter,
+        ),
+      ),
+    db
+      .select({
+        siteLocationId: rosterRuleConfig.siteLocationId,
+        intValue: rosterRuleConfig.intValue,
+      })
+      .from(rosterRuleConfig)
+      .innerJoin(
+        siteLocation,
+        and(
+          eq(rosterRuleConfig.siteLocationId, siteLocation.id),
+          isNull(siteLocation.deletedAt),
+        ),
+      )
+      .where(
+        and(
+          eq(rosterRuleConfig.ruleKey, "C6"),
+          isNotNull(rosterRuleConfig.siteId),
           isNotNull(rosterRuleConfig.siteLocationId),
           isNull(rosterRuleConfig.deletedAt),
-        );
-
-  const rows = await db
-    .select({
-      siteId: rosterRuleConfig.siteId,
-      siteLocationId: rosterRuleConfig.siteLocationId,
-      intValue: rosterRuleConfig.intValue,
-      siteName: site.name,
-      locationName: siteLocation.name,
-    })
-    .from(rosterRuleConfig)
-    .innerJoin(
-      site,
-      and(eq(rosterRuleConfig.siteId, site.id), isNull(site.deletedAt)),
-    )
-    .leftJoin(
-      siteLocation,
-      and(
-        eq(rosterRuleConfig.siteLocationId, siteLocation.id),
-        isNull(siteLocation.deletedAt),
+          siteFilter,
+        ),
       ),
-    )
-    .where(
-      and(
-        eq(rosterRuleConfig.ruleKey, "C6"),
-        gt(rosterRuleConfig.intValue, newC5),
-        descendantWhere,
+    // Every live location in reach, rows or not — the resolution points the
+    // effective check must visit (a location with no C6 row still inherits).
+    db
+      .select({
+        id: siteLocation.id,
+        siteId: siteLocation.siteId,
+        name: siteLocation.name,
+        siteName: site.name,
+      })
+      .from(siteLocation)
+      .innerJoin(
+        site,
+        and(eq(siteLocation.siteId, site.id), isNull(site.deletedAt)),
+      )
+      .where(
+        and(
+          isNull(siteLocation.deletedAt),
+          scope.kind === "location"
+            ? eq(siteLocation.id, scope.siteLocationId)
+            : scope.kind === "site"
+              ? eq(siteLocation.siteId, scope.siteId)
+              : undefined,
+        ),
       ),
-    );
+  ]);
 
-  return rows.map((row) => ({
-    level: row.siteLocationId === null ? "site" : "location",
-    siteId: row.siteId!,
-    siteLocationId: row.siteLocationId,
-    value: row.intValue!,
-    siteName: row.siteName,
-    locationName: row.locationName,
-  }));
+  const globalC6 =
+    globalRows.find((row) => row.intValue !== null)?.intValue ?? null;
+  const siteC6 = new Map(
+    siteRows
+      .filter((row) => row.siteId !== null && row.intValue !== null)
+      .map((row) => [row.siteId as string, row.intValue as number]),
+  );
+  const siteNames = new Map(
+    siteRows.map((row) => [row.siteId as string, row.siteName]),
+  );
+  const locationC6 = new Map(
+    locationRows
+      .filter((row) => row.siteLocationId !== null && row.intValue !== null)
+      .map((row) => [row.siteLocationId as string, row.intValue as number]),
+  );
+
+  const effectiveAtSite = (sid: string): number =>
+    siteC6.get(sid) ?? globalC6 ?? defaultC6;
+  const effectiveAtLocation = (locId: string, locSiteId: string): number =>
+    locationC6.get(locId) ?? effectiveAtSite(locSiteId);
+
+  const violations: C6Violation[] = [];
+
+  // The write scope's own pair — the same-scope, inherited and default C6
+  // paths a descendant-only scan cannot see.
+  if (scope.kind === "global") {
+    if ((globalC6 ?? defaultC6) > newC5) {
+      violations.push({ label: "the global base" });
+    }
+  } else {
+    const [scopeSite] = await db
+      .select({ name: site.name })
+      .from(site)
+      .where(and(eq(site.id, scope.siteId), isNull(site.deletedAt)))
+      .limit(1);
+    if (!scopeSite) return violations;
+    if (scope.kind === "site") {
+      if (effectiveAtSite(scope.siteId) > newC5) {
+        violations.push({ label: scopeSite.name });
+      }
+    } else if (
+      effectiveAtLocation(scope.siteLocationId, scope.siteId) > newC5
+    ) {
+      const locName =
+        liveLocations.find((loc) => loc.id === scope.siteLocationId)?.name ??
+        "Location";
+      violations.push({ label: `${locName} (${scopeSite.name})` });
+    }
+  }
+
+  // Descendant scopes (none for a location-level write). A site with live
+  // locations is judged per location — its own row only reaches locations
+  // without one, so a fully-overridden row stays inert. A site with no
+  // live locations is judged on its site row alone.
+  if (scope.kind !== "location") {
+    const siteIdsWithLocations = new Set(liveLocations.map((loc) => loc.siteId));
+    for (const loc of liveLocations) {
+      if (effectiveAtLocation(loc.id, loc.siteId) > newC5) {
+        violations.push({ label: `${loc.name} (${loc.siteName})` });
+      }
+    }
+    for (const [siteId, value] of siteC6) {
+      if (value > newC5 && !siteIdsWithLocations.has(siteId)) {
+        violations.push({
+          label: siteNames.get(siteId) ?? siteId,
+        });
+      }
+    }
+  }
+
+  return violations.sort((a, b) => a.label.localeCompare(b.label));
 }

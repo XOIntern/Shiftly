@@ -72,6 +72,19 @@ async function sweepLeftoverFixtures(): Promise<void> {
   if (leakedUserIds.length > 0) {
     await db.delete(auditLog).where(inArray(auditLog.actorId, leakedUserIds));
   }
+  // Same fingerprint idea for the global-scoped C6 rows this suite seeds
+  // (issue #56's same-scope/default tests): only this suite's values, so a
+  // dev-configured global C6 elsewhere survives.
+  await db
+    .delete(rosterRuleConfig)
+    .where(
+      and(
+        eq(rosterRuleConfig.ruleKey, "C6"),
+        inArray(rosterRuleConfig.intValue, [4, 7, 10]),
+        isNull(rosterRuleConfig.siteId),
+        isNull(rosterRuleConfig.siteLocationId),
+      ),
+    );
   if (leakedSiteIds.length > 0) {
     await db.delete(auditLog).where(inArray(auditLog.siteId, leakedSiteIds));
     // Location-level config rows carry their parent site's id (CHECK weld),
@@ -192,10 +205,9 @@ async function seedRuleRow(input: {
   return id;
 }
 
-// Global rows carry no siteId, so cleanup() (which deletes by siteId) cannot
-// see them. Snapshot the live global row ids for a rule key before a test
+// Snapshot the live global row ids for a rule key before a test
 // writes one, then sweep only the ids that appeared since.
-async function snapshotGlobalRowIds(ruleKey: "C5"): Promise<string[]> {
+async function snapshotGlobalRowIds(ruleKey: "C5" | "C6"): Promise<string[]> {
   const rows = await db
     .select({ id: rosterRuleConfig.id })
     .from(rosterRuleConfig)
@@ -211,7 +223,7 @@ async function snapshotGlobalRowIds(ruleKey: "C5"): Promise<string[]> {
 
 async function deleteNewGlobalRows(
   before: string[],
-  ruleKey: "C5",
+  ruleKey: "C5" | "C6",
 ): Promise<void> {
   const rows = await db
     .select({ id: rosterRuleConfig.id })
@@ -415,10 +427,13 @@ describe("updateRuleConfig C5 descendant guard (issue #55)", () => {
       };
 
       const { updateRuleConfig } = await import("./rule-config-actions");
+      // C5=4: the value-less and soft-deleted C6 rows must not block; the
+      // built-in default C6 (4) sits exactly at the boundary, so acceptance
+      // proves neither row counted.
       const result = await updateRuleConfig({
         ruleKey: "C5",
         scope: "global",
-        intValue: 3,
+        intValue: 4,
       });
 
       expect(result.ok).toBe(true);
@@ -454,10 +469,13 @@ describe("updateRuleConfig C5 descendant guard (issue #55)", () => {
       };
 
       const { updateRuleConfig } = await import("./rule-config-actions");
+      // C5=4: the C6 row under the soft-deleted site must not block; the
+      // built-in default C6 (4) sits exactly at the boundary, so acceptance
+      // proves the stranded row did not count.
       const result = await updateRuleConfig({
         ruleKey: "C5",
         scope: "global",
-        intValue: 3,
+        intValue: 4,
       });
 
       expect(result.ok).toBe(true);
@@ -468,7 +486,7 @@ describe("updateRuleConfig C5 descendant guard (issue #55)", () => {
     }
   });
 
-  test("does not guard a location-level C5 write against same-site C6 rows", async () => {
+  test("refuses a location-level C5 write below that location's effective C6 (site row)", async () => {
     const siteA = await seedSite();
     const locA = await seedLocation(siteA);
     await seedRuleRow({ ruleKey: "C6", siteId: siteA, intValue: 9 });
@@ -493,10 +511,199 @@ describe("updateRuleConfig C5 descendant guard (issue #55)", () => {
         intValue: 3,
       });
 
-      expect(result.ok).toBe(true);
-      expect(await auditCountFor(hoId)).toBe(1);
+      expect(result.ok).toBe(false);
+      const message = result.fieldErrors?.intValue ?? "";
+      expect(message).toContain("T5 Rule Loc");
+      expect(await auditCountFor(hoId)).toBe(0);
     } finally {
       await cleanup(hoId, [siteA]);
+    }
+  });
+});
+
+describe("updateRuleConfig C5 effective-C6 guard (issue #56)", () => {
+  test("refuses a global C5 write below the global C6 row at the write's own scope (same-scope)", async () => {
+    const globalC6Before = await snapshotGlobalRowIds("C6");
+    await seedRuleRow({ ruleKey: "C6", intValue: 10 });
+    const superId = await seedUser("superadmin", null);
+    const globalC5Before = await snapshotGlobalRowIds("C5");
+
+    try {
+      actor = {
+        id: superId,
+        name: "T5 Super",
+        email: mkEmail(superId),
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C5",
+        scope: "global",
+        intValue: 5,
+      });
+
+      expect(result.ok).toBe(false);
+      const message = result.fieldErrors?.intValue ?? "";
+      expect(message).toContain("C6");
+      expect(await auditCountFor(superId)).toBe(0);
+      // No global C5 row was written.
+      const globals = await db
+        .select({ id: rosterRuleConfig.id })
+        .from(rosterRuleConfig)
+        .where(
+          and(
+            eq(rosterRuleConfig.ruleKey, "C5"),
+            isNull(rosterRuleConfig.siteId),
+            isNull(rosterRuleConfig.siteLocationId),
+          ),
+        );
+      expect(globals).toEqual([]);
+    } finally {
+      await deleteNewGlobalRows(globalC5Before, "C5");
+      await deleteNewGlobalRows(globalC6Before, "C6");
+      await cleanup(superId, []);
+    }
+  });
+
+  test("refuses a global C5 write below the built-in default C6 when no C6 row exists anywhere", async () => {
+    const superId = await seedUser("superadmin", null);
+    const globalC5Before = await snapshotGlobalRowIds("C5");
+
+    try {
+      actor = {
+        id: superId,
+        name: "T5 Super",
+        email: mkEmail(superId),
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C5",
+        scope: "global",
+        intValue: 3,
+      });
+
+      expect(result.ok).toBe(false);
+      const message = result.fieldErrors?.intValue ?? "";
+      expect(message).toContain("C6");
+      expect(await auditCountFor(superId)).toBe(0);
+    } finally {
+      await deleteNewGlobalRows(globalC5Before, "C5");
+      await cleanup(superId, []);
+    }
+  });
+
+  test("accepts a global C5 write when a site's C6 row is inert (every location under it overrides lower)", async () => {
+    const siteA = await seedSite();
+    const locA = await seedLocation(siteA);
+    await seedRuleRow({ ruleKey: "C6", siteId: siteA, intValue: 9 });
+    // locA's own row wins at the only location under the site, so the
+    // site-level C6=9 never binds — it must not block the global write.
+    await seedRuleRow({
+      ruleKey: "C6",
+      siteId: siteA,
+      siteLocationId: locA,
+      intValue: 2,
+    });
+    const superId = await seedUser("superadmin", null);
+    const globalC5Before = await snapshotGlobalRowIds("C5");
+
+    try {
+      actor = {
+        id: superId,
+        name: "T5 Super",
+        email: mkEmail(superId),
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C5",
+        scope: "global",
+        intValue: 5,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(await auditCountFor(superId)).toBe(1);
+    } finally {
+      await deleteNewGlobalRows(globalC5Before, "C5");
+      await cleanup(superId, [siteA]);
+    }
+  });
+
+  test("refuses a site C5 write below inherited global C6 at a location with no row of its own", async () => {
+    const globalC6Before = await snapshotGlobalRowIds("C6");
+    const siteA = await seedSite();
+    await seedLocation(siteA);
+    await seedRuleRow({ ruleKey: "C6", intValue: 7 });
+    const hoId = await seedUser("ho", siteA);
+
+    try {
+      actor = {
+        id: hoId,
+        name: "T5 HO",
+        email: mkEmail(hoId),
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C5",
+        scope: "site",
+        intValue: 5,
+      });
+
+      expect(result.ok).toBe(false);
+      const message = result.fieldErrors?.intValue ?? "";
+      expect(message).toContain("T5 Rule Loc");
+      expect(await auditCountFor(hoId)).toBe(0);
+    } finally {
+      await deleteNewGlobalRows(globalC6Before, "C6");
+      await cleanup(hoId, [siteA]);
+    }
+  });
+
+  test("accepts a global C5 write equal to the built-in default C6 (boundary)", async () => {
+    const superId = await seedUser("superadmin", null);
+    const globalC5Before = await snapshotGlobalRowIds("C5");
+
+    try {
+      actor = {
+        id: superId,
+        name: "T5 Super",
+        email: mkEmail(superId),
+        role: "superadmin",
+        siteId: null,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { updateRuleConfig } = await import("./rule-config-actions");
+      const result = await updateRuleConfig({
+        ruleKey: "C5",
+        scope: "global",
+        intValue: 4,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(await auditCountFor(superId)).toBe(1);
+    } finally {
+      await deleteNewGlobalRows(globalC5Before, "C5");
+      await cleanup(superId, []);
     }
   });
 });
