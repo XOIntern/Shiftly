@@ -1,0 +1,2 @@
+ALTER TABLE "user" ADD COLUMN "work_area_id" uuid;--> statement-breakpoint
+ALTER TABLE "user" ADD CONSTRAINT "user_work_area_id_work_area_id_fk" FOREIGN KEY ("work_area_id") REFERENCES "public"."work_area"("id") ON DELETE restrict ON UPDATE no action;

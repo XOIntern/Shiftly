@@ -64,6 +64,13 @@
       "when": 1792362597358,
       "tag": "0008_bouncy_molly_hayes",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792362854654,
+      "tag": "0009_groovy_nextwave",
+      "breakpoints": true
     }
   ]
 }
