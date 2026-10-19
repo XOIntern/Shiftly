@@ -5,7 +5,7 @@ import { resolveRules } from "./resolve";
 import type { RuleConfigRow } from "@/types/domain";
 
 // Task 2 of the config-rules epic (GitHub #49): the pure resolver that turns
-// global / site / location config rows into effective rules C1–C7, each
+// global / site / location config rows into effective rules C1–C8, each
 // carrying the scope it came from. No DB, no Next — plain data in, plain
 // data out.
 const intRow = (ruleKey: RuleConfigRow["ruleKey"], value: number): RuleConfigRow => ({

@@ -33,6 +33,7 @@ const RULE_META: Array<{
   slot: keyof EffectiveRules;
   kind: "int" | "bool";
   meaning: string;
+  note?: string;
 }> = [
   { key: "C1", slot: "c1", kind: "int", meaning: "Max work days per week" },
   { key: "C2", slot: "c2", kind: "int", meaning: "Max work days per month" },
@@ -66,16 +67,20 @@ const RULE_META: Array<{
     slot: "c8",
     kind: "bool",
     meaning: "Work qualification match",
+    // The engine check is deliberately dormant until qualification data
+    // exists; say so rather than presenting an enforcing rule that isn't.
+    note: "Dormant until worker qualifications are recorded",
   },
 ];
 
 function ruleRows(rules: EffectiveRules): RuleRowView[] {
-  return RULE_META.map(({ key, slot, kind, meaning }) => ({
+  return RULE_META.map(({ key, slot, kind, meaning, note }) => ({
     key,
     meaning,
     kind,
     value: rules[slot].value,
     source: rules[slot].source,
+    ...(note ? { note } : {}),
   }));
 }
 

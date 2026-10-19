@@ -345,6 +345,11 @@ function RuleEditDialog({
           <DialogDescription>
             {row.meaning}. The change is audited and applies without a code
             deploy.
+            {row.note ? (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {row.note}.
+              </span>
+            ) : null}
           </DialogDescription>
         </DialogHeader>
         {/* Remounted per open so state resets to the row's effective values
@@ -395,7 +400,14 @@ export function RuleConfigTable({
           {rows.map((row) => (
             <TableRow key={row.key}>
               <TableCell className="font-medium">{row.key}</TableCell>
-              <TableCell>{row.meaning}</TableCell>
+              <TableCell>
+                {row.meaning}
+                {row.note ? (
+                  <span className="block whitespace-normal text-xs text-muted-foreground">
+                    {row.note}
+                  </span>
+                ) : null}
+              </TableCell>
               <TableCell className="tabular-nums">
                 {formatValue(row)}
               </TableCell>
