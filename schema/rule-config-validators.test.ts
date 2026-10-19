@@ -84,7 +84,7 @@ describe("ruleConfigSchema value ranges (issue #52)", () => {
   });
 
   test("bool rules reject an intValue and int rules reject a boolValue", () => {
-    for (const ruleKey of ["C3", "C4", "C7"] as const) {
+    for (const ruleKey of ["C3", "C4", "C7", "C8"] as const) {
       expect(
         schema.safeParse({ ruleKey, scope: "global", intValue: 5, boolValue: null })
           .success,
@@ -102,9 +102,20 @@ describe("ruleConfigSchema value ranges (issue #52)", () => {
     }
   });
 
+  test("C8 requires a bool value", () => {
+    expect(
+      schema.safeParse({ ruleKey: "C8", scope: "global", intValue: null, boolValue: null })
+        .success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ ruleKey: "C8", scope: "global", intValue: null, boolValue: false })
+        .success,
+    ).toBe(true);
+  });
+
   test("rejects an unknown rule key and a bad scope", () => {
     expect(
-      schema.safeParse({ ruleKey: "C8", scope: "global", intValue: 1, boolValue: null })
+      schema.safeParse({ ruleKey: "C9", scope: "global", intValue: 1, boolValue: null })
         .success,
     ).toBe(false);
     expect(
