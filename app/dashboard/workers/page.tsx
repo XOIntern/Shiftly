@@ -169,6 +169,7 @@ export default async function WorkersPage({
           // (the form keeps this as a defensive guard only).
           isNull(position.deletedAt),
           eq(position.isActive, true),
+          isNull(site.deletedAt),
           ...(isSuperadmin
             ? []
             : isHo

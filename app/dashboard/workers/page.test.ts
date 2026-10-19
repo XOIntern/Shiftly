@@ -71,25 +71,31 @@ async function renderWorkers(
 
 // Shared fixture: site A (location LA1, the admin binding site) holds the
 // live position PA plus the inactive PA-off; site B (location LB) holds PB
-// and the worker W2. The workers W1/W2 sit under LA1/LB respectively.
-// Child-first cleanup.
+// and the worker W2. The workers W1/W2 sit under LA1/LB respectively. Site C
+// is soft-deleted and holds the live+active position PC, which no picker may
+// offer. Child-first cleanup.
 async function seedWorkerFixtures() {
   const siteA = randomUUID();
   const siteB = randomUUID();
+  const siteC = randomUUID();
   const locA1 = randomUUID();
   const locB = randomUUID();
+  const locC = randomUUID();
   const posA = randomUUID();
   const posAOff = randomUUID();
   const posB = randomUUID();
+  const posC = randomUUID();
   const wA = randomUUID();
   const wB = randomUUID();
   await db.insert(site).values([
     { id: siteA, name: `t13-wpage-site-a-${siteA}` },
     { id: siteB, name: `t13-wpage-site-b-${siteB}` },
+    { id: siteC, name: `t13-wpage-site-c-${siteC}`, deletedAt: new Date() },
   ]);
   await db.insert(siteLocation).values([
     { id: locA1, siteId: siteA, name: `t13-wpage-loc-a1-${locA1}` },
     { id: locB, siteId: siteB, name: `t13-wpage-loc-b-${locB}` },
+    { id: locC, siteId: siteC, name: `t13-wpage-loc-c-${locC}` },
   ]);
   // The site names embed their uuids, so site B is always alphabetically
   // after site A — the default [site, employeeId] order holds.
@@ -97,6 +103,7 @@ async function seedWorkerFixtures() {
     { id: posA, siteId: siteA, name: "t13-wpage-alpha" },
     { id: posAOff, siteId: siteA, name: "t13-wpage-off", isActive: false },
     { id: posB, siteId: siteB, name: "t13-wpage-foreign-b" },
+    { id: posC, siteId: siteC, name: "t13-wpage-soft-deleted-c" },
   ]);
   await db.insert(worker).values([
     {
@@ -117,17 +124,33 @@ async function seedWorkerFixtures() {
     },
   ]);
   return {
-    ids: { siteA, siteB, locA1, locB, posA, posAOff, posB, wA, wB },
+    ids: {
+      siteA,
+      siteB,
+      siteC,
+      locA1,
+      locB,
+      locC,
+      posA,
+      posAOff,
+      posB,
+      posC,
+      wA,
+      wB,
+    },
     async cleanup() {
       await db.delete(worker).where(eq(worker.id, wA));
       await db.delete(worker).where(eq(worker.id, wB));
       await db.delete(position).where(eq(position.id, posA));
       await db.delete(position).where(eq(position.id, posAOff));
       await db.delete(position).where(eq(position.id, posB));
+      await db.delete(position).where(eq(position.id, posC));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA1));
       await db.delete(siteLocation).where(eq(siteLocation.id, locB));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locC));
       await db.delete(site).where(eq(site.id, siteA));
       await db.delete(site).where(eq(site.id, siteB));
+      await db.delete(site).where(eq(site.id, siteC));
     },
   };
 }
@@ -218,6 +241,22 @@ describe("workers page server queries", () => {
       expect(
         (page.positions ?? []).every((p) => p.siteId === fx.ids.siteA),
       ).toBe(true);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("pickers exclude positions under a soft-deleted site", async () => {
+    const fx = await seedWorkerFixtures();
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const page = await renderWorkers({ pageSize: "50" });
+      const positionIds = (page.positions ?? []).map((p) => p.id);
+      // Shared dev DB: other suites' live positions may exist, so assert
+      // presence rather than an exact array.
+      expect(positionIds).toContain(fx.ids.posA);
+      expect(positionIds).not.toContain(fx.ids.posC);
     } finally {
       await fx.cleanup();
     }

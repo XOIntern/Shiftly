@@ -63,20 +63,26 @@ async function renderPositions(
 }
 
 // Shared fixture: site A (location LA for admin bindings) holds PA1 and
-// PA2; site B holds PB1. Child-first cleanup.
+// PA2; site B holds PB1. Site C is soft-deleted and holds the live+active
+// PC1, which must never reach the list. Child-first cleanup.
 async function seedPositionFixtures() {
   const siteA = randomUUID();
   const siteB = randomUUID();
+  const siteC = randomUUID();
   const locA1 = randomUUID();
+  const locC = randomUUID();
   const posA1 = randomUUID();
   const posA2 = randomUUID();
   const posB1 = randomUUID();
+  const posC1 = randomUUID();
   await db.insert(site).values([
     { id: siteA, name: `t9-pos-site-a-${siteA}` },
     { id: siteB, name: `t9-pos-site-b-${siteB}` },
+    { id: siteC, name: `t9-pos-site-c-${siteC}`, deletedAt: new Date() },
   ]);
   await db.insert(siteLocation).values([
     { id: locA1, siteId: siteA, name: `t9-pos-loc-a1-${locA1}` },
+    { id: locC, siteId: siteC, name: `t9-pos-loc-c-${locC}` },
   ]);
   // The site names embed their uuids, so site B is always alphabetically
   // after site A — the default [site, position] order holds.
@@ -84,16 +90,20 @@ async function seedPositionFixtures() {
     { id: posA1, siteId: siteA, name: "t9-pos-alpha" },
     { id: posA2, siteId: siteA, name: "t9-pos-own-two" },
     { id: posB1, siteId: siteB, name: "t9-pos-foreign" },
+    { id: posC1, siteId: siteC, name: "t9-pos-soft-deleted" },
   ]);
   return {
-    ids: { siteA, siteB, locA1, posA1, posA2, posB1 },
+    ids: { siteA, siteB, siteC, locA1, locC, posA1, posA2, posB1, posC1 },
     async cleanup() {
       await db.delete(position).where(eq(position.id, posA1));
       await db.delete(position).where(eq(position.id, posA2));
       await db.delete(position).where(eq(position.id, posB1));
+      await db.delete(position).where(eq(position.id, posC1));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA1));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locC));
       await db.delete(site).where(eq(site.id, siteA));
       await db.delete(site).where(eq(site.id, siteB));
+      await db.delete(site).where(eq(site.id, siteC));
     },
   };
 }
@@ -184,6 +194,22 @@ describe("positions page server queries", () => {
       const siteIds = page.sites?.map((s) => s.id) ?? [];
       expect(siteIds).toContain(fx.ids.siteA);
       expect(siteIds).toContain(fx.ids.siteB);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("pickers exclude positions under a soft-deleted site", async () => {
+    const fx = await seedPositionFixtures();
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const page = await renderPositions({ pageSize: "50" });
+      const positionIds = page.positions.map((p) => p.id);
+      // Shared dev DB: other suites' live positions may exist, so assert
+      // presence rather than an exact array.
+      expect(positionIds).toContain(fx.ids.posA1);
+      expect(positionIds).not.toContain(fx.ids.posC1);
     } finally {
       await fx.cleanup();
     }
