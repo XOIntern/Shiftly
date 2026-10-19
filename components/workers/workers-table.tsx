@@ -68,9 +68,15 @@ export function WorkersTable({
           header: "Site",
           meta: { thClassName: "min-w-[160px]", sortable: true },
         }),
-        helper.accessor("positionName", {
+        helper.display({
+          id: "positions",
           header: "Position",
           meta: { thClassName: "min-w-[160px]" },
+          // The whole qualification set: alphabetical, comma joined. Not
+          // sortable — positionName never was either.
+          cell: (info) =>
+            info.row.original.positions.map((position) => position.name).join(", ") ||
+            "–",
         }),
         helper.accessor("contractEndDate", {
           header: "Contract end",

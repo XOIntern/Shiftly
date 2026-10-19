@@ -1,10 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { position, siteLocation, worker } from "@/drizzle/schema";
+import {
+  position,
+  siteLocation,
+  worker,
+  workerPosition,
+} from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/lib/db-errors";
 import { requireUser } from "@/lib/session";
@@ -67,24 +72,25 @@ async function deriveSiteId(siteLocationId: string): Promise<string | null> {
   return row ? row.siteId : null;
 }
 
-// The position must be live and parent to the SAME site as the derived
-// location, or no worker write happens. Inactive positions are tolerated:
-// an edit that never touches the position must not fail because it was
-// deactivated since the picker snapshot.
-type PositionCheck =
+// Every position of the set must be live and parent to the SAME site as
+// the derived location, or no worker write happens. Inactive positions are
+// tolerated: an edit that never touches the set must not fail because one
+// was deactivated since the picker snapshot.
+type PositionsCheck =
   | { ok: true }
   | { fieldError: "Position must be in the same site as the location" };
 
-async function loadAndCheckPosition(
-  positionId: string,
+async function loadAndCheckPositions(
+  ids: string[],
   siteId: string,
-): Promise<PositionCheck> {
-  const [row] = await db
-    .select({ siteId: position.siteId })
+): Promise<PositionsCheck> {
+  const rows = await db
+    .select({ id: position.id, siteId: position.siteId })
     .from(position)
-    .where(and(eq(position.id, positionId), isNull(position.deletedAt)))
-    .limit(1);
-  return row && row.siteId === siteId
+    .where(and(inArray(position.id, ids), isNull(position.deletedAt)));
+  const allLiveAndSameSite =
+    rows.length === ids.length && rows.every((row) => row.siteId === siteId);
+  return allLiveAndSameSite
     ? { ok: true }
     : { fieldError: "Position must be in the same site as the location" };
 }
@@ -122,7 +128,7 @@ async function deriveLocationSiteId(
 
 export async function createWorker(input: {
   siteLocationId?: string;
-  positionId?: string;
+  positionIds: string[];
   employeeId: string;
   name: string;
   contractEndDate?: string;
@@ -133,7 +139,7 @@ export async function createWorker(input: {
     // Ignored — derived from the site_location below.
     siteId: undefined,
     siteLocationId: effectiveSiteLocationId(actor, input.siteLocationId),
-    positionId: input.positionId,
+    positionIds: input.positionIds,
     employeeId: input.employeeId,
     name: input.name,
     contractEndDate: input.contractEndDate,
@@ -152,25 +158,42 @@ export async function createWorker(input: {
   if (!locationInScope(actor, derivedSiteId)) {
     return { ok: false, fieldErrors: LOCATION_SCOPE_FIELD_ERRORS };
   }
-  const positionCheck = await loadAndCheckPosition(
-    parsed.data.positionId,
+  const positionCheck = await loadAndCheckPositions(
+    parsed.data.positionIds,
     derivedSiteId,
   );
   if ("fieldError" in positionCheck) {
     return {
       ok: false,
-      fieldErrors: { positionId: positionCheck.fieldError },
+      fieldErrors: { positionIds: positionCheck.fieldError },
     };
   }
 
   try {
-    await db.insert(worker).values({
-      siteLocationId: parsed.data.siteLocationId,
-      siteId: derivedSiteId,
-      employeeId: parsed.data.employeeId,
-      name: parsed.data.name,
-      positionId: parsed.data.positionId,
-      contractEndDate: parsed.data.contractEndDate ?? null,
+    // The worker and its whole qualification set commit or roll back
+    // together: a worker never lands without at least one position.
+    await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(worker)
+        .values({
+          siteLocationId: parsed.data.siteLocationId,
+          siteId: derivedSiteId,
+          employeeId: parsed.data.employeeId,
+          name: parsed.data.name,
+          // Temporary dual-write: worker.position_id is still NOT NULL
+          // until migration 0016 drops it. The first id carries no primary
+          // meaning — the set lives in worker_position.
+          positionId: parsed.data.positionIds[0],
+          contractEndDate: parsed.data.contractEndDate ?? null,
+        })
+        .returning({ id: worker.id });
+      await tx.insert(workerPosition).values(
+        parsed.data.positionIds.map((positionId) => ({
+          workerId: row.id,
+          positionId,
+          siteId: derivedSiteId,
+        })),
+      );
     });
   } catch (err) {
     return fkResult(err);
@@ -184,7 +207,7 @@ export async function updateWorker(
   id: string,
   input: {
     siteLocationId?: string;
-    positionId?: string;
+    positionIds: string[];
     employeeId: string;
     name: string;
     contractEndDate?: string;
@@ -210,7 +233,7 @@ export async function updateWorker(
     // Ignored — derived from the site_location below.
     siteId: undefined,
     siteLocationId: effectiveSiteLocationId(actor, input.siteLocationId),
-    positionId: input.positionId,
+    positionIds: input.positionIds,
     employeeId: input.employeeId,
     name: input.name,
     contractEndDate: input.contractEndDate,
@@ -230,33 +253,52 @@ export async function updateWorker(
   if (!locationInScope(actor, derivedSiteId)) {
     return { ok: false, fieldErrors: LOCATION_SCOPE_FIELD_ERRORS };
   }
-  const positionCheck = await loadAndCheckPosition(
-    parsed.data.positionId,
+  const positionCheck = await loadAndCheckPositions(
+    parsed.data.positionIds,
     derivedSiteId,
   );
   if ("fieldError" in positionCheck) {
     return {
       ok: false,
-      fieldErrors: { positionId: positionCheck.fieldError },
+      fieldErrors: { positionIds: positionCheck.fieldError },
     };
   }
 
   try {
-    const updated = await db
-      .update(worker)
-      .set({
-        siteLocationId: parsed.data.siteLocationId,
-        siteId: derivedSiteId,
-        positionId: parsed.data.positionId,
-        employeeId: parsed.data.employeeId,
-        name: parsed.data.name,
-        contractEndDate: parsed.data.contractEndDate ?? null,
-        isActive: parsed.data.isActive,
-      })
-      // Weld: the ownership predicate rides inside the mutating WHERE.
-      .where(workerMutationWhere(actor, id))
-      .returning({ id: worker.id });
-    if (updated.length === 0) {
+    const notFound = await db.transaction(async (tx) => {
+      // Fixed order: the composite FK forbids moving worker.site_id while
+      // stale pivot rows still carry the old site. Zero rows from the
+      // welded update rolls the whole transaction back, so a lost race
+      // never loses the existing set.
+      await tx.delete(workerPosition).where(eq(workerPosition.workerId, id));
+
+      const updated = await tx
+        .update(worker)
+        .set({
+          siteLocationId: parsed.data.siteLocationId,
+          siteId: derivedSiteId,
+          // Temporary dual-write until migration 0016 (see createWorker).
+          positionId: parsed.data.positionIds[0],
+          employeeId: parsed.data.employeeId,
+          name: parsed.data.name,
+          contractEndDate: parsed.data.contractEndDate ?? null,
+          isActive: parsed.data.isActive,
+        })
+        // Weld: the ownership predicate rides inside the mutating WHERE.
+        .where(workerMutationWhere(actor, id))
+        .returning({ id: worker.id });
+      if (updated.length === 0) return true;
+
+      await tx.insert(workerPosition).values(
+        parsed.data.positionIds.map((positionId) => ({
+          workerId: id,
+          positionId,
+          siteId: derivedSiteId,
+        })),
+      );
+      return false;
+    });
+    if (notFound) {
       return { ok: false, message: "Worker not found." };
     }
   } catch (err) {
@@ -298,8 +340,9 @@ export async function deleteWorker(id: string): Promise<ActionState> {
     return { ok: false, message: "Invalid worker id." };
   }
 
-  // Foreign workers answer "not found." — no scope leaks. Workers have no
-  // children, so soft delete is direct today.
+  // Foreign workers answer "not found." — no scope leaks. Soft delete only
+  // flips worker.deleted_at; its worker_position rows stay in place (the
+  // position guards join live workers, so stale rows never block a delete).
   if (!(await workerOwnedByActor(actor, id))) {
     return { ok: false, message: "Worker not found." };
   }
@@ -352,9 +395,9 @@ export async function setActiveBulk(
   }
 }
 
-// Bulk worker unregistration. Rows are soft-deleted; workers have no
-// children, so blocked is always 0 — the shape stays identical to the other
-// bulk actions for the toolbar.
+// Bulk worker unregistration. Rows are soft-deleted (pivot rows stay in
+// place, exactly like deleteWorker), so blocked is always 0 — the shape
+// stays identical to the other bulk actions for the toolbar.
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const actor = await requireUser();
 

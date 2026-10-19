@@ -36,6 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -192,6 +193,27 @@ export function positionOptionsFor(
   );
 }
 
+// The rendered set: the site's active candidates plus every already-attached
+// position of that site, even a deactivated one. An attachment must stay
+// visible (and removable) so an unrelated edit never silently drops it.
+export function visiblePositionOptions(
+  positions: PositionRow[],
+  siteId: string | null,
+  selectedIds: string[],
+): PositionRow[] {
+  const candidates = positionOptionsFor(positions, siteId);
+  const candidateIds = new Set(candidates.map((option) => option.id));
+  const attached = positions.filter(
+    (option) =>
+      selectedIds.includes(option.id) &&
+      !candidateIds.has(option.id) &&
+      (siteId === null || option.siteId === siteId),
+  );
+  return [...candidates, ...attached].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
+
 export function WorkerForm({
   positions,
   sites,
@@ -218,8 +240,8 @@ export function WorkerForm({
   const [siteLocationId, setSiteLocationId] = useState<string | null>(
     worker?.siteLocationId ?? null,
   );
-  const [positionId, setPositionId] = useState<string | null>(
-    worker?.positionId ?? null,
+  const [positionIds, setPositionIds] = useState<string[]>(
+    worker?.positions.map((position) => position.id) ?? [],
   );
   const [employeeId, setEmployeeId] = useState(worker?.employeeId ?? "");
   const [name, setName] = useState(worker?.name ?? "");
@@ -260,13 +282,30 @@ export function WorkerForm({
   const positionSiteId = showSiteSelect
     ? siteId
     : (pickedLocation?.siteId ?? worker?.siteId ?? null);
-  const positionItems: SelectOption[] =
-    positionSiteId === null
-      ? [{ label: "Select a location first", value: null, disabled: true }]
-      : toSelectItems(
-          positionOptionsFor(positions, positionSiteId),
-          "Select a position",
-        );
+  const renderedPositions = visiblePositionOptions(
+    positions,
+    positionSiteId,
+    positionIds,
+  );
+
+  function togglePosition(id: string, checked: boolean) {
+    setPositionIds((current) =>
+      checked
+        ? current.includes(id)
+          ? current
+          : [...current, id]
+        : current.filter((value) => value !== id),
+    );
+  }
+
+  // A location move only invalidates the set when the resolved site changes;
+  // a same-site move keeps every pick.
+  function handleLocationChange(next: string) {
+    const nextSiteId =
+      siteLocations.find((option) => option.id === next)?.siteId ?? null;
+    if (nextSiteId !== positionSiteId) setPositionIds([]);
+    setSiteLocationId(next);
+  }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -276,14 +315,14 @@ export function WorkerForm({
     setMessage(undefined);
 
     // Pre-submit pick guards (mirrors the work-area form's): a worker must
-    // bind a location AND a position; the first missing pick surfaces the
-    // local field error and skips the server action entirely.
+    // bind a location AND at least one position; the first missing pick
+    // surfaces the local field error and skips the server action entirely.
     if (!locationValue) {
       setFieldErrors({ siteLocationId: "Location is required" });
       return;
     }
-    if (!positionId) {
-      setFieldErrors({ positionId: "Position is required" });
+    if (positionIds.length === 0) {
+      setFieldErrors({ positionIds: "Position is required" });
       return;
     }
 
@@ -294,7 +333,7 @@ export function WorkerForm({
       // derives it from the site_location.
       const payload = {
         siteLocationId: locationValue ?? undefined,
-        positionId: positionId ?? undefined,
+        positionIds,
         employeeId,
         name,
         contractEndDate: contractEndDate || undefined,
@@ -329,7 +368,7 @@ export function WorkerForm({
               // A site switch invalidates both picks — the previous
               // location/position may belong to the old site.
               setSiteLocationId(null);
-              setPositionId(null);
+              setPositionIds([]);
               setSiteId(next);
             }}
             error={fieldErrors?.siteId}
@@ -341,18 +380,42 @@ export function WorkerForm({
           items={locationItems}
           value={locationValue}
           pinnedName={pinnedLocationName}
-          onChange={setSiteLocationId}
+          onChange={handleLocationChange}
           error={fieldErrors?.siteLocationId}
         />
 
-        <SelectField
-          id="worker-position"
-          label="Position"
-          items={positionItems}
-          value={positionId}
-          onChange={setPositionId}
-          error={fieldErrors?.positionId}
-        />
+        <Field
+          data-invalid={fieldErrors?.positionIds ? "true" : undefined}
+        >
+          <FieldLabel>Positions</FieldLabel>
+          {positionSiteId === null ? (
+            <p className="text-sm text-muted-foreground">
+              Select a location first
+            </p>
+          ) : renderedPositions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No positions for this site yet
+            </p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto rounded-lg border p-2">
+              {renderedPositions.map((option) => (
+                <label key={option.id} className="flex items-center gap-2">
+                  <Checkbox
+                    checked={positionIds.includes(option.id)}
+                    onCheckedChange={(checked) =>
+                      togglePosition(option.id, checked)
+                    }
+                  />
+                  {option.name}
+                  {option.isActive ? null : " (inactive)"}
+                </label>
+              ))}
+            </div>
+          )}
+          {fieldErrors?.positionIds ? (
+            <FieldError errors={[{ message: fieldErrors.positionIds }]} />
+          ) : null}
+        </Field>
 
         <Field data-invalid={fieldErrors?.employeeId ? "true" : undefined}>
           <FieldLabel htmlFor="worker-employee-id">Employee ID</FieldLabel>
@@ -431,8 +494,8 @@ export function CreateWorkerButton({
         <DialogHeader>
           <DialogTitle>New worker</DialogTitle>
           <DialogDescription>
-            A worker sits at a location in a position, identified by their
-            employee ID.
+            A worker sits at a location and holds one or more positions,
+            identified by their employee ID.
           </DialogDescription>
         </DialogHeader>
         <WorkerForm
@@ -602,7 +665,7 @@ function EditWorkerDialog({
         <DialogHeader>
           <DialogTitle>Edit worker</DialogTitle>
           <DialogDescription>
-            Update the worker&apos;s location, position, or details.
+            Update the worker&apos;s location, positions, or details.
           </DialogDescription>
         </DialogHeader>
         <WorkerForm

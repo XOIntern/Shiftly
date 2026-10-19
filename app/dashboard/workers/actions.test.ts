@@ -1,10 +1,16 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { position, site, siteLocation, worker } from "@/drizzle/schema";
+import {
+  position,
+  site,
+  siteLocation,
+  worker,
+  workerPosition,
+} from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
 // The worker actions resolve their actor through requireUser — swapped
@@ -68,6 +74,95 @@ async function seedGlobalData() {
   return { siteA, siteB, locA1, locA2, locB, posA, posB };
 }
 
+// Multi-position spec (2026-10-20): the qualification set lives in
+// worker_position. These helpers seed and read it without going through the
+// actions under test.
+async function insertSiteAPosition(siteA: string, name: string) {
+  const id = randomUUID();
+  await db.insert(position).values({ id, siteId: siteA, name });
+  return id;
+}
+
+async function seedWorkerWithPositions(args: {
+  siteLocationId: string;
+  siteId: string;
+  employeeId: string;
+  name: string;
+  positionIds: string[];
+}) {
+  const id = randomUUID();
+  await db.insert(worker).values({
+    id,
+    siteLocationId: args.siteLocationId,
+    siteId: args.siteId,
+    employeeId: args.employeeId,
+    name: args.name,
+    // Still NOT NULL until migration 0016; carries no set semantics.
+    positionId: args.positionIds[0],
+  });
+  await db.insert(workerPosition).values(
+    args.positionIds.map((positionId) => ({
+      workerId: id,
+      positionId,
+      siteId: args.siteId,
+    })),
+  );
+  return id;
+}
+
+async function pivotPositions(workerId: string) {
+  return db
+    .select({
+      id: workerPosition.positionId,
+      siteId: workerPosition.siteId,
+      name: position.name,
+    })
+    .from(workerPosition)
+    .innerJoin(position, eq(workerPosition.positionId, position.id))
+    .where(eq(workerPosition.workerId, workerId))
+    .orderBy(asc(position.name));
+}
+
+// Child-first: pivot rows hold the RESTRICT FK, so they go before the worker.
+async function dropWorkerById(id: string) {
+  await db.delete(workerPosition).where(eq(workerPosition.workerId, id));
+  await db.delete(worker).where(eq(worker.id, id));
+}
+
+async function dropWorkersByName(name: string) {
+  const rows = await db
+    .select({ id: worker.id })
+    .from(worker)
+    .where(eq(worker.name, name));
+  for (const row of rows) await dropWorkerById(row.id);
+}
+
+async function dropWorkersByEmployeeId(employeeId: string) {
+  const rows = await db
+    .select({ id: worker.id })
+    .from(worker)
+    .where(eq(worker.employeeId, employeeId));
+  for (const row of rows) await dropWorkerById(row.id);
+}
+
+async function dropSeed(fx: {
+  siteA: string;
+  siteB: string;
+  locA1: string;
+  locA2: string;
+  locB: string;
+  posA: string;
+  posB: string;
+}) {
+  await db.delete(position).where(eq(position.id, fx.posA));
+  await db.delete(position).where(eq(position.id, fx.posB));
+  await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
+  await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA2));
+  await db.delete(siteLocation).where(eq(siteLocation.id, fx.locB));
+  await db.delete(site).where(eq(site.id, fx.siteA));
+  await db.delete(site).where(eq(site.id, fx.siteB));
+}
+
 describe("worker actions", () => {
   test("superadmin create derives site from the location: round-trips", async () => {
     const fx = await seedGlobalData();
@@ -78,7 +173,7 @@ describe("worker actions", () => {
       const { createWorker } = await import("./actions");
       const result = await createWorker({
         siteLocationId: fx.locA1,
-        positionId: fx.posA,
+        positionIds: [fx.posA],
         employeeId: "t11-wact-emp-rt",
         name: "T11 Wact Worker RT",
         contractEndDate: "2027-01-31",
@@ -100,9 +195,7 @@ describe("worker actions", () => {
       expect(row.isActive).toBe(true);
       expect(row.deletedAt).toBeNull();
     } finally {
-      await db
-        .delete(worker)
-        .where(eq(worker.employeeId, "t11-wact-emp-rt"));
+      await dropWorkersByEmployeeId("t11-wact-emp-rt");
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -122,7 +215,7 @@ describe("worker actions", () => {
       const { createWorker } = await import("./actions");
       const result = await createWorker({
         siteLocationId: fx.locB,
-        positionId: fx.posB,
+        positionIds: [fx.posB],
         employeeId: "t11-wact-emp-ho",
         name: "T11 Wact Worker HO",
       });
@@ -160,12 +253,12 @@ describe("worker actions", () => {
       // A foreign position never lands under the pinned location.
       const foreignPos = await createWorker({
         siteLocationId: fx.locB,
-        positionId: fx.posB,
+        positionIds: [fx.posB],
         employeeId: "t11-wact-emp-adm",
         name: "T11 Wact Worker Adm",
       });
       expect(foreignPos.ok).toBe(false);
-      expect(foreignPos.fieldErrors?.positionId).toBe(
+      expect(foreignPos.fieldErrors?.positionIds).toBe(
         "Position must be in the same site as the location",
       );
 
@@ -173,7 +266,7 @@ describe("worker actions", () => {
       // of their binding's positions is what a position check runs against.
       const result = await createWorker({
         siteLocationId: fx.locB,
-        positionId: fx.posA,
+        positionIds: [fx.posA],
         employeeId: "t11-wact-emp-adm",
         name: "T11 Wact Worker Adm",
       });
@@ -187,9 +280,7 @@ describe("worker actions", () => {
       expect(row.siteId).toBe(fx.siteA);
       expect(row.positionId).toBe(fx.posA);
     } finally {
-      await db
-        .delete(worker)
-        .where(eq(worker.employeeId, "t11-wact-emp-adm"));
+      await dropWorkersByEmployeeId("t11-wact-emp-adm");
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -209,13 +300,13 @@ describe("worker actions", () => {
       const { createWorker } = await import("./actions");
       const result = await createWorker({
         siteLocationId: fx.locA1,
-        positionId: fx.posB,
+        positionIds: [fx.posB],
         employeeId: "t11-wact-emp-xs",
         name: "T11 Wact Worker XS",
       });
 
       expect(result.ok).toBe(false);
-      expect(result.fieldErrors?.positionId).toBe(
+      expect(result.fieldErrors?.positionIds).toBe(
         "Position must be in the same site as the location",
       );
 
@@ -254,7 +345,7 @@ describe("worker actions", () => {
       const { createWorker } = await import("./actions");
       const result = await createWorker({
         siteLocationId: fx.locA1,
-        positionId: fx.posA,
+        positionIds: [fx.posA],
         employeeId: "t11-wact-emp-dup",
         name: "T11 Wact Worker Dup II",
       });
@@ -265,21 +356,15 @@ describe("worker actions", () => {
       // The uniqueness is per location: another location still accepts it.
       const otherLoc = await createWorker({
         siteLocationId: fx.locA2,
-        positionId: fx.posA,
+        positionIds: [fx.posA],
         employeeId: "t11-wact-emp-dup",
         name: "T11 Wact Worker Dup III",
       });
       expect(otherLoc.ok).toBe(true);
     } finally {
-      await db
-        .delete(worker)
-        .where(eq(worker.employeeId, "t11-wact-emp-dup"));
-      await db
-        .delete(worker)
-        .where(eq(worker.name, "T11 Wact Worker Dup II"));
-      await db
-        .delete(worker)
-        .where(eq(worker.name, "T11 Wact Worker Dup III"));
+      await dropWorkersByEmployeeId("t11-wact-emp-dup");
+      await dropWorkersByName("T11 Wact Worker Dup II");
+      await dropWorkersByName("T11 Wact Worker Dup III");
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -309,7 +394,7 @@ describe("worker actions", () => {
       const { updateWorker } = await import("./actions");
       const result = await updateWorker(wid, {
         siteLocationId: fx.locB,
-        positionId: fx.posB,
+        positionIds: [fx.posB],
         employeeId: "t11-wact-emp-umov",
         name: "T11 Wact Worker UMov",
         contractEndDate: "2028-01-31",
@@ -331,7 +416,7 @@ describe("worker actions", () => {
       expect(row.positionId).toBe(fx.posA);
       expect(row.contractEndDate).toBeNull();
     } finally {
-      await db.delete(worker).where(eq(worker.id, wid));
+      await dropWorkerById(wid);
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -362,7 +447,7 @@ describe("worker actions", () => {
       const { updateWorker } = await import("./actions");
       const result = await updateWorker(wid, {
         siteLocationId: fx.locB,
-        positionId: fx.posB,
+        positionIds: [fx.posB],
         employeeId: "t11-wact-emp-mov",
         name: "T11 Wact Worker Moved",
         contractEndDate: "2028-06-30",
@@ -381,7 +466,7 @@ describe("worker actions", () => {
       expect(row.contractEndDate).toBe("2028-06-30");
       expect(row.isActive).toBe(false);
     } finally {
-      await db.delete(worker).where(eq(worker.id, wid));
+      await dropWorkerById(wid);
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -418,7 +503,7 @@ describe("worker actions", () => {
       const { updateWorker } = await import("./actions");
       const result = await updateWorker(wid, {
         siteLocationId: fx.locA1,
-        positionId: inactivePos,
+        positionIds: [inactivePos],
         employeeId: "t11-wact-emp-inact",
         name: "T11 Wact Worker Inact",
         isActive: true,
@@ -431,7 +516,7 @@ describe("worker actions", () => {
       const [row] = await db.select().from(worker).where(eq(worker.id, wid));
       expect(row.positionId).toBe(inactivePos);
     } finally {
-      await db.delete(worker).where(eq(worker.id, wid));
+      await dropWorkerById(wid);
       await db.delete(position).where(eq(position.id, inactivePos));
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
@@ -475,7 +560,7 @@ describe("worker actions", () => {
       const { updateWorker } = await import("./actions");
       const result = await updateWorker(w2, {
         siteLocationId: fx.locA1,
-        positionId: fx.posA,
+        positionIds: [fx.posA],
         employeeId: "t11-wact-emp-mdup",
         name: "T11 Wact Worker MDup 2",
         isActive: true,
@@ -488,8 +573,8 @@ describe("worker actions", () => {
       const [row] = await db.select().from(worker).where(eq(worker.id, w2));
       expect(row.siteLocationId).toBe(fx.locA2);
     } finally {
-      await db.delete(worker).where(eq(worker.id, w1));
-      await db.delete(worker).where(eq(worker.id, w2));
+      await dropWorkerById(w1);
+      await dropWorkerById(w2);
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -530,7 +615,7 @@ describe("worker actions", () => {
       expect(row.isActive).toBe(true);
       expect(row.deletedAt).toBeNull();
     } finally {
-      await db.delete(worker).where(eq(worker.id, wid));
+      await dropWorkerById(wid);
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -551,7 +636,7 @@ describe("worker actions", () => {
         await import("./actions");
       const created = await createWorker({
         siteLocationId: fx.locA1,
-        positionId: fx.posA,
+        positionIds: [fx.posA],
         employeeId: "t11-wact-emp-free",
         name: "T11 Wact Worker Free",
       });
@@ -583,15 +668,13 @@ describe("worker actions", () => {
       // The freed per-location employee_id accepts a new worker again.
       const reCreated = await createWorker({
         siteLocationId: fx.locA1,
-        positionId: fx.posA,
+        positionIds: [fx.posA],
         employeeId: "t11-wact-emp-free",
         name: "T11 Wact Worker Free II",
       });
       expect(reCreated.ok).toBe(true);
     } finally {
-      await db
-        .delete(worker)
-        .where(eq(worker.employeeId, "t11-wact-emp-free"));
+      await dropWorkersByEmployeeId("t11-wact-emp-free");
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -683,9 +766,9 @@ describe("worker actions", () => {
         .where(eq(worker.id, wB1));
       expect(foreignRow.deletedAt).toBeNull();
     } finally {
-      await db.delete(worker).where(eq(worker.id, wA1));
-      await db.delete(worker).where(eq(worker.id, wA2));
-      await db.delete(worker).where(eq(worker.id, wB1));
+      await dropWorkerById(wA1);
+      await dropWorkerById(wA2);
+      await dropWorkerById(wB1);
       await db.delete(position).where(eq(position.id, fx.posA));
       await db.delete(position).where(eq(position.id, fx.posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locA1));
@@ -693,6 +776,326 @@ describe("worker actions", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, fx.locB));
       await db.delete(site).where(eq(site.id, fx.siteA));
       await db.delete(site).where(eq(site.id, fx.siteB));
+    }
+  });
+  test("create with two positions persists both", async () => {
+    const fx = await seedGlobalData();
+    const posA2 = await insertSiteAPosition(fx.siteA, "T11 Wact Pos A2");
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { createWorker } = await import("./actions");
+      const result = await createWorker({
+        siteLocationId: fx.locA1,
+        positionIds: [fx.posA, posA2],
+        employeeId: "t11-wact-emp-mp-both",
+        name: "T11 Wact Worker MP Both",
+      });
+      expect(result.ok).toBe(true);
+
+      const [row] = await db
+        .select()
+        .from(worker)
+        .where(eq(worker.employeeId, "t11-wact-emp-mp-both"));
+      const pivot = await pivotPositions(row.id);
+      // Every position is equal: no primary, no order, both persisted.
+      expect(pivot.map((p) => p.id).sort()).toEqual([fx.posA, posA2].sort());
+      expect(pivot.every((p) => p.siteId === fx.siteA)).toBe(true);
+    } finally {
+      await dropWorkersByEmployeeId("t11-wact-emp-mp-both");
+      await db.delete(position).where(eq(position.id, posA2));
+      await dropSeed(fx);
+    }
+  });
+
+  test("create with an empty set: rejected", async () => {
+    const fx = await seedGlobalData();
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { createWorker } = await import("./actions");
+      const result = await createWorker({
+        siteLocationId: fx.locA1,
+        positionIds: [],
+        employeeId: "t11-wact-emp-mp-empty",
+        name: "T11 Wact Worker MP Empty",
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.positionIds).toBeDefined();
+
+      const rows = await db
+        .select({ id: worker.id })
+        .from(worker)
+        .where(eq(worker.employeeId, "t11-wact-emp-mp-empty"));
+      expect(rows).toHaveLength(0);
+    } finally {
+      await dropWorkersByEmployeeId("t11-wact-emp-mp-empty");
+      await dropSeed(fx);
+    }
+  });
+
+  test("create with duplicate ids: rejected with 'Select each position once'", async () => {
+    const fx = await seedGlobalData();
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { createWorker } = await import("./actions");
+      const result = await createWorker({
+        siteLocationId: fx.locA1,
+        positionIds: [fx.posA, fx.posA],
+        employeeId: "t11-wact-emp-mp-dup",
+        name: "T11 Wact Worker MP Dup",
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.positionIds).toBe("Select each position once");
+
+      const rows = await db
+        .select({ id: worker.id })
+        .from(worker)
+        .where(eq(worker.employeeId, "t11-wact-emp-mp-dup"));
+      expect(rows).toHaveLength(0);
+    } finally {
+      await dropWorkersByEmployeeId("t11-wact-emp-mp-dup");
+      await dropSeed(fx);
+    }
+  });
+
+  test("create with a mixed-site set: rejected with the same-site field error", async () => {
+    const fx = await seedGlobalData();
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { createWorker } = await import("./actions");
+      const result = await createWorker({
+        siteLocationId: fx.locA1,
+        positionIds: [fx.posA, fx.posB],
+        employeeId: "t11-wact-emp-mp-mixed",
+        name: "T11 Wact Worker MP Mixed",
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.positionIds).toBe(
+        "Position must be in the same site as the location",
+      );
+
+      const rows = await db
+        .select({ id: worker.id })
+        .from(worker)
+        .where(eq(worker.employeeId, "t11-wact-emp-mp-mixed"));
+      expect(rows).toHaveLength(0);
+    } finally {
+      await dropWorkersByEmployeeId("t11-wact-emp-mp-mixed");
+      await dropSeed(fx);
+    }
+  });
+
+  test("update replaces the position set", async () => {
+    const fx = await seedGlobalData();
+    const posA2 = await insertSiteAPosition(fx.siteA, "T11 Wact Pos A2");
+    const wid = await seedWorkerWithPositions({
+      siteLocationId: fx.locA1,
+      siteId: fx.siteA,
+      employeeId: "t11-wact-emp-mp-rep",
+      name: "T11 Wact Worker MP Rep",
+      positionIds: [fx.posA],
+    });
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { updateWorker } = await import("./actions");
+      const result = await updateWorker(wid, {
+        siteLocationId: fx.locA1,
+        positionIds: [posA2],
+        employeeId: "t11-wact-emp-mp-rep",
+        name: "T11 Wact Worker MP Rep",
+        isActive: true,
+      });
+      expect(result.ok).toBe(true);
+
+      const pivot = await pivotPositions(wid);
+      // The removed id is gone, the added id is present.
+      expect(pivot.map((p) => p.id)).toEqual([posA2]);
+    } finally {
+      await dropWorkerById(wid);
+      await db.delete(position).where(eq(position.id, posA2));
+      await dropSeed(fx);
+    }
+  });
+
+  test("update with an empty set: rejected", async () => {
+    const fx = await seedGlobalData();
+    const wid = await seedWorkerWithPositions({
+      siteLocationId: fx.locA1,
+      siteId: fx.siteA,
+      employeeId: "t11-wact-emp-mp-uempty",
+      name: "T11 Wact Worker MP UEmpty",
+      positionIds: [fx.posA],
+    });
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { updateWorker } = await import("./actions");
+      const result = await updateWorker(wid, {
+        siteLocationId: fx.locA1,
+        positionIds: [],
+        employeeId: "t11-wact-emp-mp-uempty",
+        name: "T11 Wact Worker MP UEmpty",
+        isActive: true,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.positionIds).toBeDefined();
+
+      const pivot = await pivotPositions(wid);
+      expect(pivot.map((p) => p.id)).toEqual([fx.posA]);
+    } finally {
+      await dropWorkerById(wid);
+      await dropSeed(fx);
+    }
+  });
+
+  test("superadmin cross-site move rewrites the pivot site_id", async () => {
+    const fx = await seedGlobalData();
+    const wid = await seedWorkerWithPositions({
+      siteLocationId: fx.locA1,
+      siteId: fx.siteA,
+      employeeId: "t11-wact-emp-mp-xsite",
+      name: "T11 Wact Worker MP XSite",
+      positionIds: [fx.posA],
+    });
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { updateWorker } = await import("./actions");
+      const result = await updateWorker(wid, {
+        siteLocationId: fx.locB,
+        positionIds: [fx.posB],
+        employeeId: "t11-wact-emp-mp-xsite",
+        name: "T11 Wact Worker MP XSite",
+        isActive: true,
+      });
+      expect(result.ok).toBe(true);
+
+      const pivot = await pivotPositions(wid);
+      expect(pivot.map((p) => p.id)).toEqual([fx.posB]);
+      // No row may still point at the old site.
+      expect(pivot.every((p) => p.siteId === fx.siteB)).toBe(true);
+      expect(pivot.some((p) => p.id === fx.posA)).toBe(false);
+    } finally {
+      await dropWorkerById(wid);
+      await dropSeed(fx);
+    }
+  });
+
+  test("ho cross-site move: rejected, pivot untouched", async () => {
+    const fx = await seedGlobalData();
+    const wid = await seedWorkerWithPositions({
+      siteLocationId: fx.locA1,
+      siteId: fx.siteA,
+      employeeId: "t11-wact-emp-mp-hox",
+      name: "T11 Wact Worker MP HOX",
+      positionIds: [fx.posA],
+    });
+
+    try {
+      actor = makeActor("ho", fx.siteA, null);
+
+      const { updateWorker } = await import("./actions");
+      const result = await updateWorker(wid, {
+        siteLocationId: fx.locB,
+        positionIds: [fx.posB],
+        employeeId: "t11-wact-emp-mp-hox",
+        name: "T11 Wact Worker MP HOX",
+        isActive: true,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.siteLocationId).toBe(
+        "Location must be in your site",
+      );
+
+      const pivot = await pivotPositions(wid);
+      expect(pivot.map((p) => p.id)).toEqual([fx.posA]);
+      expect(pivot.every((p) => p.siteId === fx.siteA)).toBe(true);
+    } finally {
+      await dropWorkerById(wid);
+      await dropSeed(fx);
+    }
+  });
+
+  test("update on a foreign worker: not found, pivot untouched", async () => {
+    const fx = await seedGlobalData();
+    const wid = await seedWorkerWithPositions({
+      siteLocationId: fx.locB,
+      siteId: fx.siteB,
+      employeeId: "t11-wact-emp-mp-foreign",
+      name: "T11 Wact Worker MP Foreign",
+      positionIds: [fx.posB],
+    });
+
+    try {
+      actor = makeActor("ho", fx.siteA, null);
+
+      const { updateWorker } = await import("./actions");
+      const result = await updateWorker(wid, {
+        siteLocationId: fx.locA1,
+        positionIds: [fx.posA],
+        employeeId: "t11-wact-emp-mp-foreign",
+        name: "T11 Wact Worker MP Foreign",
+        isActive: true,
+      });
+      expect(result).toEqual({ ok: false, message: "Worker not found." });
+
+      const pivot = await pivotPositions(wid);
+      expect(pivot.map((p) => p.id)).toEqual([fx.posB]);
+      expect(pivot.every((p) => p.siteId === fx.siteB)).toBe(true);
+    } finally {
+      await dropWorkerById(wid);
+      await dropSeed(fx);
+    }
+  });
+
+  test("update with an attached inactive position: succeeds and keeps it", async () => {
+    const fx = await seedGlobalData();
+    const inactivePos = randomUUID();
+    await db.insert(position).values({
+      id: inactivePos,
+      siteId: fx.siteA,
+      name: "T11 Wact Pos Inactive MP",
+      isActive: false,
+    });
+    const wid = await seedWorkerWithPositions({
+      siteLocationId: fx.locA1,
+      siteId: fx.siteA,
+      employeeId: "t11-wact-emp-mp-inact",
+      name: "T11 Wact Worker MP Inact",
+      positionIds: [inactivePos],
+    });
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { updateWorker } = await import("./actions");
+      const result = await updateWorker(wid, {
+        siteLocationId: fx.locA1,
+        positionIds: [inactivePos],
+        employeeId: "t11-wact-emp-mp-inact",
+        name: "T11 Wact Worker MP Inact",
+        isActive: true,
+      });
+      expect(result.ok).toBe(true);
+
+      // An unrelated edit never silently drops a deactivated attachment.
+      const pivot = await pivotPositions(wid);
+      expect(pivot.map((p) => p.id)).toEqual([inactivePos]);
+    } finally {
+      await dropWorkerById(wid);
+      await db.delete(position).where(eq(position.id, inactivePos));
+      await dropSeed(fx);
     }
   });
 });
