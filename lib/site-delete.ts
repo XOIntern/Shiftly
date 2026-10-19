@@ -1,10 +1,10 @@
 import { and, eq, isNull } from "drizzle-orm";
 
 import {
-  department,
   site,
   siteLocation,
   user,
+  workArea,
 } from "../drizzle/schema";
 import { db } from "./db";
 
@@ -58,19 +58,20 @@ export async function deleteSiteGuarded(
     return { ok: false, message: "Locations still exist under this site" };
   }
 
-  // (b) Live departments under the site. A live work area or user under
-  // such a department has its own independently guarded delete paths
-  // ("Work areas still exist under this department" / "Users are still
-  // bound to this department"), so an empty department never strands them;
-  // work areas hang off departments through the composite FK that pins the
-  // same site. Only the topmost layer is named here.
-  const [dept] = await tx
-    .select({ id: department.id })
-    .from(department)
-    .where(and(eq(department.siteId, id), isNull(department.deletedAt)))
+  // (b) Live work areas under the site. A live user bound to such a work
+  // area has its own independently guarded delete path ("Users are still
+  // bound to this work area"), so an empty work area never strands them;
+  // work areas hang off site_locations through the composite FK that pins
+  // the same site. Only the topmost layer is named here. A work area whose
+  // own location is soft-deleted is still live and still blocks: the
+  // locations guard (a) counts live locations only.
+  const [area] = await tx
+    .select({ id: workArea.id })
+    .from(workArea)
+    .where(and(eq(workArea.siteId, id), isNull(workArea.deletedAt)))
     .limit(1);
-  if (dept) {
-    return { ok: false, message: "Departments still exist under this site" };
+  if (area) {
+    return { ok: false, message: "Work areas still exist under this site" };
   }
 
   // (b) Live users bound directly to the site.

@@ -59,7 +59,7 @@ const RULE_META: Array<{
     key: "C7",
     slot: "c7",
     kind: "bool",
-    meaning: "Department/qualification match",
+    meaning: "Work area/qualification match",
   },
 ];
 

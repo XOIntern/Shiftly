@@ -20,42 +20,42 @@ const rosters = [
   {
     week: "Oct 6 – Oct 12",
     site: "Nestle Plant A",
-    department: "Canteen",
+    workArea: "Canteen",
     rostered: 18,
     status: "Published",
   },
   {
     week: "Oct 6 – Oct 12",
     site: "Nestle Plant B",
-    department: "Chambermaid",
+    workArea: "Chambermaid",
     rostered: 12,
     status: "Published",
   },
   {
     week: "Oct 13 – Oct 19",
     site: "Nestle Plant A",
-    department: "Canteen",
+    workArea: "Canteen",
     rostered: 18,
     status: "Published",
   },
   {
     week: "Oct 13 – Oct 19",
     site: "Nestle Distribution Center",
-    department: "Kitchen",
+    workArea: "Kitchen",
     rostered: 9,
     status: "Published",
   },
   {
     week: "Oct 20 – Oct 26",
     site: "Nestle Plant B",
-    department: "Canteen",
+    workArea: "Canteen",
     rostered: 15,
     status: "Draft",
   },
   {
     week: "Oct 20 – Oct 26",
     site: "Nestle Plant A",
-    department: "Gardener",
+    workArea: "Gardener",
     rostered: 6,
     status: "Draft",
   },
@@ -77,7 +77,7 @@ export function RecentRosters() {
               <TableRow>
                 <TableHead className="min-w-[140px]">Week</TableHead>
                 <TableHead className="min-w-[200px]">Site</TableHead>
-                <TableHead className="min-w-[110px]">Department</TableHead>
+                <TableHead className="min-w-[110px]">Work area</TableHead>
                 <TableHead className="min-w-[80px]">Rostered</TableHead>
                 <TableHead className="min-w-[110px]">Status</TableHead>
               </TableRow>
@@ -87,7 +87,7 @@ export function RecentRosters() {
                 <TableRow key={index}>
                   <TableCell>{roster.week}</TableCell>
                   <TableCell className="font-medium">{roster.site}</TableCell>
-                  <TableCell>{roster.department}</TableCell>
+                  <TableCell>{roster.workArea}</TableCell>
                   <TableCell className="tabular-nums">
                     {roster.rostered}
                   </TableCell>

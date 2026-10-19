@@ -14,17 +14,12 @@ import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { WorkAreaRowActions } from "@/components/work-areas/work-area-form";
-import type {
-  DepartmentOption,
-  SiteLocationOption,
-  WorkAreaRow,
-} from "@/types/forms";
+import type { SiteLocationOption, WorkAreaRow } from "@/types/forms";
 
 const helper = createColumnHelper<typeof dataTableFeatures, WorkAreaRow>();
 
 export function WorkAreasTable({
   workAreas,
-  departments,
   siteLocations,
   pinnedLocationName,
   showSiteFilter,
@@ -33,7 +28,6 @@ export function WorkAreasTable({
   total,
 }: {
   workAreas: WorkAreaRow[];
-  departments: DepartmentOption[];
   siteLocations: SiteLocationOption[];
   // An admin actor's pinned location name (their binding) — threaded into
   // the row dialogs; undefined for ho/superadmin.
@@ -49,10 +43,6 @@ export function WorkAreasTable({
       helper.columns([
         helper.accessor("siteName", {
           header: "Site",
-          meta: { thClassName: "min-w-[160px]", sortable: true },
-        }),
-        helper.accessor("departmentName", {
-          header: "Department",
           meta: { thClassName: "min-w-[160px]", sortable: true },
         }),
         helper.accessor("name", {
@@ -78,14 +68,13 @@ export function WorkAreasTable({
           cell: (info) => (
             <WorkAreaRowActions
               workArea={info.row.original}
-              departments={departments}
               siteLocations={siteLocations}
               pinnedLocationName={pinnedLocationName}
             />
           ),
         }),
       ]),
-    [departments, siteLocations, pinnedLocationName],
+    [siteLocations, pinnedLocationName],
   );
 
   return (

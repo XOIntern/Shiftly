@@ -7,13 +7,15 @@
 | Status | Awaiting review; some decisions still TBD (see section 10) |
 | Audience | Developers building Shiftly |
 
-> This document describes the **target architecture**; the repo now implements its foundation — Better Auth with three roles, PostgreSQL via Drizzle ORM, and dashboard CRUD for sites, site_locations, users, workers, departments, and work areas (roster/attendance/reporting pages are descriptive stubs). Decisions that are not yet final remain marked **TBD** so they are not mistaken for agreed-upon choices.
+> This document describes the **target architecture**; the repo now implements its foundation — Better Auth with three roles, PostgreSQL via Drizzle ORM, and dashboard CRUD for sites, site_locations, users, workers, and work areas (roster/attendance/reporting pages are descriptive stubs). Decisions that are not yet final remain marked **TBD** so they are not mistaken for agreed-upon choices.
 >
 > **Revision (Oct 2026):** the `client` entity was removed. The domain model is now `site` 1:N `site_locations`, with three roles — **superadmin** (full access), **HO** (one site), **admin** (one site_location). Operational data (departments, workers, MP requests, rates) lives at the location level (departments were later moved to the site level — see the latest revision note).
 >
 > **Update (Oct 2026):** the formerly-TBD database (PostgreSQL), ORM/migrations (Drizzle), and session auth (Better Auth, email + password) are now decided and partially implemented — see sections 2, 6, and 10.
 >
 > **Revision (Oct 2026):** departments moved from the site_location level to the **site** level, and a new **work_area** entity was added. `department` is parented under `site`; `work_area` is scoped by both a `site_location` and a `department`, guarded by composite foreign keys that require the location and department to belong to the same site. Workers, MP requests, and rates remain at the location level.
+>
+> **Revision (Oct 2026):** the **department** entity was removed. `work_area` is now the single grouping unit, parented directly under `site_location` — the same-site guarantee comes from the `(site_location_id, site_id)` composite foreign key into `site_location (id, site_id)`. Users may bind optionally to a work area. The roster engine's grouping unit — MP requirements, assignments, and rule C7 — is the work area. The department concept is retired; this note supersedes the earlier revision notes above wherever they mention departments.
 
 ---
 
@@ -78,7 +80,7 @@ graph TB
         UI["UI Layer<br/>(RSC + client components,<br/>responsive, payload-efficient)"]
         subgraph "Domain Modules"
             AUTH["1. Auth & RBAC"]
-            MD["2. Master Data<br/>(site, site_location,<br/>department, shift, worker)"]
+            MD["2. Master Data<br/>(site, site_location,<br/>work_area, shift, worker)"]
             REQ["3. Request Management<br/>(weekly & daily MP requirements)"]
             RULES["4. Rules & Configuration<br/>(rules engine config)"]
             ROSTER["5. Roster Engine<br/>(generate + validate + publish)"]
@@ -116,7 +118,7 @@ graph TB
 | # | Module | Responsibilities | Primary users |
 |---|---|---|---|
 | 1 | Auth & RBAC | Login sessions, 3 roles (Superadmin, HO, Admin), binding users to sites/locations | All |
-| 2 | Master Data | Site, site_location (location/city), department, shift definitions, worker (qualifications, PKWT/PKWTT, active status), user accounts per scope, CSV/Excel import | Superadmin (sites, HO accounts), HO (locations, Admin accounts), Admin (workers) |
+| 2 | Master Data | Site, site_location (location/city), work_area, shift definitions, worker (qualifications, PKWT/PKWTT, active status), user accounts per scope, CSV/Excel import | Superadmin (sites, HO accounts), HO (locations, Admin accounts), Admin (workers) |
 | 3 | Request Management | Weekly & daily MP requirements entered by the admin on behalf of the client, request status | Admin, HO |
 | 4 | Rules & Configuration | Global roster rule parameters (C1–C7) + per-site overrides, change history | HO |
 | 5 | Roster Engine | Auto-generate drafts, real-time validation, block publishing while violations exist, explicit deficits, publish auditing | Admin |
@@ -136,14 +138,14 @@ The engine is **deterministic (rule-based), not generative AI**: output must be 
 
 ```mermaid
 graph LR
-    REQIN["MP requirements<br/>(department x shift x day)"]
+    REQIN["MP requirements<br/>(work area x shift x day)"]
     CFG["Active RuleConfig<br/>(global + site override)"]
     W["Worker pool<br/>(qualifications, day accumulation,<br/>shift history)"]
 
     GEN["Generator<br/>(deterministic greedy heuristic)"]
     VAL["Validator<br/>(evaluates C1-C7)"]
     DRAFT["Draft roster<br/>(always valid)"]
-    DEF["Deficit report<br/>(per department/shift/day)"]
+    DEF["Deficit report<br/>(per work area/shift/day)"]
 
     REQIN --> GEN
     CFG --> GEN
@@ -154,7 +156,7 @@ graph LR
     VAL -.->|"reject rule-violating candidates"| GEN
 ```
 
-- **Generator**: fills MP coverage requirements by selecting candidates that minimize violation risk (lightest load, furthest from work-day limits). Regeneration can be done per department without affecting other departments.
+- **Generator**: fills MP coverage requirements by selecting candidates that minimize violation risk (lightest load, furthest from work-day limits). Regeneration can be done per work area without affecting other work areas.
 - **Validator**: a pure function that evaluates assignments against all active rules and returns violations **with specific reasons** ("5 work days this week already", "Shift 3 yesterday, mandatory day off", "Mandatory break not yet taken"). Used in two places: the generator (candidate selection) and the roster editor (real-time validation while the admin edits manually).
 - **Publish gate**: a roster cannot be published while violations remain. Publishing writes an audit trail (who, when, roster version).
 
@@ -168,7 +170,7 @@ graph LR
 | C4 | After shift 3, the following day must be a rest day | active |
 | C5 | Mandatory break trigger: accumulated work days since the last break | 60 work days |
 | C6 | Mandatory break duration | 4 consecutive days |
-| C7 | Workers only assigned within their department/qualification | active |
+| C7 | Workers only assigned within their work area/qualification | active |
 
 Global configuration can be overridden per site. Only HO (or superadmin) may change it, every change is logged (old value → new value), and changes only apply to rosters created afterward (not retroactive).
 
@@ -176,9 +178,9 @@ Global configuration can be overridden per site. Only HO (or superadmin) may cha
 
 | Aspect | Target |
 |---|---|
-| Correctness | 0 violations in a simulation of 7 departments x up to 200 workers/department x 12 weeks, including full load |
+| Correctness | 0 violations in a simulation of 7 work areas x up to 200 workers/work area x 12 weeks, including full load |
 | Coverage | >= 95% of MP requirements met; the remainder reported as an accurate deficit |
-| Fairness | Difference in work-day distribution between workers within one department <= 2 days/month |
+| Fairness | Difference in work-day distribution between workers within one work area <= 2 days/month |
 | Performance | Weekly roster generation for one site_location (worst case ~1,400 workers) < 30 seconds |
 
 Because the engine is a pure function, all targets above are tested via unit/property tests without requiring UI or a database.
@@ -192,16 +194,13 @@ Core entities (from PRD 4.1):
 ```mermaid
 erDiagram
     SITE ||--o{ SITE_LOCATION : "has (1:N)"
-    SITE ||--o{ DEPARTMENT : "owns"
     SITE_LOCATION ||--o{ SHIFT_DEFINITION : "owns"
     SITE_LOCATION ||--o{ ROSTER_PLAN : "owns"
     SITE_LOCATION ||--o{ MP_REQUEST : "receives"
     SITE ||--o{ RULE_CONFIG : "site-level overrides (HO)"
     SITE ||--o{ RATE_CONFIG : "site-level rates"
     SITE_LOCATION ||--o{ RATE_CONFIG : "location rates"
-    DEPARTMENT ||--o{ WORK_AREA : "supports"
     SITE_LOCATION ||--o{ WORK_AREA : "hosts"
-    DEPARTMENT ||--o{ WORKER : "houses"
     WORKER ||--o{ ROSTER_ASSIGNMENT : "assigned"
     WORKER ||--o{ ATTENDANCE_RECORD : "recorded"
     WORKER ||--o{ RATE_CONFIG : "per-worker override"
@@ -210,7 +209,6 @@ erDiagram
     SHIFT_DEFINITION ||--o{ RATE_CONFIG : "rate per shift"
     USER }o--o| SITE : "HO bound to 1 site"
     USER }o--o| SITE_LOCATION : "Admin bound to 1 location"
-    USER }o--o| DEPARTMENT : "optional department binding"
     USER }o--o| WORK_AREA : "optional work-area binding"
     USER ||--o{ AUDIT_LOG : "performs"
 
@@ -253,13 +251,13 @@ erDiagram
 
 Schema design notes:
 
-- **Implemented so far**: `site`, `site_location`, `user`, `department`, and `work_area` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`, `drizzle/schema/department-schema.ts`) with FK-restricted parent references, `is_active` flags, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). `site` and `site_location` carry `(id, site_id)` unique keys so the `work_area` composite FKs can enforce same-site scoping at the DB level. Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
-- **Deletion guards**: a `site` is refused deletion while live departments exist under it; existing departments, site_locations, and users have their own guards (users check department/work-area bindings first).
+- **Implemented so far**: `site`, `site_location`, `user`, and `work_area` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`, `drizzle/schema/work-area-schema.ts`) with FK-restricted parent references, `is_active` flags, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). `site` and `site_location` carry `(id, site_id)` unique keys so the `work_area` composite FK can enforce same-site scoping at the DB level. Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
+- **Deletion guards**: a `site` is refused deletion while live work areas exist under it; existing site_locations, work areas, and users have their own guards (users check work-area bindings first).
 - **No client entity**: the earlier Client → Site hierarchy was removed (Oct 2026 revision). What used to be "the client" (Nestle Group) is now a **site**; what used to be "a site with a city" is now a **site_location**. Client companies remain external counterparties — they convey MP requirements manually — but are not tables in the system.
-- **Site is framework, location is operations**: a `SITE` carries its name and its HO binding; shift definitions, workers, MP requests, and location rates all live under `SITE_LOCATION`. Departments (Oct 2026 revision) are **site-level**: a `DEPARTMENT` belongs to one `site` and is shared by that site's `site_locations`.
-- **Work areas**: a `WORK_AREA` sits at the intersection of a `SITE_LOCATION` and a `DEPARTMENT`. It carries denormalized `site_id` with composite foreign keys — `(department_id, site_id)` → `department` and `(site_location_id, site_id)` → `site_location` — so a work area physically cannot mix a department and a location from different sites. Partial unique `(site_location_id, name)` ignoring soft-deleted rows.
+- **Site is framework, location is operations**: a `SITE` carries its name and its HO binding; shift definitions, workers, MP requests, and location rates all live under `SITE_LOCATION`.
+- **Work areas**: a `WORK_AREA` is a plain child of a `SITE_LOCATION`. It carries denormalized `site_id` with a composite foreign key — `(site_location_id, site_id)` → `site_location (id, site_id)` — so a work area physically cannot hang off a location from a different site. Partial unique `(site_location_id, name)` ignoring soft-deleted rows.
 - **Multi-site & multi-location from day one**: every operational table carries a `site_location` reference (its site is derivable through it), so data isolation never depends on a "single site" assumption.
-- **User bindings**: `role` ∈ (superadmin, ho, admin). The HO carries exactly one `siteId`; the Admin carries exactly one `siteLocationId`; the superadmin is bound to nothing and has full access. Users may additionally carry an optional `departmentId` and `workAreaId` (nullable FKs, delete-restricted; scoped management mirrors the department/work-area modules).
+- **User bindings**: `role` ∈ (superadmin, ho, admin). The HO carries exactly one `siteId`; the Admin carries exactly one `siteLocationId`; the superadmin is bound to nothing and has full access. Users may additionally carry an optional `workAreaId` (nullable FK, delete-restricted; scoped management mirrors the work-area module).
 - **Versioned RosterPlan**: publishing creates a new version recorded in the audit trail; post-publish edits produce the next version.
 - **AttendanceRecord without a roster**: attendance for a worker without a roster entry remains possible, flagged as an exception (dispensation) with a trail.
 - **Hierarchical RuleConfig**: a global row as the base, per-site rows as overrides (managed by HO). The same resolution pattern is used by RateConfig (section 8).
@@ -299,7 +297,7 @@ per-worker override  →  location rate  →  site rate  →  global default
 
 - Rates are defined **per shift** (shifts 1, 2, 3 differ) and can vary by location/city within a site (e.g. Nestle Jakarta vs Nestle Bogor) and by site.
 - Salary estimate = recorded work hours/days (from attendance and published rosters) x the rate at the highest applicable resolution.
-- Attendance changes (corrections, force majeure) automatically update estimates; recaps are available per worker, department, shift, location, site, and period, with Excel/CSV export for the existing payroll process.
+- Attendance changes (corrections, force majeure) automatically update estimates; recaps are available per worker, work area, shift, location, site, and period, with Excel/CSV export for the existing payroll process.
 - Architectural boundary: Shiftly stops at **estimation**. No deductions (BPJS, PPh21), no payslips, no payroll bookkeeping.
 
 ---
@@ -334,7 +332,7 @@ Two side paths (daily requests, force majeure) modify the running-day roster and
 | 4 | ORM/schema migration tooling | **Decided (Oct 2026): Drizzle ORM + drizzle-kit** |
 | 5 | Background job strategy (e.g. v1.1 notifications) | **TBD** — before v1.1 |
 
-Decisions the PRD **has already locked** and are not being reopened: a deterministic engine (not generative AI), scope-based isolation at the data level (location for Admin, site for HO, full access for superadmin), the **Oct 2026 domain-model revision** (no client entity; `site` 1:N `site_locations`; roles superadmin/HO/admin; departments at the site level with `work_area` as the department x location junction; workers, MP requests, and rates at the location level), all rules config-driven, no worker self-service, no payslips/deductions.
+Decisions the PRD **has already locked** and are not being reopened: a deterministic engine (not generative AI), scope-based isolation at the data level (location for Admin, site for HO, full access for superadmin), the **Oct 2026 domain-model revision** (no client entity; `site` 1:N `site_locations`; roles superadmin/HO/admin; workers, MP requests, and rates at the location level) — superseded on the department point by the latest revision note (the department is removed; `work_area` is the `site_location` child and the engine's grouping unit), all rules config-driven, no worker self-service, no payslips/deductions.
 
 Decisions made since (see the table above): PostgreSQL + Drizzle ORM, Better Auth session authentication, Docker for packaging.
 
@@ -346,7 +344,7 @@ Decisions made since (see the table above): PostgreSQL + Drizzle ORM, Better Aut
 |---|---|
 | Daily operational pages | Per-shift attendance loads in < 2 seconds for ~200 workers; pagination and no heavy assets |
 | Engine performance | Roster generation < 30 seconds for a full site (~1,400 workers) |
-| Scale | ~7 departments per site x 200 workers per site_location; multi-site & multi-location correct in the schema from day one |
+| Scale | ~7 work areas per site_location x 200 workers per site_location; multi-site & multi-location correct in the schema from day one |
 | Weak networks | Daily operational pages are payload-efficient (not a PWA/offline in v1; re-evaluated in v2.0) |
 | 3-shift operations | No maintenance windows during operational hours without notice |
 | Sensitive data security | Rates/salary editable by HO only, always audited, not exposed externally; worker personal data (NIK, etc.) access is restricted |

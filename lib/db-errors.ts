@@ -1,15 +1,9 @@
-export type DbErrorKind =
-  | "email"
-  | "site-name"
-  | "location-name"
-  | "department-name"
-  | "work-area-name";
+export type DbErrorKind = "email" | "site-name" | "location-name" | "work-area-name";
 
 const DUPLICATE_MESSAGES: Record<DbErrorKind, string> = {
   email: "Email already in use",
   "site-name": "A site with this name already exists",
   "location-name": "Location name already exists",
-  "department-name": "Department name already exists",
   "work-area-name": "Work area name already exists",
 };
 
@@ -47,8 +41,8 @@ export function pgErrorCode(
 
 // Same walk for a Postgres error's constraint name, so actions can route
 // FK violations (23503 may fire on several FKs of one statement, e.g. the
-// user table's site/location/department/work-area bindings) to
-// per-constraint messages.
+// user table's site/location/work-area bindings) to per-constraint
+// messages.
 export function pgErrorConstraint(
   err: unknown,
   depth = 0,

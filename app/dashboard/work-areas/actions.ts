@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { department, siteLocation, user, workArea } from "@/drizzle/schema";
+import { siteLocation, user, workArea } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/lib/db-errors";
 import { requireUser } from "@/lib/session";
@@ -16,7 +16,7 @@ import {
   workAreaMutationWhere,
   workAreaOwnedByActor,
   workAreaBulkMutationWhere,
-} from "@/lib/department-scope";
+} from "@/lib/work-area-scope";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -26,24 +26,25 @@ function dbResult(err: unknown): ActionState {
   return { ok: false, message: GENERIC_ERROR };
 }
 
-// The composite FKs on work_area (department_id+site_id and
-// site_location_id+site_id) both carry ON DELETE restrict, so a cross-site
-// pairing surfaces as 23503/23001 on create or update. The pre-checks below
-// catch the department-scoping case; this is the net for anything left.
-const SAME_SITE_MESSAGE = "Department and location must belong to the same site";
+// The composite FK on work_area (site_location_id + site_id) carries ON
+// DELETE restrict, so a pairing whose location row vanished between the
+// site derivation and the write surfaces as 23503/23001. The site is
+// always derived server-side from the location, so any other firing is a
+// race — this is the net.
+const FK_MESSAGE = "Selected location no longer exists";
 
-function fkResult(err: unknown, sameSiteMessage: string): ActionState {
+function fkResult(err: unknown): ActionState {
   const code = pgErrorCode(err);
   if (code === "23503" || code === "23001") {
-    return { ok: false, message: sameSiteMessage };
+    return { ok: false, message: FK_MESSAGE };
   }
   return dbResult(err);
 }
 
 // Admin actors are pinned to their own site_location — anything the client
-// sent is ignored. A superadmin keeps the input value (the composite FK
-// validates it against the derived site); an ho has no location binding and
-// keeps the input too, but their department scope below fails first.
+// sent is ignored. A superadmin keeps the input value; an ho has no
+// location binding and keeps the input too, but their site scope below
+// verifies it.
 function effectiveSiteLocationId(
   actor: SessionUser,
   inputSiteLocationId: string | undefined,
@@ -53,43 +54,35 @@ function effectiveSiteLocationId(
     : inputSiteLocationId;
 }
 
-// siteId is NEVER trusted from the client: it is derived from the
-// department's own site, so the composite FK pairing is decided server-side.
-async function deriveSiteId(departmentId: string): Promise<string | null> {
+// siteId is NEVER trusted from the client: it is derived from the work
+// area's own site_location, so the composite FK pairing is decided
+// server-side. A soft-deleted location cannot parent a work area (mirrors
+// the dropped department derivation's live-row weld).
+async function deriveSiteId(siteLocationId: string): Promise<string | null> {
   const [row] = await db
-    .select({ siteId: department.siteId })
-    .from(department)
-    .where(and(eq(department.id, departmentId), isNull(department.deletedAt)))
+    .select({ siteId: siteLocation.siteId })
+    .from(siteLocation)
+    .where(
+      and(eq(siteLocation.id, siteLocationId), isNull(siteLocation.deletedAt)),
+    )
     .limit(1);
   return row ? row.siteId : null;
 }
 
-// Scope check for the derived department: an admin may only reference a
-// department under their own location's site; an ho only under their own
-// site. A foreign department surfaces as a field error, mirroring the
-// locations actions' per-field shape for scope violations.
-async function departmentInScope(
-  actor: SessionUser,
-  deptSiteId: string,
-): Promise<boolean> {
-  if (actor.role === "superadmin") return true;
-  if (actor.role === "ho") return deptSiteId === actor.siteId;
-
-  if (!actor.siteLocationId) return false;
-  const [loc] = await db
-    .select({ siteId: siteLocation.siteId })
-    .from(siteLocation)
-    .where(eq(siteLocation.id, actor.siteLocationId))
-    .limit(1);
-  return !!loc && loc.siteId === deptSiteId;
-}
-
-const DEPT_SCOPE_FIELD_ERRORS = {
-  departmentId: "Department must belong to your site",
+// Scope check for the chosen location: an ho may only reference a location
+// under their own site. A foreign location surfaces as a field error,
+// mirroring the users actions' per-field shape for scope violations. An
+// admin's pick is pinned to their own binding before this runs;
+// superadmin is unscoped.
+const LOCATION_SCOPE_FIELD_ERRORS = {
+  siteLocationId: "Location must be in your site",
 } as const;
 
+function locationInScope(actor: SessionUser, locationSiteId: string | null) {
+  return actor.role !== "ho" || locationSiteId === actor.siteId;
+}
+
 export async function createWorkArea(input: {
-  departmentId: string;
   siteId?: string;
   siteLocationId?: string;
   name: string;
@@ -97,8 +90,7 @@ export async function createWorkArea(input: {
   const actor = await requireUser();
 
   const parsed = workAreaCreateSchema.safeParse({
-    departmentId: input.departmentId,
-    // Ignored — derived from the department below.
+    // Ignored — derived from the site_location below.
     siteId: undefined,
     siteLocationId: effectiveSiteLocationId(actor, input.siteLocationId),
     name: input.name,
@@ -107,28 +99,24 @@ export async function createWorkArea(input: {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
-  // An unbound admin fails closed at the field, not at the DB.
-  if (!parsed.data.siteLocationId) {
-    return { ok: false, fieldErrors: DEPT_SCOPE_FIELD_ERRORS };
-  }
-
-  const derivedSiteId = await deriveSiteId(parsed.data.departmentId);
+  // An unbound admin fails closed at the field, not at the DB (the
+  // required siteLocationId rejects the undefined effective value).
+  const derivedSiteId = await deriveSiteId(parsed.data.siteLocationId);
   if (!derivedSiteId) {
-    return { ok: false, fieldErrors: { departmentId: "Department not found." } };
+    return { ok: false, fieldErrors: { siteLocationId: "Location not found." } };
   }
-  if (!(await departmentInScope(actor, derivedSiteId))) {
-    return { ok: false, fieldErrors: DEPT_SCOPE_FIELD_ERRORS };
+  if (!locationInScope(actor, derivedSiteId)) {
+    return { ok: false, fieldErrors: LOCATION_SCOPE_FIELD_ERRORS };
   }
 
   try {
     await db.insert(workArea).values({
-      departmentId: parsed.data.departmentId,
       siteId: derivedSiteId,
       siteLocationId: parsed.data.siteLocationId,
       name: parsed.data.name,
     });
   } catch (err) {
-    return fkResult(err, SAME_SITE_MESSAGE);
+    return fkResult(err);
   }
 
   revalidatePath("/dashboard/work-areas");
@@ -138,7 +126,6 @@ export async function createWorkArea(input: {
 export async function updateWorkArea(
   id: string,
   input: {
-    departmentId: string;
     siteId?: string;
     siteLocationId?: string;
     name: string;
@@ -149,7 +136,6 @@ export async function updateWorkArea(
 
   const parsed = workAreaUpdateSchema.safeParse({
     id,
-    departmentId: input.departmentId,
     siteId: undefined,
     siteLocationId: effectiveSiteLocationId(actor, input.siteLocationId),
     name: input.name,
@@ -165,22 +151,30 @@ export async function updateWorkArea(
     return { ok: false, message: "Work area not found." };
   }
 
-  const derivedSiteId = await deriveSiteId(parsed.data.departmentId);
-  if (!derivedSiteId) {
-    return { ok: false, fieldErrors: { departmentId: "Department not found." } };
-  }
-  if (!(await departmentInScope(actor, derivedSiteId))) {
-    return { ok: false, fieldErrors: DEPT_SCOPE_FIELD_ERRORS };
+  // undefined for an ho/superadmin edit without a siteLocationId: both the
+  // location and its derived site keep their current values (they move
+  // together, so the composite FK pairing stays consistent). An admin
+  // always lands on their own location.
+  let nextSiteId: string | undefined;
+  if (parsed.data.siteLocationId) {
+    const derivedSiteId = await deriveSiteId(parsed.data.siteLocationId);
+    if (!derivedSiteId) {
+      return {
+        ok: false,
+        fieldErrors: { siteLocationId: "Location not found." },
+      };
+    }
+    if (!locationInScope(actor, derivedSiteId)) {
+      return { ok: false, fieldErrors: LOCATION_SCOPE_FIELD_ERRORS };
+    }
+    nextSiteId = derivedSiteId;
   }
 
   try {
     const updated = await db
       .update(workArea)
       .set({
-        departmentId: parsed.data.departmentId,
-        siteId: derivedSiteId,
-        // undefined for an ho/superadmin edit without a siteLocationId (keep
-        // the current location); an admin always lands on their own.
+        siteId: nextSiteId,
         siteLocationId: parsed.data.siteLocationId,
         name: parsed.data.name,
         isActive: parsed.data.isActive,
@@ -192,7 +186,7 @@ export async function updateWorkArea(
       return { ok: false, message: "Work area not found." };
     }
   } catch (err) {
-    return fkResult(err, SAME_SITE_MESSAGE);
+    return fkResult(err);
   }
 
   revalidatePath("/dashboard/work-areas");

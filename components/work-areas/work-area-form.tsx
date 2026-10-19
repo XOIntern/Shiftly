@@ -11,7 +11,6 @@ import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
 import type {
-  DepartmentOption,
   SiteLocationOption,
   WorkAreaRow,
 } from "@/types/forms";
@@ -52,7 +51,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -149,13 +147,11 @@ function LocationSelect({
 }
 
 function WorkAreaForm({
-  departments,
   siteLocations,
   pinnedLocationName,
   workArea,
   onSaved,
 }: {
-  departments: DepartmentOption[];
   siteLocations: SiteLocationOption[];
   // An admin actor's site_location id — their location select is pinned
   // (server-side override), so it renders disabled with their name.
@@ -163,9 +159,6 @@ function WorkAreaForm({
   workArea?: WorkAreaRow;
   onSaved: () => void;
 }) {
-  const [departmentId, setDepartmentId] = useState<string | null>(
-    workArea?.departmentId ?? null,
-  );
   // An admin's effective location is their binding, never the input.
   const [siteLocationId, setSiteLocationId] = useState<string | null>(
     workArea?.siteLocationId ?? null,
@@ -176,7 +169,6 @@ function WorkAreaForm({
   const [pending, startTransition] = useTransition();
 
   const isEdit = !!workArea;
-  const departmentItems = toSelectItems(departments, "Select a department");
   const locationItems = toSelectItems(siteLocations, "Select a location");
   const locationValue =
     pinnedLocationName !== undefined
@@ -193,28 +185,18 @@ function WorkAreaForm({
     setFieldErrors(undefined);
     setMessage(undefined);
 
-    // Pre-submit department guard (mirroring locations' site guard): a work
-    // area must reference a department; a missing pick surfaces the local
-    // field error and skips the server action entirely.
-    if (!departmentId) {
-      setFieldErrors({ departmentId: "Department is required" });
-      return;
-    }
-
     startTransition(async () => {
       // Absent optional selects submit undefined, never null/"" — the
       // keptBindings/uuid validators would turn a null into a misleading
       // per-field error. siteId is never sent: the action derives it from
-      // the department.
+      // the site_location.
       const result = isEdit
         ? await updateWorkArea(workArea.id, {
-            departmentId,
             siteLocationId: locationValue ?? undefined,
             name,
             isActive: workArea.isActive,
           })
         : await createWorkArea({
-            departmentId,
             siteLocationId: locationValue ?? undefined,
             name,
           });
@@ -231,42 +213,6 @@ function WorkAreaForm({
     <form onSubmit={handleSubmit}>
       <FieldGroup className="gap-4">
         {message ? <FieldError>{message}</FieldError> : null}
-
-        <Field data-invalid={fieldErrors?.departmentId ? "true" : undefined}>
-          <FieldLabel htmlFor="work-area-department">Department</FieldLabel>
-          <Select
-            items={departmentItems}
-            value={departmentId}
-            onValueChange={(value) => {
-              if (value !== null) setDepartmentId(value);
-            }}
-          >
-            <SelectTrigger id="work-area-department" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {departmentItems.map((item) => (
-                  <SelectItem
-                    key={item.value ?? "placeholder"}
-                    value={item.value}
-                    disabled={item.disabled}
-                  >
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          {departments.length === 0 ? (
-            <FieldDescription>
-              No departments in your scope yet — create one first.
-            </FieldDescription>
-          ) : null}
-          {fieldErrors?.departmentId ? (
-            <FieldError errors={[{ message: fieldErrors.departmentId }]} />
-          ) : null}
-        </Field>
 
         <LocationSelect
           id="work-area-location"
@@ -303,11 +249,9 @@ function WorkAreaForm({
 }
 
 export function CreateWorkAreaButton({
-  departments,
   siteLocations,
   pinnedLocationName,
 }: {
-  departments: DepartmentOption[];
   siteLocations: SiteLocationOption[];
   pinnedLocationName?: string;
 }) {
@@ -328,7 +272,6 @@ export function CreateWorkAreaButton({
           </DialogDescription>
         </DialogHeader>
         <WorkAreaForm
-          departments={departments}
           siteLocations={siteLocations}
           pinnedLocationName={pinnedLocationName}
           onSaved={() => setOpen(false)}
@@ -340,12 +283,10 @@ export function CreateWorkAreaButton({
 
 export function WorkAreaRowActions({
   workArea,
-  departments,
   siteLocations,
   pinnedLocationName,
 }: {
   workArea: WorkAreaRow;
-  departments: DepartmentOption[];
   siteLocations: SiteLocationOption[];
   pinnedLocationName?: string;
 }) {
@@ -391,7 +332,6 @@ export function WorkAreaRowActions({
       close before their layer opens. */}
       <EditWorkAreaDialog
         workArea={workArea}
-        departments={departments}
         siteLocations={siteLocations}
         pinnedLocationName={pinnedLocationName}
         open={dialog === "edit"}
@@ -470,14 +410,12 @@ function ToggleWorkAreaDialog({
 
 function EditWorkAreaDialog({
   workArea,
-  departments,
   siteLocations,
   pinnedLocationName,
   open,
   onOpenChange,
 }: {
   workArea: WorkAreaRow;
-  departments: DepartmentOption[];
   siteLocations: SiteLocationOption[];
   pinnedLocationName?: string;
   open: boolean;
@@ -489,11 +427,10 @@ function EditWorkAreaDialog({
         <DialogHeader>
           <DialogTitle>Edit work area</DialogTitle>
           <DialogDescription>
-            Update the work area&apos;s name, department, or location.
+            Update the work area&apos;s name or location.
           </DialogDescription>
         </DialogHeader>
         <WorkAreaForm
-          departments={departments}
           siteLocations={siteLocations}
           pinnedLocationName={pinnedLocationName}
           workArea={workArea}

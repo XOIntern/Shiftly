@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 
-import { account, department, siteLocation, user, workArea } from "@/drizzle/schema";
+import { account, siteLocation, user, workArea } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import {
   mapDbError,
@@ -44,7 +44,6 @@ async function loadManagedTarget(
         role: Role;
         siteId: string | null;
         siteLocationId: string | null;
-        departmentId: string | null;
         workAreaId: string | null;
       };
     }
@@ -55,7 +54,6 @@ async function loadManagedTarget(
       role: user.role,
       siteId: user.siteId,
       siteLocationId: user.siteLocationId,
-      departmentId: user.departmentId,
       workAreaId: user.workAreaId,
       locationSiteId: siteLocation.siteId,
     })
@@ -83,7 +81,6 @@ async function loadManagedTarget(
       role: target.role,
       siteId: target.siteId,
       siteLocationId: target.siteLocationId,
-      departmentId: target.departmentId,
       workAreaId: target.workAreaId,
     },
   };
@@ -97,12 +94,6 @@ function fkFieldErrors(
   role: Role,
 ): { ok: false; fieldErrors: Record<string, string> } {
   const constraint = pgErrorConstraint(err);
-  if (constraint === "user_department_id_department_id_fk") {
-    return {
-      ok: false,
-      fieldErrors: { departmentId: "Selected department no longer exists" },
-    };
-  }
   if (constraint === "user_work_area_id_work_area_id_fk") {
     return {
       ok: false,
@@ -121,83 +112,6 @@ function fkFieldErrors(
         },
       };
 }
-
-// Verifies a department id a client may bind: it must exist un-deleted and
-// (for a site-scoped actor) sit inside that actor's site. A deleted or
-// foreign department reads as "must belong to your site", matching the
-// work-areas actions' scope error for the same field.
-async function departmentAllowsBinding(
-  departmentId: string,
-  siteId: string | null,
-): Promise<boolean> {
-  const [dept] = await db
-    .select({ siteId: department.siteId })
-    .from(department)
-    .where(and(eq(department.id, departmentId), isNull(department.deletedAt)))
-    .limit(1);
-  return !!dept && dept.siteId === siteId;
-}
-
-// Superadmin actors carry no department net — the user_department FK's
-// existence-only check would silently persist a binding to a physically
-// present but soft-deleted row. This load mirrors the ho path's deletedAt
-// weld: null → the row doesn't exist and the FK's 23503 carries its own
-// "no longer exists" message; a found-but-deleted row answers before the
-// FK with that same message.
-const DEPARTMENT_GONE_ERROR = {
-  ok: false as const,
-  fieldErrors: {
-    departmentId: "Selected department no longer exists" as const,
-  },
-};
-
-const DEPARTMENT_PAIRING_FIELD_ERRORS = {
-  departmentId: "Department must belong to your site",
-} as const;
-
-// Departments are still site-scoped for superadmin actors: a plain FK
-// would otherwise let a target's department silently pull from another
-// site than the one the target's own binding points at. Same reuse as the
-// ho path's pairing error — the field error the target's site mismatch
-// already answers with.
-function departmentPairingError() {
-  return { ok: false, fieldErrors: DEPARTMENT_PAIRING_FIELD_ERRORS };
-}
-
-async function loadDepartmentBinding(
-  departmentId: string,
-): Promise<{ deleted: boolean; siteId: string } | null> {
-  const [dept] = await db
-    .select({ deletedAt: department.deletedAt, siteId: department.siteId })
-    .from(department)
-    .where(eq(department.id, departmentId))
-    .limit(1);
-  return dept
-    ? { deleted: dept.deletedAt !== null, siteId: dept.siteId }
-    : null;
-}
-
-// The site a department binding must pair with: an ho target's site is the
-// ho row's own binding; an admin target's is the site of the location the
-// target is (or will be) bound to. Returns null when the role carries no
-// department-shaped binding subtree to pair against.
-async function targetPairingSiteId(
-  role: Role,
-  siteId: string | null,
-  siteLocationId: string | null,
-): Promise<string | null> {
-  if (role === "ho") return siteId;
-  if (role === "admin" && siteLocationId) {
-    const [loc] = await db
-      .select({ siteId: siteLocation.siteId })
-      .from(siteLocation)
-      .where(eq(siteLocation.id, siteLocationId))
-      .limit(1);
-    return loc?.siteId ?? null;
-  }
-  return null;
-}
-
 
 // Loads a work area for the pairing net below (un-scoped: soft-deleted rows
 // are looked up too, since the FK sees them). null → the row doesn't exist
@@ -245,7 +159,6 @@ export async function createUser(input: {
   role: string;
   siteId?: string | null;
   siteLocationId?: string | null;
-  departmentId?: string | null;
   workAreaId?: string | null;
 }): Promise<ActionState> {
   const actor = await requireHO();
@@ -266,36 +179,6 @@ export async function createUser(input: {
   // to the single binding the final role carries (both null for superadmin).
   const siteId = parsed.data.siteId ?? null;
   const siteLocationId = parsed.data.siteLocationId ?? null;
-
-  // Departments are site-scoped: an ho actor's pick must live in their
-  // own site (soft-deleted departments are not bindable). Superadmin
-  // actors may pick any department — but a physically present
-  // soft-deleted row is caught by the load below, and the department's
-  // site must pair with the target's own binding site (the FK checks
-  // existence only, so a cross-site pairing would otherwise persist
-  // silently).
-  const departmentId = parsed.data.departmentId ?? null;
-  if (actor.role === "ho" && departmentId) {
-    if (!(await departmentAllowsBinding(departmentId, actor.siteId))) {
-      return {
-        ok: false,
-        fieldErrors: { departmentId: "Department must belong to your site" },
-      };
-    }
-  } else if (actor.role === "superadmin" && departmentId) {
-    const bound = await loadDepartmentBinding(departmentId);
-    if (bound?.deleted) return DEPARTMENT_GONE_ERROR;
-    if (bound) {
-      const requiredSiteId = await targetPairingSiteId(
-        role,
-        siteId,
-        siteLocationId,
-      );
-      if (requiredSiteId && bound.siteId !== requiredSiteId) {
-        return departmentPairingError();
-      }
-    }
-  }
 
   // An ho actor never sets a work area — that binding belongs to admins
   // and is managed by superadmins; the raw client value is dropped here
@@ -357,7 +240,6 @@ export async function createUser(input: {
         role,
         siteId,
         siteLocationId,
-        departmentId,
         workAreaId,
         isActive: true,
       });
@@ -389,7 +271,6 @@ export async function updateUser(
     role: string;
     siteId?: string | null;
     siteLocationId?: string | null;
-    departmentId?: string | null;
     workAreaId?: string | null;
   },
 ): Promise<ActionState> {
@@ -407,12 +288,9 @@ export async function updateUser(
   // An ho actor may not change the role, site or site_location — those stay
   // pinned to the target's current values, whatever the payload carried. A
   // superadmin actor may switch the role; the bindings follow the new one
-  // (ho: siteId + optional department; admin: siteLocationId + optional
-  // department/work area; superadmin: none). An ho actor's department pick
-  // IS read (verified below against the actor's site — this is issue #66's
-  // golden path: an ho editing an admin picks a department and it
-  // persists); only the work area stays pinned to the target (an ho never
-  // sets one).
+  // (ho: siteId; admin: siteLocationId + optional work area; superadmin:
+  // none). Only the work area stays pinned to the target for an ho actor
+  // (an ho never sets one).
   const role: Role = actor.role === "ho" ? target.role : parsed.data.role;
   const siteId = role === "ho" ? (parsed.data.siteId ?? null) : null;
   const siteLocationId =
@@ -421,16 +299,8 @@ export async function updateUser(
       : actor.role === "ho"
         ? (target.siteLocationId ?? null)
         : (parsed.data.siteLocationId ?? null);
-  // Departments/work areas: on an ho or admin target the department may
-  // be set (read from the actor-verified input); a work area belongs to
-  // admins alone and stays pinned to the target's current value.
-  // Superadmin targets carry neither.
-  const departmentId =
-    role === "superadmin"
-      ? null
-      : actor.role === "ho"
-        ? (parsed.data.departmentId ?? null)
-        : (parsed.data.departmentId ?? null);
+  // Work areas belong to admins alone and stay pinned to the target's
+  // current value on an ho edit; superadmin targets carry none.
   const workAreaId =
     role !== "admin"
       ? null
@@ -453,36 +323,6 @@ export async function updateUser(
     }
   }
 
-  // An ho actor's department pick is site-scoped, exactly like on create:
-  // a foreign (or soft-deleted) pick answers at the field.
-  if (actor.role === "ho" && departmentId) {
-    if (!(await departmentAllowsBinding(departmentId, actor.siteId))) {
-      return {
-        ok: false,
-        fieldErrors: { departmentId: "Department must belong to your site" },
-      };
-    }
-  }
-
-  // Same weld for the superadmin edit path (mirrors the work area net
-  // above; the ho path's site weld already covers deleted rows). The
-  // department's site must also pair with the target's binding site —
-  // same reuse of "must belong to your site" as the ho path's error.
-  if (actor.role === "superadmin" && departmentId) {
-    const bound = await loadDepartmentBinding(departmentId);
-    if (bound?.deleted) return DEPARTMENT_GONE_ERROR;
-    if (bound) {
-      const requiredSiteId = await targetPairingSiteId(
-        role,
-        siteId,
-        siteLocationId,
-      );
-      if (requiredSiteId && bound.siteId !== requiredSiteId) {
-        return departmentPairingError();
-      }
-    }
-  }
-
   try {
     const updated = await db
       .update(user)
@@ -491,7 +331,6 @@ export async function updateUser(
         role,
         siteId,
         siteLocationId,
-        departmentId,
         workAreaId,
       })
       .where(eq(user.id, id))

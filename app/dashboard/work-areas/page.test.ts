@@ -4,7 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { department, site, siteLocation, workArea } from "@/drizzle/schema";
+import { site, siteLocation, workArea } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
 // The work-areas page reads its actor through requireUser (all three roles
@@ -25,9 +25,7 @@ type WorkAreaNode = {
     id: string;
     name: string;
     siteName: string;
-    departmentName: string;
   }>;
-  departments?: Array<{ id: string; name: string }>;
   siteLocations?: Array<{ id: string; name: string }>;
   sites?: Array<{ id: string; name: string }>;
   showSiteFilter?: boolean;
@@ -73,8 +71,6 @@ async function seedWorkAreaFixtures() {
   const locA1 = randomUUID();
   const locA2 = randomUUID();
   const locB1 = randomUUID();
-  const depA = randomUUID();
-  const depB = randomUUID();
   const waA1 = randomUUID();
   const waA2 = randomUUID();
   const waB1 = randomUUID();
@@ -88,42 +84,33 @@ async function seedWorkAreaFixtures() {
     { id: locB1, siteId: siteB, name: `t7-wa-loc-b1-${locB1}` },
   ]);
   // The site names embed their uuids, so site B is always alphabetically
-  // after site A — the default [site, department, workArea] order holds.
-  await db.insert(department).values([
-    { id: depA, siteId: siteA, name: `t7-wa-dep-a-${depA}` },
-    { id: depB, siteId: siteB, name: `t7-wa-dep-b-${depB}` },
-  ]);
+  // after site A — the default [site, workArea] order holds.
   await db.insert(workArea).values([
     {
       id: waA1,
-      departmentId: depA,
       siteLocationId: locA1,
       siteId: siteA,
       name: "t7-wa-alpha",
     },
     {
       id: waA2,
-      departmentId: depA,
       siteLocationId: locA2,
       siteId: siteA,
       name: "t7-wa-own-two",
     },
     {
       id: waB1,
-      departmentId: depB,
       siteLocationId: locB1,
       siteId: siteB,
       name: "t7-wa-foreign",
     },
   ]);
   return {
-    ids: { siteA, siteB, locA1, locA2, locB1, depA, depB, waA1, waA2, waB1 },
+    ids: { siteA, siteB, locA1, locA2, locB1, waA1, waA2, waB1 },
     async cleanup() {
       await db.delete(workArea).where(eq(workArea.id, waA1));
       await db.delete(workArea).where(eq(workArea.id, waA2));
       await db.delete(workArea).where(eq(workArea.id, waB1));
-      await db.delete(department).where(eq(department.id, depA));
-      await db.delete(department).where(eq(department.id, depB));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA1));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA2));
       await db.delete(siteLocation).where(eq(siteLocation.id, locB1));

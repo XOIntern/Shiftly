@@ -51,11 +51,11 @@ export const siteLocation = pgTable(
       .where(sql`deleted_at is null`),
     // Plain (non-partial) unique CONSTRAINT on the parent pair so the
     // composite FK from work_area(site_location_id, site_id) resolves at
-    // FK-creation time (see ./department-schema.ts comment).
+    // FK-creation time (see ./work-area-schema.ts comment).
     unique("site_location_id_site_id_unique").on(table.id, table.siteId),
   ],
 );
 
-// siteRelations / siteLocationRelations moved to ./department-schema (GitHub
-// #58): extending them with departments/workAreas from here would create an
-// import cycle with that file. The barrel re-exports them unchanged.
+// siteRelations / siteLocationRelations moved to ./work-area-schema (GitHub
+// #58): extending them with workAreas from here would create an import
+// cycle with that file. The barrel re-exports them unchanged.

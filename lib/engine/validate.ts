@@ -11,11 +11,11 @@ export interface RosterAssignment {
   workerId: string;
   date: string; // "YYYY-MM-DD"
   shift: Shift;
-  departmentId: string;
+  workAreaId: string;
 }
 
 export interface WorkerProfile {
-  departmentId: string;
+  workAreaId: string;
 }
 
 export interface Violation {
@@ -38,7 +38,7 @@ const dayFromNumber = (n: number): string => new Date(n * 86_400_000).toISOStrin
 // any date onto its Monday-start week (architecture: weeks start Monday).
 const mondayOf = (date: string): string => {
   const n = dayNumber(date);
-  return dayFromNumber(n - (((n - 4) % 7) + 7) % 7);
+  return dayFromNumber(n - ((((n - 4) % 7) + 7) % 7));
 };
 
 const monthKey = (date: string): string => date.slice(0, 7);
@@ -67,7 +67,7 @@ export function validateRoster(
     checkRotation(days, workerId, rules, violations);
     checkRestAfterShift3(days, workerId, rules, violations);
     checkMandatoryBreak(days, workerId, rules, violations);
-    checkDepartment(days, workerId, workers[workerId], rules, violations);
+    checkWorkArea(days, workerId, workers[workerId], rules, violations);
   }
 
   return violations;
@@ -202,9 +202,9 @@ function checkMandatoryBreak(
   }
 }
 
-// C7: assignment department must equal the worker's profile department.
+// C7: assignment work area must equal the worker's profile work area.
 // Workers without a profile can't be checked and are skipped.
-function checkDepartment(
+function checkWorkArea(
   days: RosterAssignment[],
   workerId: string,
   profile: WorkerProfile | undefined,
@@ -213,12 +213,12 @@ function checkDepartment(
 ): void {
   if (!rules.c7.value || !profile) return;
   for (const a of days) {
-    if (a.departmentId !== profile.departmentId) {
+    if (a.workAreaId !== profile.workAreaId) {
       violations.push({
         rule: "C7",
         workerId,
         date: a.date,
-        message: `Assigned to department ${a.departmentId}; worker's department is ${profile.departmentId}`,
+        message: `Assigned to work area ${a.workAreaId}; worker's work area is ${profile.workAreaId}`,
       });
     }
   }

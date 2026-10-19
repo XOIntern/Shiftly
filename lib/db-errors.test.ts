@@ -35,11 +35,6 @@ describe("mapDbError", () => {
     expect(result).toBe("Location name already exists");
   });
 
-  test("department-name kind: 23505 maps to the department name message", () => {
-    const result = mapDbError(pgError("23505"), { kind: "department-name" });
-    expect(result).toBe("Department name already exists");
-  });
-
   test("work-area-name kind: 23505 maps to the work area name message", () => {
     const result = mapDbError(pgError("23505"), { kind: "work-area-name" });
     expect(result).toBe("Work area name already exists");
@@ -47,17 +42,11 @@ describe("mapDbError", () => {
 
   test("new kinds wrapped through the cause chain still map", () => {
     expect(
-      mapDbError(drizzleWrappedError(pgError("23505")), { kind: "department-name" }),
-    ).toBe("Department name already exists");
-    expect(
       mapDbError(drizzleWrappedError(pgError("23505")), { kind: "work-area-name" }),
     ).toBe("Work area name already exists");
   });
 
   test("new kinds: 23503 still maps to the reference message", () => {
-    expect(
-      mapDbError(pgError("23503"), { kind: "department-name" }),
-    ).toBe("Some records still reference this item");
     expect(
       mapDbError(pgError("23503"), { kind: "work-area-name" }),
     ).toBe("Some records still reference this item");

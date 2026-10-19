@@ -7,12 +7,7 @@ import { db } from "./db";
 import { pgErrorCode } from "./db-errors";
 import { locationMutationWhere, locationOwnedByActor } from "./location-scope";
 import { deleteSiteGuarded } from "./site-delete";
-import {
-  department,
-  site,
-  siteLocation,
-  user,
-} from "../drizzle/schema";
+import { site, siteLocation, user, workArea } from "../drizzle/schema";
 
 // Real dev DB (docker shiftly-postgres :5433): proves the site_location ->
 // user FK is enforced with ON DELETE RESTRICT by hitting the constraint the
@@ -459,9 +454,10 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
     }
   });
 
-  test("(d) site with a live department is refused; both rows survive (issue #67)", async () => {
+  test("(d) site with a live work area is refused; both rows survive", async () => {
     const siteId = randomUUID();
-    const departmentId = randomUUID();
+    const locationId = randomUUID();
+    const workAreaId = randomUUID();
 
     try {
       await db.insert(site).values({
@@ -469,33 +465,44 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
         name: `del-site-d-${siteId}`,
         isActive: false,
       });
-      await db.insert(department).values({
-        id: departmentId,
+      // The work area hangs off a soft-deleted location: the locations
+      // guard (a) only counts LIVE locations, so it passes — this case is
+      // about the layer beneath it.
+      await db.insert(siteLocation).values({
+        id: locationId,
         siteId,
-        name: "Blocking Department",
+        name: "Soft-Deleted Work Area Location",
+        deletedAt: new Date(),
+      });
+      await db.insert(workArea).values({
+        id: workAreaId,
+        siteLocationId: locationId,
+        siteId,
+        name: "Blocking Work Area",
       });
 
-      // Guard (a2) sits after the locations guard: a site whose locations
-      // are gone but whose departments remain is refused here.
+      // Guard (b) sits after the locations guard: a site whose live
+      // locations are gone but whose work areas remain is refused here.
       const result = await db.transaction((tx) =>
         deleteSiteGuarded(tx, siteId),
       );
       expect(result).toEqual({
         ok: false,
-        message: "Departments still exist under this site",
+        message: "Work areas still exist under this site",
       });
 
       // No partial writes: both rows survive.
-      const [dept] = await db
+      const [wa] = await db
         .select()
-        .from(department)
-        .where(eq(department.id, departmentId));
-      expect(dept).toBeTruthy();
+        .from(workArea)
+        .where(eq(workArea.id, workAreaId));
+      expect(wa).toBeTruthy();
       const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
       expect(siteRow).toBeTruthy();
       expect(siteRow.deletedAt).toBeNull();
     } finally {
-      await db.delete(department).where(eq(department.id, departmentId));
+      await db.delete(workArea).where(eq(workArea.id, workAreaId));
+      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
     }
   });
