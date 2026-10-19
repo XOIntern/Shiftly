@@ -38,6 +38,20 @@ export const workAreaUpdateSchema = workAreaCreateSchema.extend({
   isActive: z.boolean(),
 });
 
+// Positions (per-site catalog): mirrors locationCreateSchema — the position
+// parents directly under a site, so siteId is optional at the schema level
+// (superadmin picks it in the dialog; ho/admin paths derive it server-side
+// from their bindings, never trusting the client).
+export const positionCreateSchema = z.object({
+  siteId: z.uuid().optional(),
+  name: nameField,
+});
+
+export const positionUpdateSchema = positionCreateSchema.extend({
+  id: z.uuid(),
+  isActive: z.boolean(),
+});
+
 // Role/binding invariants (docs/architecture.md v0.2 §6): superadmin is
 // global (no site/location binding, and — since the dropped-department
 // epic — no department binding either), ho binds exactly one site and
@@ -185,6 +199,8 @@ export type LocationCreateInput = z.infer<typeof locationCreateSchema>;
 export type LocationUpdateInput = z.infer<typeof locationUpdateSchema>;
 export type WorkAreaCreateInput = z.infer<typeof workAreaCreateSchema>;
 export type WorkAreaUpdateInput = z.infer<typeof workAreaUpdateSchema>;
+export type PositionCreateInput = z.infer<typeof positionCreateSchema>;
+export type PositionUpdateInput = z.infer<typeof positionUpdateSchema>;
 export type UserCreateInput = z.infer<typeof userCreateSchema>;
 export type UserUpdateInput = z.infer<typeof userUpdateSchema>;
 export type UserPasswordInput = z.infer<typeof userPasswordSchema>;

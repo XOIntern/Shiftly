@@ -20,6 +20,7 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar";
 import {
+  BriefcaseIcon,
   Building2Icon,
   BuildingIcon,
   CalendarRangeIcon,
@@ -55,9 +56,19 @@ const superadminNavMain = [
     icon: <BuildingIcon />,
   },
   {
+    title: "Positions",
+    url: "/dashboard/positions",
+    icon: <BriefcaseIcon />,
+  },
+  {
     title: "Users",
     url: "/dashboard/users",
     icon: <UserIcon />,
+  },
+  {
+    title: "Workers",
+    url: "/dashboard/workers",
+    icon: <UsersIcon />,
   },
 ];
 
@@ -76,6 +87,11 @@ const hoNavMain = [
     title: "Work areas",
     url: "/dashboard/work-areas",
     icon: <Building2Icon />,
+  },
+  {
+    title: "Positions",
+    url: "/dashboard/positions",
+    icon: <BriefcaseIcon />,
   },
   {
     title: "Users",
@@ -109,6 +125,11 @@ const adminNavMain = [
     title: "Work areas",
     url: "/dashboard/work-areas",
     icon: <Building2Icon />,
+  },
+  {
+    title: "Positions",
+    url: "/dashboard/positions",
+    icon: <BriefcaseIcon />,
   },
   {
     title: "Roster",

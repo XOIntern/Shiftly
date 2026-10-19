@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   workAreaCreateSchema,
   workAreaUpdateSchema,
+  positionCreateSchema,
+  positionUpdateSchema,
   siteCreateSchema,
   siteUpdateSchema,
   userCreateSchema,
@@ -106,6 +108,84 @@ describe("workAreaUpdateSchema", () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe("positionCreateSchema", () => {
+  test("accepts valid input with a siteId", () => {
+    const result = positionCreateSchema.safeParse({
+      siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+      name: "Operator",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts input without a siteId (ho/admin paths derive it server-side)", () => {
+    const result = positionCreateSchema.safeParse({ name: "Operator" });
+    expect(result.success).toBe(true);
+  });
+
+  test("strips a stray siteLocationId from the payload", () => {
+    const result = positionCreateSchema.safeParse({
+      siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+      siteLocationId: "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04",
+      name: "Operator",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).not.toHaveProperty("siteLocationId");
+    }
+  });
+
+  test("rejects a non-uuid siteId", () => {
+    const result = positionCreateSchema.safeParse({
+      siteId: "nope",
+      name: "Operator",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects an empty name", () => {
+    const result = positionCreateSchema.safeParse({
+      siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+      name: "",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("positionUpdateSchema", () => {
+  const base = {
+    id: "8e4c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b05",
+    name: "Operator",
+    isActive: true,
+  };
+
+  test("accepts a valid update", () => {
+    const result = positionUpdateSchema.safeParse({
+      ...base,
+      siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts an update with only id, name, isActive", () => {
+    const result = positionUpdateSchema.safeParse(base);
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a missing isActive", () => {
+    const result = positionUpdateSchema.safeParse({
+      id: base.id,
+      name: base.name,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-uuid id", () => {
+    const result = positionUpdateSchema.safeParse({ ...base, id: "not-a-uuid" });
+    expect(result.success).toBe(false);
+  });
+});
+
 
 describe("siteCreateSchema", () => {
   test("accepts a valid name", () => {

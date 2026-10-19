@@ -1,10 +1,16 @@
-export type DbErrorKind = "email" | "site-name" | "location-name" | "work-area-name";
+export type DbErrorKind =
+  | "email"
+  | "site-name"
+  | "location-name"
+  | "work-area-name"
+  | "position-name";
 
 export const DUPLICATE_MESSAGES: Record<DbErrorKind, string> = {
   email: "Email already in use",
   "site-name": "A site with this name already exists",
   "location-name": "Location name already exists",
   "work-area-name": "Work area name already exists",
+  "position-name": "Position name already exists",
 };
 
 // Both codes mean "still referenced" to a user: 23503 is the generic FK
