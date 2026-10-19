@@ -76,6 +76,7 @@ export default async function PositionsPage({
     ...(status ? [eq(position.isActive, status === "active")] : []),
     ...(siteFilter ? [siteFilter] : []),
     ...(scope ? [scope] : []),
+    isNull(site.deletedAt),
   );
 
   // Own-property lookup inside buildOrder: a plain truthiness guard would

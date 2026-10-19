@@ -170,6 +170,48 @@ describe("position bound-guard", () => {
     }
   });
 
+  test("deleteBulk on a mixed batch: out-of-scope referenced ids are neither blocked nor applied", async () => {
+    const inScope = await seedSiteWithPositions(["pa", "pb"]);
+    const foreign = await seedSiteWithPositions(["pc"]);
+    const [inScopeFree, inScopeReferenced] = inScope.positionIds;
+    const [outOfScopeReferenced] = foreign.positionIds;
+
+    try {
+      await seedLiveWorker(inScopeReferenced, inScope.siteA, inScope.locA);
+      await seedLiveWorker(
+        outOfScopeReferenced,
+        foreign.siteA,
+        foreign.locA,
+      );
+      // The ho of site A must never learn whether a foreign position holds
+      // workers: the foreign id is dropped before any counting happens.
+      actor = makeActor("ho", inScope.siteA, null);
+
+      const { deleteBulk } = await import("./actions");
+      const result = await deleteBulk([
+        inScopeFree,
+        inScopeReferenced,
+        outOfScopeReferenced,
+      ]);
+
+      expect(result.ok).toBe(true);
+      expect(result.applied).toBe(1);
+      expect(result.blocked).toBe(1);
+
+      const rows = await db
+        .select({ id: position.id, deletedAt: position.deletedAt })
+        .from(position);
+      const deletedAtOf = (id: string) =>
+        rows.find((row) => row.id === id)?.deletedAt;
+      expect(deletedAtOf(inScopeFree)).not.toBeNull();
+      expect(deletedAtOf(inScopeReferenced)).toBeNull();
+      expect(deletedAtOf(outOfScopeReferenced)).toBeNull();
+    } finally {
+      await inScope.cleanup();
+      await foreign.cleanup();
+    }
+  });
+
   test("superadmin deletes a worker-free position: ok", async () => {
     const { positionIds, cleanup } = await seedSiteWithPositions(["pf"]);
     const [freeId] = positionIds;

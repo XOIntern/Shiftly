@@ -602,6 +602,16 @@ describe("worker actions", () => {
     }
   });
 
+  test("deleteWorker on a missing worker: not found", async () => {
+    actor = makeActor("superadmin", null, null);
+
+    const { deleteWorker } = await import("./actions");
+    const result = await deleteWorker(randomUUID());
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe("Worker not found.");
+  });
+
   test("bulk actions apply only in-scope ids", async () => {
     const fx = await seedGlobalData();
     const wA1 = randomUUID();

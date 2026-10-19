@@ -305,11 +305,15 @@ export async function deleteWorker(id: string): Promise<ActionState> {
   }
 
   try {
-    await db
+    const deleted = await db
       .update(worker)
       .set({ deletedAt: new Date() })
       // Weld: same ownership-in-WHERE as update/toggle.
-      .where(workerMutationWhere(actor, id));
+      .where(workerMutationWhere(actor, id))
+      .returning({ id: worker.id });
+    if (deleted.length === 0) {
+      return { ok: false, message: "Worker not found." };
+    }
   } catch (err) {
     return dbResult(err);
   }
