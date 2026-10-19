@@ -15,9 +15,10 @@ import {
 import { site, siteLocation } from "./site-schema";
 import { user } from "./auth-schema";
 
-// Rules C1–C7 (docs/architecture.md §5): max 5 work days/week, max 20/month,
+// Rules C1–C8 (docs/architecture.md §5): max 5 work days/week, max 20/month,
 // forward shift rotation 1→2→3, rest after shift 3, mandatory break,
-// work area/qualification match. Config rows address them by these keys.
+// work area match (C7) and work qualification match (C8, dormant). Config
+// rows address them by these keys.
 export const rosterRuleKeyEnum = pgEnum("roster_rule_key", [
   "C1",
   "C2",
@@ -26,6 +27,7 @@ export const rosterRuleKeyEnum = pgEnum("roster_rule_key", [
   "C5",
   "C6",
   "C7",
+  "C8",
 ]);
 
 // One live row per (scope, rule key): unset site_id and site_location_id is

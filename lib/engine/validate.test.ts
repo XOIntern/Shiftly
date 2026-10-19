@@ -14,7 +14,7 @@ import { validateRoster, type RosterAssignment, type Shift, type WorkerProfile }
 // Test weeks/months use 2026-01-05 (a Monday) and March 2026 (31 days).
 
 type Override = Partial<Record<"c1" | "c2" | "c5" | "c6", number>> &
-  Partial<Record<"c3" | "c4" | "c7", boolean>>;
+  Partial<Record<"c3" | "c4" | "c7" | "c8", boolean>>;
 
 const rule = <T extends number | boolean>(
   value: T | undefined,
@@ -30,6 +30,7 @@ const rules = (over: Override = {}): EffectiveRules => ({
   c5: rule(over.c5, DEFAULT_RULES.c5),
   c6: rule(over.c6, DEFAULT_RULES.c6),
   c7: rule(over.c7, DEFAULT_RULES.c7),
+  c8: rule(over.c8, DEFAULT_RULES.c8),
 });
 
 const assign = (

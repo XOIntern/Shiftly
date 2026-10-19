@@ -84,6 +84,18 @@ describe("resolveRules (issue #49 task 2)", () => {
     expect(rules.c3).toEqual(DEFAULT_RULES.c3);
   });
 
+  test("C8 resolves through the same chain (global row wins, location beats site, default on absence)", () => {
+    expect(resolveRules([boolRow("C8", false)], [], []).c8).toEqual({
+      value: false,
+      source: "global",
+    });
+    expect(resolveRules([], [boolRow("C8", true)], [boolRow("C8", false)]).c8).toEqual({
+      value: false,
+      source: "location",
+    });
+    expect(resolveRules([], [], []).c8).toEqual({ value: true, source: "default" });
+  });
+
   test("EffectiveRules survives a JSON round-trip unchanged", () => {
     const rules = resolveRules(
       [intRow("C1", 4)],
