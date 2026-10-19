@@ -256,9 +256,11 @@ export async function setActiveBulk(
 }
 
 // Bulk position unregistration. Rows are soft-deleted, but positions still
-// referenced by live workers are held back — "do what you can" applies to
-// the guard too: one grouped count splits the batch into applied rows and
-// blocked ids without round-tripping per position.
+// referenced by live workers are held back. The batch is first intersected
+// with the actor's write scope: out-of-scope ids are dropped before counting
+// and never reported — neither applied nor blocked — so the counters cannot
+// leak what a foreign site holds. One grouped count then splits the in-scope
+// batch into applied rows and blocked ids without round-tripping per position.
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const actor = await requireUser();
 
@@ -270,20 +272,26 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
   }
 
   try {
+    const inScope = await db
+      .select({ id: position.id })
+      .from(position)
+      .where(positionBulkMutationWhere(actor, validIds));
+    const batchIds = inScope.map((row) => row.id);
+
     const referenced = await db
       .select({ positionId: worker.positionId, live: count() })
       .from(worker)
       .where(
         and(
-          inArray(worker.positionId, validIds),
+          inArray(worker.positionId, batchIds),
           isNull(worker.deletedAt),
         ),
       )
       .groupBy(worker.positionId);
-    // Positions with live workers stay visible; the rest of the batch is
-    // free to hide.
+    // Positions with live workers stay visible; the rest of the in-scope
+    // batch is free to hide. Out-of-scope ids never reach this point.
     const blockedIds = new Set(referenced.map((row) => row.positionId));
-    const freeIds = validIds.filter((id) => !blockedIds.has(id));
+    const freeIds = batchIds.filter((id) => !blockedIds.has(id));
 
     let applied = 0;
     if (freeIds.length > 0) {
