@@ -36,8 +36,8 @@ const assign = (
   workerId: string,
   date: string,
   shift: Shift = 1,
-  departmentId = "dept-a",
-): RosterAssignment => ({ workerId, date, shift, departmentId });
+  workAreaId = "wa-a",
+): RosterAssignment => ({ workerId, date, shift, workAreaId });
 
 const addDays = (date: string, n: number): string => {
   const [y, m, d] = date.split("-").map(Number);
@@ -47,7 +47,7 @@ const addDays = (date: string, n: number): string => {
 const consecutive = (start: string, count: number, shift: Shift = 1): RosterAssignment[] =>
   Array.from({ length: count }, (_, i) => assign("w1", addDays(start, i), shift));
 
-const workers: Record<string, WorkerProfile> = { w1: { departmentId: "dept-a" } };
+const workers: Record<string, WorkerProfile> = { w1: { workAreaId: "wa-a" } };
 
 const intRow = (ruleKey: RuleConfigRow["ruleKey"], value: number): RuleConfigRow => ({
   ruleKey,
@@ -163,23 +163,28 @@ describe("validateRoster (issue #50 task 3)", () => {
     expect(validateRoster(assignments, workers, rules({ c1: 7, c5: 5, c6: 2 }))).toEqual([]);
   });
 
-  test("C7 flags an out-of-department assignment", () => {
-    const assignments = [assign("w1", "2026-01-05", 1, "dept-b")];
+  test("C7 flags an out-of-work-area assignment", () => {
+    const assignments = [assign("w1", "2026-01-05", 1, "wa-b")];
 
     expect(validateRoster(assignments, workers, rules())).toEqual([
-      { rule: "C7", workerId: "w1", date: "2026-01-05", message: expect.any(String) },
+      {
+        rule: "C7",
+        workerId: "w1",
+        date: "2026-01-05",
+        message: "Assigned to work area wa-b; worker's work area is wa-a",
+      },
     ]);
   });
 
   test("C7 skips when disabled", () => {
-    const assignments = [assign("w1", "2026-01-05", 1, "dept-b")];
+    const assignments = [assign("w1", "2026-01-05", 1, "wa-b")];
 
     expect(validateRoster(assignments, workers, rules({ c7: false }))).toEqual([]);
   });
 
   test("C7 ignores workers without a profile", () => {
-    const assignments = [assign("w9", "2026-01-05", 1, "dept-z")];
+    const assignments = [assign("w9", "2026-01-05", 1, "wa-z")];
 
-    expect(validateRoster(assignments, { w2: { departmentId: "dept-a" } }, rules())).toEqual([]);
+    expect(validateRoster(assignments, { w2: { workAreaId: "wa-a" } }, rules())).toEqual([]);
   });
 });

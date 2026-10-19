@@ -6,7 +6,7 @@
 // - C4 rest day after shift 3 (bool)
 // - C5 mandatory break after N accumulated work days (int)
 // - C6 break length in consecutive days (int)
-// - C7 department/qualification match (bool)
+// - C7 work area/qualification match (bool)
 
 export type RuleKey = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7";
 

@@ -17,7 +17,7 @@ import { user } from "./auth-schema";
 
 // Rules C1–C7 (docs/architecture.md §5): max 5 work days/week, max 20/month,
 // forward shift rotation 1→2→3, rest after shift 3, mandatory break,
-// department/qualification match. Config rows address them by these keys.
+// work area/qualification match. Config rows address them by these keys.
 export const rosterRuleKeyEnum = pgEnum("roster_rule_key", [
   "C1",
   "C2",
