@@ -30,7 +30,6 @@ describe("worker scope guards", () => {
         id: workerId,
         siteLocationId: locId,
         siteId,
-        positionId: posId,
         employeeId: "WSA-001",
         name: "Superadmin Worker",
       });
@@ -77,7 +76,6 @@ describe("worker scope guards", () => {
           id: ownId,
           siteLocationId: locId,
           siteId,
-          positionId: posId,
           employeeId: "WSH-001",
           name: "Ho's Worker",
         },
@@ -85,7 +83,6 @@ describe("worker scope guards", () => {
           id: foreignId,
           siteLocationId: foreignLocId,
           siteId: foreignSiteId,
-          positionId: foreignPosId,
           employeeId: "WSH-002",
           name: "Foreign Worker",
         },
@@ -129,7 +126,6 @@ describe("worker scope guards", () => {
           id: ownId,
           siteLocationId: locAId,
           siteId,
-          positionId: posId,
           employeeId: "WSA2-001",
           name: "Admin's Worker",
         },
@@ -137,7 +133,6 @@ describe("worker scope guards", () => {
           id: foreignId,
           siteLocationId: locBId,
           siteId,
-          positionId: posId,
           employeeId: "WSA2-002",
           name: "Other Location Worker",
         },
@@ -181,7 +176,6 @@ describe("worker scope guards", () => {
         id: workerId,
         siteLocationId: locId,
         siteId,
-        positionId: posId,
         employeeId: "WSU-001",
         name: "Unbound Target",
       });
@@ -218,7 +212,6 @@ describe("worker scope guards", () => {
         id: workerId,
         siteLocationId: locBId, // foreign to the admin
         siteId,
-        positionId: posId,
         employeeId: "WSW-001",
         name: "Foreign Worker",
       });

@@ -9,6 +9,7 @@ import {
   site,
   siteLocation,
   worker,
+  workerPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
@@ -30,6 +31,7 @@ type WorkerNode = {
     id: string;
     employeeId: string;
     siteName: string;
+    positions?: Array<{ id: string; name: string; isActive: boolean }>;
   }>;
   sites?: Array<{ id: string; name: string }>;
   siteLocations?: Array<{ id: string; name: string; siteId: string }>;
@@ -110,7 +112,6 @@ async function seedWorkerFixtures() {
       id: wA,
       siteId: siteA,
       siteLocationId: locA1,
-      positionId: posA,
       employeeId: `t13-wpage-emp-a-${wA.slice(0, 8)}`,
       name: "t13-wpage-worker-a",
     },
@@ -118,10 +119,15 @@ async function seedWorkerFixtures() {
       id: wB,
       siteId: siteB,
       siteLocationId: locB,
-      positionId: posB,
       employeeId: `t13-wpage-emp-b-${wB.slice(0, 8)}`,
       name: "t13-wpage-worker-b",
     },
+  ]);
+  // Multi-position spec (2026-10-20): every worker's qualification set lives
+  // in the pivot, so each seeded worker gets its row.
+  await db.insert(workerPosition).values([
+    { workerId: wA, positionId: posA, siteId: siteA },
+    { workerId: wB, positionId: posB, siteId: siteB },
   ]);
   return {
     ids: {
@@ -139,6 +145,9 @@ async function seedWorkerFixtures() {
       wB,
     },
     async cleanup() {
+      // Child-first: the pivot rows hold the RESTRICT composite FKs.
+      await db.delete(workerPosition).where(eq(workerPosition.workerId, wA));
+      await db.delete(workerPosition).where(eq(workerPosition.workerId, wB));
       await db.delete(worker).where(eq(worker.id, wA));
       await db.delete(worker).where(eq(worker.id, wB));
       await db.delete(position).where(eq(position.id, posA));
@@ -233,11 +242,10 @@ describe("workers page server queries", () => {
         (page.siteLocations ?? []).every((l) => l.siteId === fx.ids.siteA),
       ).toBe(true);
       expect(page.siteLocations?.map((l) => l.id)).toEqual([fx.ids.locA1]);
-      // Position options are pre-filtered live+active: the inactive one
-      // never reaches the picker, and site B's is scoped out.
+      // Options are live (inactive included, so an attached inactive
+      // position can be rendered and removed); site B's is scoped out.
       const positionIds = (page.positions ?? []).map((p) => p.id);
-      expect(positionIds).toEqual([fx.ids.posA]);
-      expect(positionIds).not.toContain(fx.ids.posAOff);
+      expect(positionIds).toEqual([fx.ids.posA, fx.ids.posAOff]);
       expect(
         (page.positions ?? []).every((p) => p.siteId === fx.ids.siteA),
       ).toBe(true);
@@ -270,6 +278,78 @@ describe("workers page server queries", () => {
       const page = await renderWorkers();
       expect(page.workers).toEqual([]);
       expect(page.total).toBe(0);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+  test("each row carries its positions sorted by name", async () => {
+    const fx = await seedWorkerFixtures();
+    const beta = randomUUID();
+
+    try {
+      await db.insert(position).values({
+        id: beta,
+        siteId: fx.ids.siteA,
+        name: "t13-wpage-beta",
+      });
+      await db.insert(workerPosition).values({
+        workerId: fx.ids.wA,
+        positionId: beta,
+        siteId: fx.ids.siteA,
+      });
+
+      actor = makeActor("superadmin", null, null);
+
+      const page = await renderWorkers({ siteId: fx.ids.siteA });
+      const row = page.workers.find((w) => w.id === fx.ids.wA);
+      expect(row?.positions?.map((p) => p.name)).toEqual([
+        "t13-wpage-alpha",
+        "t13-wpage-beta",
+      ]);
+    } finally {
+      // The local position (and its pivot row) go before the site dies.
+      await db
+        .delete(workerPosition)
+        .where(eq(workerPosition.positionId, beta));
+      await db.delete(position).where(eq(position.id, beta));
+      await fx.cleanup();
+    }
+  });
+
+  test("a worker with no pivot rows renders an empty positions list", async () => {
+    const fx = await seedWorkerFixtures();
+    const bare = randomUUID();
+
+    try {
+      await db.insert(worker).values({
+        id: bare,
+        siteId: fx.ids.siteA,
+        siteLocationId: fx.ids.locA1,
+        employeeId: `t13-wpage-emp-bare-${bare.slice(0, 8)}`,
+        name: "t13-wpage-worker-bare",
+      });
+
+      actor = makeActor("superadmin", null, null);
+
+      const page = await renderWorkers({ siteId: fx.ids.siteA });
+      const row = page.workers.find((w) => w.id === bare);
+      expect(row).toBeDefined();
+      expect(row?.positions).toEqual([]);
+    } finally {
+      await db.delete(worker).where(eq(worker.id, bare));
+      await fx.cleanup();
+    }
+  });
+
+  test("position options include inactive positions", async () => {
+    const fx = await seedWorkerFixtures();
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const page = await renderWorkers({ pageSize: "50" });
+      const positionIds = (page.positions ?? []).map((p) => p.id);
+      expect(positionIds).toContain(fx.ids.posAOff);
     } finally {
       await fx.cleanup();
     }

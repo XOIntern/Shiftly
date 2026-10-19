@@ -44,11 +44,10 @@ const worker: WorkerRow = {
   isActive: true,
   contractEndDate: "2027-12-31",
   siteLocationId: LOC_A1,
-  positionId: POS_A1,
   siteId: SITE_A,
   siteName: "Site Alpha",
   locationName: "Loc Alpha One",
-  positionName: "Position Alpha One",
+  positions: [{ id: POS_A1, name: "Position Alpha One", isActive: true }],
 };
 
 function renderTable(props: {
@@ -77,6 +76,26 @@ describe("WorkersTable static markup", () => {
     expect(html).toContain("Budi Santoso");
     expect(html).toContain("Loc Alpha One");
     expect(html).toContain("Position Alpha One");
+  });
+
+  test("renders every position name joined with a comma", () => {
+    const html = renderTable({
+      workers: [
+        {
+          ...worker,
+          positions: [
+            { id: POS_A1, name: "Position Alpha One", isActive: true },
+            {
+              id: "aaaaaaaa-3333-3333-3333-333333333333",
+              name: "Position Alpha Two",
+              isActive: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(html).toContain("Position Alpha One, Position Alpha Two");
   });
 
   test("shows the empty message when the page has no workers", () => {

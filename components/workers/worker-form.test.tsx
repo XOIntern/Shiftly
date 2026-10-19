@@ -7,7 +7,11 @@ import type {
   SiteLocationOption,
   WorkerRow,
 } from "@/types/forms";
-import { WorkerForm, positionOptionsFor } from "./worker-form";
+import {
+  WorkerForm,
+  positionOptionsFor,
+  visiblePositionOptions,
+} from "./worker-form";
 
 // Form fixtures: site A holds locations LA1/LA2 and positions PA1/PA2 (PA2
 // inactive), site B holds LB and PB. No DB — the dialog composes everything
@@ -62,11 +66,10 @@ const editWorker: WorkerRow = {
   isActive: true,
   contractEndDate: null,
   siteLocationId: LOC_A1,
-  positionId: POS_A1,
   siteId: SITE_A,
   siteName: "Site Alpha",
   locationName: "Loc Alpha One",
-  positionName: "Position Alpha One",
+  positions: [{ id: POS_A1, name: "Position Alpha One", isActive: true }],
 };
 
 function renderForm(props: {
@@ -147,5 +150,67 @@ describe("WorkerForm cascade", () => {
 
     expect(html.includes("Loc Alpha One")).toBeTrue();
     expect(html.includes("disabled")).toBeTrue();
+  });
+});
+
+describe("visiblePositionOptions", () => {
+  test("unions the site's active candidates with an attached inactive row", () => {
+    const options = visiblePositionOptions(allPositions, SITE_A, [POS_A2]);
+
+    // POS_A1 is a normal candidate; POS_A2 is inactive and only visible
+    // because it is already attached.
+    expect(options.map((o) => o.id)).toEqual([POS_A1, POS_A2]);
+  });
+
+  test("never unions a selected id from another site", () => {
+    const options = visiblePositionOptions(allPositions, SITE_A, [POS_B1]);
+
+    expect(options.map((o) => o.id)).toEqual([POS_A1]);
+  });
+});
+
+describe("WorkerForm position checkboxes", () => {
+  test("an edit with two attached positions renders both checked", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+      worker: {
+        ...editWorker,
+        positions: [
+          { id: POS_A1, name: "Position Alpha One", isActive: true },
+          { id: POS_A2, name: "Position Alpha Two", isActive: true },
+        ],
+      },
+    });
+
+    expect((html.match(/aria-checked="true"/g) ?? []).length).toBe(2);
+  });
+
+  test("an attached inactive position renders with (inactive)", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+      worker: {
+        ...editWorker,
+        positions: [
+          { id: POS_A2, name: "Position Alpha Two", isActive: false },
+        ],
+      },
+    });
+
+    expect(html.includes("Position Alpha Two (inactive)")).toBeTrue();
+  });
+
+  test("an inactive position that is not attached is not rendered", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+      worker: editWorker,
+    });
+
+    expect(html.includes("Position Alpha Two")).toBeFalse();
   });
 });

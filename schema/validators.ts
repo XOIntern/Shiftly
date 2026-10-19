@@ -52,15 +52,22 @@ export const positionUpdateSchema = positionCreateSchema.extend({
   isActive: z.boolean(),
 });
 
-// Workers (worker-crud epic, 2026-10-20): mirrors workAreaCreateSchema —
-// siteLocationId and positionId are required (the worker reports to its
-// location and holds a position directly), siteId stays optional at the
-// schema level (the actions derive it from the site_location, so the
-// dialog does not send one). contractEndDate is a date string.
+// Workers (worker-crud epic, 2026-10-20; multi-position spec, 2026-10-20):
+// mirrors workAreaCreateSchema — siteLocationId is required (the worker
+// reports to its location) and positionIds holds the worker's qualification
+// set, one or more positions of its own site (no primary, no order).
+// siteId stays optional at the schema level (the actions derive it from the
+// site_location, so the dialog does not send one). contractEndDate is a
+// date string.
 export const workerCreateSchema = z.object({
   siteId: z.uuid().optional(),
   siteLocationId: z.uuid(),
-  positionId: z.uuid(),
+  positionIds: z
+    .array(z.uuid())
+    .min(1)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "Select each position once",
+    }),
   employeeId: z.string().trim().min(1).max(100),
   name: nameField,
   contractEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),

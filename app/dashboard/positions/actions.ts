@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { position, siteLocation, worker } from "@/drizzle/schema";
+import {
+  position,
+  siteLocation,
+  worker,
+  workerPosition,
+} from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/lib/db-errors";
 import { requireUser } from "@/lib/session";
@@ -197,16 +202,21 @@ export async function deletePosition(id: string): Promise<ActionState> {
   }
 
   // Foreign positions answer "not found." — no scope leaks. Workers matter
-  // just as much: a position with live workers referencing it cannot be
-  // hidden while the roster still schedules against it.
+  // just as much: a position any live worker holds (directly, via the
+  // worker_position set) cannot be hidden while the roster still schedules
+  // against it. Soft-deleted workers never block: their pivot rows stay but
+  // the join skips them.
   if (!(await positionOwnedByActor(actor, id))) {
     return { ok: false, message: "Position not found." };
   }
 
   const [{ count: liveWorkers }] = await db
     .select({ count: count() })
-    .from(worker)
-    .where(and(eq(worker.positionId, id), isNull(worker.deletedAt)));
+    .from(workerPosition)
+    .innerJoin(worker, eq(worker.id, workerPosition.workerId))
+    .where(
+      and(eq(workerPosition.positionId, id), isNull(worker.deletedAt)),
+    );
   if (liveWorkers > 0) {
     return { ok: false, message: "Some workers still reference this position" };
   }
@@ -279,15 +289,16 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
     const batchIds = inScope.map((row) => row.id);
 
     const referenced = await db
-      .select({ positionId: worker.positionId, live: count() })
-      .from(worker)
+      .select({ positionId: workerPosition.positionId, live: count() })
+      .from(workerPosition)
+      .innerJoin(worker, eq(worker.id, workerPosition.workerId))
       .where(
         and(
-          inArray(worker.positionId, batchIds),
+          inArray(workerPosition.positionId, batchIds),
           isNull(worker.deletedAt),
         ),
       )
-      .groupBy(worker.positionId);
+      .groupBy(workerPosition.positionId);
     // Positions with live workers stay visible; the rest of the in-scope
     // batch is free to hide. Out-of-scope ids never reach this point.
     const blockedIds = new Set(referenced.map((row) => row.positionId));

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  workerCreateSchema,
   workAreaCreateSchema,
   workAreaUpdateSchema,
   positionCreateSchema,
@@ -959,6 +960,49 @@ describe("parseUserUpdate work-area stripping", () => {
       expect(parsed.data.siteId).toBeUndefined();
       expect(parsed.data.siteLocationId).toBeUndefined();
       expect("workAreaId" in parsed.data).toBe(false);
+    }
+  });
+});
+
+describe("workerCreateSchema positionIds", () => {
+  const locationUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
+  const positionA = "2f6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b07";
+  const positionB = "3a6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b08";
+  const base = {
+    siteLocationId: locationUuid,
+    employeeId: "EMP-1",
+    name: "Worker One",
+  };
+
+  test("accepts two distinct uuid positions", () => {
+    const result = workerCreateSchema.safeParse({
+      ...base,
+      positionIds: [positionA, positionB],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.positionIds).toEqual([positionA, positionB]);
+    }
+  });
+
+  test("rejects an empty array with a positionIds message", () => {
+    const result = workerCreateSchema.safeParse({ ...base, positionIds: [] });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("positionIds");
+      expect(result.error.issues[0].message.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("rejects duplicate ids with 'Select each position once'", () => {
+    const result = workerCreateSchema.safeParse({
+      ...base,
+      positionIds: [positionA, positionA],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("positionIds");
+      expect(result.error.issues[0].message).toBe("Select each position once");
     }
   });
 });

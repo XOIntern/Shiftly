@@ -1,7 +1,23 @@
-import { and, asc, count, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
-import { position, site, siteLocation, worker } from "@/drizzle/schema";
+import {
+  position,
+  site,
+  siteLocation,
+  worker,
+  workerPosition,
+} from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { buildOrder } from "@/lib/table-order";
 import {
@@ -12,7 +28,12 @@ import {
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWorkerButton } from "@/components/workers/worker-form";
-import type { PositionRow, SiteLocationOption, SiteOption } from "@/types/forms";
+import type {
+  PositionRow,
+  SiteLocationOption,
+  SiteOption,
+  WorkerRow,
+} from "@/types/forms";
 import { WorkersTable } from "@/components/workers/workers-table";
 
 // Deliberate block: the page queries master data behind the session check,
@@ -165,10 +186,10 @@ export default async function WorkersPage({
       .innerJoin(site, eq(position.siteId, site.id))
       .where(
         and(
-          // Live+active: deactivated positions never enter the picker
-          // (the form keeps this as a defensive guard only).
+          // Live, inactive included: the form must render (and let the user
+          // remove) an attached position that was deactivated after the
+          // pick, while only active rows are offered for new picks.
           isNull(position.deletedAt),
-          eq(position.isActive, true),
           isNull(site.deletedAt),
           ...(isSuperadmin
             ? []
@@ -200,21 +221,50 @@ export default async function WorkersPage({
         isActive: worker.isActive,
         contractEndDate: worker.contractEndDate,
         siteLocationId: worker.siteLocationId,
-        positionId: worker.positionId,
         siteId: worker.siteId,
         siteName: site.name,
         locationName: siteLocation.name,
-        positionName: position.name,
       })
       .from(worker)
       .innerJoin(siteLocation, eq(worker.siteLocationId, siteLocation.id))
       .innerJoin(site, eq(worker.siteId, site.id))
-      .innerJoin(position, eq(worker.positionId, position.id))
+      // No pivot join here: it would duplicate worker rows. The set is
+      // fetched once for the whole page below.
       .where(and(where, isNull(worker.deletedAt)))
       .orderBy(...order)
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),
   ]);
+
+  // The page's qualification sets, in one grouped follow-up query (spec
+  // §6.1): every position name the table shows, in name order.
+  const workerIds = workers.map((row) => row.id);
+  const pivotRows =
+    workerIds.length === 0
+      ? []
+      : await db
+          .select({
+            workerId: workerPosition.workerId,
+            id: position.id,
+            name: position.name,
+            isActive: position.isActive,
+          })
+          .from(workerPosition)
+          .innerJoin(position, eq(workerPosition.positionId, position.id))
+          .where(inArray(workerPosition.workerId, workerIds))
+          .orderBy(asc(position.name));
+
+  const positionsByWorker = new Map<string, WorkerRow["positions"]>();
+  for (const row of pivotRows) {
+    const set = positionsByWorker.get(row.workerId) ?? [];
+    set.push({ id: row.id, name: row.name, isActive: row.isActive });
+    positionsByWorker.set(row.workerId, set);
+  }
+
+  const workerRows: WorkerRow[] = workers.map((row) => ({
+    ...row,
+    positions: positionsByWorker.get(row.id) ?? [],
+  }));
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
@@ -240,7 +290,7 @@ export default async function WorkersPage({
       <Card>
         <CardContent>
           <WorkersTable
-            workers={workers}
+            workers={workerRows}
             showSiteFilter={isSuperadmin}
             sites={sites satisfies SiteOption[]}
             siteLocations={siteLocations satisfies SiteLocationOption[]}
