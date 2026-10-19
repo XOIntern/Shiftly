@@ -543,6 +543,14 @@ describe("worker actions", () => {
           },
       ]);
 
+      // w2 already holds a qualification set; the refused move must restore
+      // it rather than leave the pre-update delete committed.
+      await db.insert(workerPosition).values({
+        workerId: w2,
+        positionId: fx.posA,
+        siteId: fx.siteA,
+      });
+
       actor = makeActor("superadmin", null, null);
 
       const { updateWorker } = await import("./actions");
@@ -557,9 +565,11 @@ describe("worker actions", () => {
       expect(result.ok).toBe(false);
       expect(result.message).toBe("Employee ID already in use in this location");
 
-      // The move is refused: w2 keeps its own location.
+      // The move is refused: w2 keeps its own location and its position set.
       const [row] = await db.select().from(worker).where(eq(worker.id, w2));
       expect(row.siteLocationId).toBe(fx.locA2);
+      const pivot = await pivotPositions(w2);
+      expect(pivot.map((p) => p.id)).toEqual([fx.posA]);
     } finally {
       await dropWorkerById(w1);
       await dropWorkerById(w2);
@@ -1039,6 +1049,50 @@ describe("worker actions", () => {
       expect(pivot.every((p) => p.siteId === fx.siteB)).toBe(true);
     } finally {
       await dropWorkerById(wid);
+      await dropSeed(fx);
+    }
+  });
+
+  test("update on a soft-deleted worker: not found, pivot untouched", async () => {
+    const fx = await seedGlobalData();
+    const secondPos = await insertSiteAPosition(fx.siteA, "t11-wact-pos-gone-b");
+    const wid = await seedWorkerWithPositions({
+      siteLocationId: fx.locA1,
+      siteId: fx.siteA,
+      employeeId: "t11-wact-emp-mp-gone",
+      name: "T11 Wact Worker MP Gone",
+      positionIds: [fx.posA, secondPos],
+    });
+
+    try {
+      // The superadmin ownership pre-check always passes, so the welded
+      // update inside the transaction is what reports the vanished worker.
+      actor = makeActor("superadmin", null, null);
+      await db
+        .update(worker)
+        .set({ deletedAt: new Date() })
+        .where(eq(worker.id, wid));
+
+      const { updateWorker } = await import("./actions");
+      const result = await updateWorker(wid, {
+        siteLocationId: fx.locA1,
+        positionIds: [fx.posA],
+        employeeId: "t11-wact-emp-mp-gone",
+        name: "T11 Wact Worker MP Gone",
+        isActive: true,
+      });
+      expect(result).toEqual({ ok: false, message: "Worker not found." });
+
+      // The not-found path must not commit the pivot delete that ran before
+      // the welded update returned zero rows.
+      const pivot = await pivotPositions(wid);
+      expect(pivot.map((p) => p.id).sort()).toEqual(
+        [fx.posA, secondPos].sort(),
+      );
+      expect(pivot.every((p) => p.siteId === fx.siteA)).toBe(true);
+    } finally {
+      await dropWorkerById(wid);
+      await db.delete(position).where(eq(position.id, secondPos));
       await dropSeed(fx);
     }
   });

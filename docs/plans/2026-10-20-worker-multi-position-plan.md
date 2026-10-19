@@ -247,7 +247,7 @@ It selects `{ id, siteId }` from `position` where `inArray(position.id, ids)` an
 
 3. `createWorker`/`updateWorker` input and parse switch to `positionIds`; on failure return `fieldErrorsFrom`.
 4. `createWorker` runs inside `db.transaction`: insert the worker with `positionId: parsed.data.positionIds[0]` (temporary placeholder until Task 4, with a comment naming migration `0016`), `returning({ id })`, then `tx.insert(workerPosition).values(positionIds.map((positionId) => ({ workerId: row.id, positionId, siteId: derivedSiteId })))`.
-5. `updateWorker` runs inside `db.transaction` in this exact order: `tx.delete(workerPosition).where(eq(workerPosition.workerId, id))` → `tx.update(worker).set({ siteLocationId, siteId: derivedSiteId, positionId: parsed.data.positionIds[0], employeeId, name, contractEndDate, isActive }).where(workerMutationWhere(actor, id)).returning({ id })` → if zero rows return `{ notFound: true }` from the callback (rolls the delete back) → insert the new pivot set. After the transaction, map `notFound` to `"Worker not found."`.
+5. `updateWorker` runs inside `db.transaction` in this exact order: `tx.delete(workerPosition).where(eq(workerPosition.workerId, id))` → `tx.update(worker).set({ siteLocationId, siteId: derivedSiteId, positionId: parsed.data.positionIds[0], employeeId, name, contractEndDate, isActive }).where(workerMutationWhere(actor, id)).returning({ id })` → if zero rows **throw** a sentinel error inside the callback (a returned value would COMMIT the delete; only a throw rolls it back) → insert the new pivot set. Catch the sentinel outside the transaction and map it to `"Worker not found."`.
 6. Comment that `deleteWorker` leaves pivot rows in place and guards join live workers; drop the "workers have no children" wording from `deleteWorker`/`deleteBulk` comments.
 
 - [ ] **Step 8: Run them to verify they pass**
@@ -449,5 +449,5 @@ git commit -m "feat(workers): drop worker.position_id after the pivot cutover"
 ## Execution notes
 
 - Tasks 1→2→3→4 are strictly ordered: Task 2 reads the pivot backfilled by Task 1, Task 3 guards the rows Task 2 writes, and Task 4 removes the column only after no writer remains.
-- The `{ notFound: true }` sentinel in `updateWorker` covers a race between the ownership pre-check and the transaction; it is defensive and not directly testable without interleaving.
+- The sentinel in `updateWorker` covers a race between the ownership pre-check and the transaction. It must be a thrown error, not a returned value: a returned value commits the pivot delete. It is testable without interleaving — a superadmin's pre-check passes unconditionally, so soft-deleting the worker before the call drives the zero-row path (`update on a soft-deleted worker: not found, pivot untouched`).
 - If `bun run db:generate` emits the unique constraint after `CREATE TABLE` in `0015`, the migration fails — reorder as pinned in Task 1 Step 4.

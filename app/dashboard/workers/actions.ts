@@ -23,6 +23,11 @@ import {
   workerOwnedByActor,
 } from "@/lib/worker-scope";
 
+// Thrown inside updateWorker's transaction so the pivot delete that ran
+// before the welded update is rolled back, not committed. A returned value
+// would commit the transaction; a throw is the only rollback.
+class WorkerNotFoundError extends Error {}
+
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
 function dbResult(err: unknown): ActionState {
@@ -261,11 +266,12 @@ export async function updateWorker(
   }
 
   try {
-    const notFound = await db.transaction(async (tx) => {
+    await db.transaction(async (tx) => {
       // Fixed order: the composite FK forbids moving worker.site_id while
       // stale pivot rows still carry the old site. Zero rows from the
-      // welded update rolls the whole transaction back, so a lost race
-      // never loses the existing set.
+      // welded update must ROLL BACK, not return: a returned value commits,
+      // which would persist the delete above and leave the worker with an
+      // empty set. The throw is the rollback.
       await tx.delete(workerPosition).where(eq(workerPosition.workerId, id));
 
       const updated = await tx
@@ -281,7 +287,7 @@ export async function updateWorker(
         // Weld: the ownership predicate rides inside the mutating WHERE.
         .where(workerMutationWhere(actor, id))
         .returning({ id: worker.id });
-      if (updated.length === 0) return true;
+      if (updated.length === 0) throw new WorkerNotFoundError();
 
       await tx.insert(workerPosition).values(
         parsed.data.positionIds.map((positionId) => ({
@@ -290,12 +296,11 @@ export async function updateWorker(
           siteId: derivedSiteId,
         })),
       );
-      return false;
     });
-    if (notFound) {
+  } catch (err) {
+    if (err instanceof WorkerNotFoundError) {
       return { ok: false, message: "Worker not found." };
     }
-  } catch (err) {
     return fkResult(err);
   }
 

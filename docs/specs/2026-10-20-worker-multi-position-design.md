@@ -55,7 +55,7 @@ The composite FK references `worker (id, site_id)`. Changing `worker.site_id` wh
 2. update the worker row (including `site_id`, welded ownership predicate),
 3. insert the new pivot set with the new `site_id`.
 
-If step 2 matches zero rows, the transaction rolls back (sentinel return), so positions are never lost by a lost race.
+If step 2 matches zero rows, the transaction must be rolled back by **throwing** a sentinel error inside the callback — a returned value commits the transaction and would persist the delete from step 1. The sentinel is caught outside and mapped to `"Worker not found."`, so positions are never lost by a lost race.
 
 ### 3.3 Drizzle relations
 
