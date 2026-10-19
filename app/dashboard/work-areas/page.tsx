@@ -177,6 +177,7 @@ export default async function WorkAreasPage({
         </div>
         <CreateWorkAreaButton
           siteLocations={siteLocations satisfies SiteLocationOption[]}
+          sites={sites satisfies SiteOption[]}
           pinnedLocationName={
             actor.role === "admin"
               ? siteLocations[0]?.name

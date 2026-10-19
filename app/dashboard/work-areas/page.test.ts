@@ -136,6 +136,47 @@ function makeActor(
   };
 }
 
+type DialogOptionsNode = {
+  siteLocations: Array<{ id: string; name: string; siteId: string }>;
+  sites?: Array<{ id: string; name: string }>;
+};
+
+// The create dialog travels to the client as the siteLocations/sites props
+// on <CreateWorkAreaButton>; the table node carries the same option shape
+// too, so the collector keys on the absence of the table-only workAreas.
+function collectDialogOptions(
+  node: unknown,
+  out: DialogOptionsNode[],
+): DialogOptionsNode[] {
+  if (!node || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const child of node) collectDialogOptions(child, out);
+    return out;
+  }
+  const props = node as { props?: Record<string, unknown> };
+  if (
+    props.props &&
+    "siteLocations" in props.props &&
+    !("workAreas" in props.props)
+  ) {
+    out.push(props.props as unknown as DialogOptionsNode);
+  }
+  collectDialogOptions(props.props?.children, out);
+  return out;
+}
+
+async function renderDialogOptions(
+  searchParams: Record<string, string | string[] | undefined> = {},
+): Promise<DialogOptionsNode> {
+  const { default: WorkAreasPage } = await import("./page");
+  const tree = await WorkAreasPage({
+    searchParams: Promise.resolve(searchParams),
+  } as never);
+  const found = collectDialogOptions(tree, []);
+  expect(found.length).toBe(1);
+  return found[0];
+}
+
 // t7- prefixed real-DB fixtures; uuid slices keep suites collision-free.
 describe("work-areas page server queries (issue #64)", () => {
   test("admin sees only their own site_location's work areas", async () => {
@@ -216,6 +257,34 @@ describe("work-areas page server queries (issue #64)", () => {
       const page = await renderWorkAreas();
       expect(page.workAreas).toEqual([]);
       expect(page.total).toBe(0);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("work-areas create dialog site options", () => {
+  test("a superadmin's dialog receives every site for the site-first pick", async () => {
+    const fx = await seedWorkAreaFixtures();
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const dialog = await renderDialogOptions();
+      const siteIds = dialog.sites?.map((s) => s.id) ?? [];
+      expect(siteIds).toContain(fx.ids.siteA);
+      expect(siteIds).toContain(fx.ids.siteB);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("a ho's dialog receives only their own site", async () => {
+    const fx = await seedWorkAreaFixtures();
+    try {
+      actor = makeActor("ho", fx.ids.siteA, null);
+
+      const dialog = await renderDialogOptions();
+      expect(dialog.sites?.map((s) => s.id)).toEqual([fx.ids.siteA]);
     } finally {
       await fx.cleanup();
     }

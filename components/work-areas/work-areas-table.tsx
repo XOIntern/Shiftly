@@ -69,12 +69,13 @@ export function WorkAreasTable({
             <WorkAreaRowActions
               workArea={info.row.original}
               siteLocations={siteLocations}
+              sites={sites}
               pinnedLocationName={pinnedLocationName}
             />
           ),
         }),
       ]),
-    [siteLocations, pinnedLocationName],
+    [siteLocations, sites, pinnedLocationName],
   );
 
   return (

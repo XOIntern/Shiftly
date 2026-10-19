@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
 import type {
+  SiteOption,
   SiteLocationOption,
   WorkAreaRow,
 } from "@/types/forms";
@@ -115,21 +116,51 @@ function LocationSelect({
       ? [{ label: pinnedName, value: value ?? "", disabled: true }]
       : items;
   return (
+    <SelectField
+      id={id}
+      label="Location"
+      items={itemsToRender}
+      value={value}
+      disabled={pinnedName !== undefined}
+      onChange={onChange}
+      error={error}
+    />
+  );
+}
+
+function SelectField({
+  id,
+  label,
+  items,
+  value,
+  onChange,
+  error,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  items: SelectOption[];
+  value: string | null;
+  onChange: (value: string) => void;
+  error?: string;
+  disabled?: boolean;
+}) {
+  return (
     <Field data-invalid={error ? "true" : undefined}>
-      <FieldLabel htmlFor={id}>Location</FieldLabel>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Select
-        items={itemsToRender}
+        items={items}
         value={value}
         onValueChange={(next) => {
           if (next !== null) onChange(next);
         }}
       >
-        <SelectTrigger id={id} className="w-full">
+        <SelectTrigger id={id} className="w-full" disabled={disabled}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {itemsToRender.map((item) => (
+            {items.map((item) => (
               <SelectItem
                 key={item.value ?? "placeholder"}
                 value={item.value}
@@ -146,13 +177,28 @@ function LocationSelect({
   );
 }
 
-function WorkAreaForm({
+// The location options admissible for one site pick: nothing picked keeps
+// every option, a picked site narrows to its own locations.
+export function siteLocationOptionsFor(
+  siteLocations: SiteLocationOption[],
+  siteId: string | null,
+): SiteLocationOption[] {
+  return siteId === null
+    ? siteLocations
+    : siteLocations.filter((option) => option.siteId === siteId);
+}
+
+export function WorkAreaForm({
   siteLocations,
+  sites,
   pinnedLocationName,
   workArea,
   onSaved,
 }: {
   siteLocations: SiteLocationOption[];
+  // Site masters for the site-first pick, already scoped per role by the
+  // page (superadmin: all sites, ho: their one, admin: their binding's).
+  sites: SiteOption[];
   // An admin actor's site_location id — their location select is pinned
   // (server-side override), so it renders disabled with their name.
   pinnedLocationName?: string;
@@ -160,6 +206,9 @@ function WorkAreaForm({
   onSaved: () => void;
 }) {
   // An admin's effective location is their binding, never the input.
+  const [siteId, setSiteId] = useState<string | null>(
+    workArea?.siteId ?? null,
+  );
   const [siteLocationId, setSiteLocationId] = useState<string | null>(
     workArea?.siteLocationId ?? null,
   );
@@ -169,7 +218,18 @@ function WorkAreaForm({
   const [pending, startTransition] = useTransition();
 
   const isEdit = !!workArea;
-  const locationItems = toSelectItems(siteLocations, "Select a location");
+  // The site pick only scopes the location options client-side — an actor
+  // with a single site (ho) or a pinned location (admin) gets no site
+  // select at all, and the picked site is never submitted: the action
+  // derives siteId from the site_location.
+  const showSiteSelect = pinnedLocationName === undefined && sites.length > 1;
+  const locationOptions = showSiteSelect
+    ? siteLocationOptionsFor(siteLocations, siteId)
+    : siteLocations;
+  const locationItems: SelectOption[] =
+    showSiteSelect && siteId === null
+      ? [{ label: "Select a site first", value: null, disabled: true }]
+      : toSelectItems(locationOptions, "Select a location");
   const locationValue =
     pinnedLocationName !== undefined
       ? // For an admin the only admissible pick is their own binding: the
@@ -184,6 +244,14 @@ function WorkAreaForm({
 
     setFieldErrors(undefined);
     setMessage(undefined);
+
+    // Pre-submit site guard (mirrors the location form's, issue #18): a
+    // work area must bind a location; a missing pick surfaces the local
+    // field error and skips the server action entirely.
+    if (!locationValue) {
+      setFieldErrors({ siteLocationId: "Location is required" });
+      return;
+    }
 
     startTransition(async () => {
       // Absent optional selects submit undefined, never null/"" — the
@@ -213,6 +281,22 @@ function WorkAreaForm({
     <form onSubmit={handleSubmit}>
       <FieldGroup className="gap-4">
         {message ? <FieldError>{message}</FieldError> : null}
+
+        {showSiteSelect ? (
+          <SelectField
+            id="work-area-site"
+            label="Site"
+            items={toSelectItems(sites, "Select a site")}
+            value={siteId}
+            onChange={(next) => {
+              // A site switch invalidates the location pick — the previous
+              // location may belong to the old site.
+              setSiteLocationId(null);
+              setSiteId(next);
+            }}
+            error={fieldErrors?.siteId}
+          />
+        ) : null}
 
         <LocationSelect
           id="work-area-location"
@@ -250,9 +334,11 @@ function WorkAreaForm({
 
 export function CreateWorkAreaButton({
   siteLocations,
+  sites,
   pinnedLocationName,
 }: {
   siteLocations: SiteLocationOption[];
+  sites: SiteOption[];
   pinnedLocationName?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -273,6 +359,7 @@ export function CreateWorkAreaButton({
         </DialogHeader>
         <WorkAreaForm
           siteLocations={siteLocations}
+          sites={sites}
           pinnedLocationName={pinnedLocationName}
           onSaved={() => setOpen(false)}
         />
@@ -284,10 +371,12 @@ export function CreateWorkAreaButton({
 export function WorkAreaRowActions({
   workArea,
   siteLocations,
+  sites,
   pinnedLocationName,
 }: {
   workArea: WorkAreaRow;
   siteLocations: SiteLocationOption[];
+  sites: SiteOption[];
   pinnedLocationName?: string;
 }) {
   const [dialog, setDialog] = useState<"edit" | "delete" | "toggle" | null>(
@@ -333,6 +422,7 @@ export function WorkAreaRowActions({
       <EditWorkAreaDialog
         workArea={workArea}
         siteLocations={siteLocations}
+        sites={sites}
         pinnedLocationName={pinnedLocationName}
         open={dialog === "edit"}
         onOpenChange={(open) => {
@@ -411,12 +501,14 @@ function ToggleWorkAreaDialog({
 function EditWorkAreaDialog({
   workArea,
   siteLocations,
+  sites,
   pinnedLocationName,
   open,
   onOpenChange,
 }: {
   workArea: WorkAreaRow;
   siteLocations: SiteLocationOption[];
+  sites: SiteOption[];
   pinnedLocationName?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -432,6 +524,7 @@ function EditWorkAreaDialog({
         </DialogHeader>
         <WorkAreaForm
           siteLocations={siteLocations}
+          sites={sites}
           pinnedLocationName={pinnedLocationName}
           workArea={workArea}
           onSaved={() => onOpenChange(false)}
