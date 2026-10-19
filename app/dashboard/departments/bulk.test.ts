@@ -4,7 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { department, site, user } from "@/drizzle/schema";
+import { department, site, siteLocation, user, workArea } from "@/drizzle/schema";
 import type { SessionUser } from "@/lib/session";
 
 // The bulk actions resolve their actor through requireHO — swapped for a
@@ -145,6 +145,144 @@ describe("departments bulk actions", () => {
       await db.delete(user).where(eq(user.id, hoActor));
       await db.delete(department).where(eq(department.id, free));
       await db.delete(department).where(eq(department.id, bound));
+      await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+
+  test("deleteDepartment refuses a department with a live work area", async () => {
+    const siteA = randomUUID();
+    const loc = randomUUID();
+    const dept = randomUUID();
+    const wa = randomUUID();
+    const hoActor = randomUUID();
+
+    try {
+      await db.insert(site).values([{ id: siteA, name: `t4-dept-wa-${siteA}` }]);
+      await db.insert(siteLocation).values([
+        { id: loc, siteId: siteA, name: "T4 Users Loc" },
+      ]);
+      await db.insert(department).values([departmentRow(dept, siteA, "T4 Dept WA")]);
+      await db.insert(workArea).values([
+        {
+          id: wa,
+          departmentId: dept,
+          siteLocationId: loc,
+          siteId: siteA,
+          name: "T4 Dept WA Area",
+        },
+      ]);
+      await db.insert(user).values([
+        {
+          id: hoActor,
+          name: "T4 Actor HO",
+          email: `t4-dept-wa-${hoActor}@shiftly.test`,
+          emailVerified: true,
+          role: "ho",
+          siteId: siteA,
+        },
+      ]);
+
+      actor = {
+        id: hoActor,
+        name: "T4 Actor HO",
+        email: `t4-dept-wa-${hoActor}@shiftly.test`,
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { deleteDepartment } = await import("./actions");
+      const result = await deleteDepartment(dept);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toBe(
+        "Work areas still exist under this department",
+      );
+      const [row] = await db
+        .select({ deletedAt: department.deletedAt })
+        .from(department)
+        .where(eq(department.id, dept));
+      expect(row?.deletedAt).toBeNull();
+    } finally {
+      await db.delete(user).where(eq(user.id, hoActor));
+      await db.delete(workArea).where(eq(workArea.id, wa));
+      await db.delete(department).where(eq(department.id, dept));
+      await db.delete(siteLocation).where(eq(siteLocation.id, loc));
+      await db.delete(site).where(eq(site.id, siteA));
+    }
+  });
+
+  test("deleteBulk skips departments with live work areas, deletes the rest", async () => {
+    const siteA = randomUUID();
+    const loc = randomUUID();
+    const free = randomUUID();
+    const waBound = randomUUID();
+    const wa = randomUUID();
+    const hoActor = randomUUID();
+
+    try {
+      await db.insert(site).values([{ id: siteA, name: `t4-dept-wa-b-${siteA}` }]);
+      await db.insert(siteLocation).values([
+        { id: loc, siteId: siteA, name: "T4 Users Loc B" },
+      ]);
+      await db.insert(department).values([
+        departmentRow(free, siteA, "T4 Dept WA Free"),
+        departmentRow(waBound, siteA, "T4 Dept WA Bound"),
+      ]);
+      await db.insert(workArea).values([
+        {
+          id: wa,
+          departmentId: waBound,
+          siteLocationId: loc,
+          siteId: siteA,
+          name: "T4 Dept WA Bound Area",
+        },
+      ]);
+      await db.insert(user).values([
+        {
+          id: hoActor,
+          name: "T4 Actor HO",
+          email: `t4-dept-wa-b-${hoActor}@shiftly.test`,
+          emailVerified: true,
+          role: "ho",
+          siteId: siteA,
+        },
+      ]);
+
+      actor = {
+        id: hoActor,
+        name: "T4 Actor HO",
+        email: `t4-dept-wa-b-${hoActor}@shiftly.test`,
+        role: "ho",
+        siteId: siteA,
+        siteLocationId: null,
+        isActive: true,
+      };
+
+      const { deleteBulk } = await import("./actions");
+      const result = await deleteBulk([free, waBound]);
+
+      expect(result.ok).toBe(true);
+      expect(result.applied).toBe(1);
+      expect(result.blocked).toBe(1);
+      expect(result.message).toContain(
+        "Work areas still exist under this department",
+      );
+
+      const rows = await db
+        .select({ id: department.id, deletedAt: department.deletedAt })
+        .from(department);
+      const freeRow = rows.find((row) => row.id === free);
+      expect(freeRow).toBeDefined();
+      expect(freeRow?.deletedAt).not.toBeNull();
+      expect(rows.find((row) => row.id === waBound)?.deletedAt).toBeNull();
+    } finally {
+      await db.delete(user).where(eq(user.id, hoActor));
+      await db.delete(workArea).where(eq(workArea.id, wa));
+      await db.delete(department).where(eq(department.id, free));
+      await db.delete(department).where(eq(department.id, waBound));
+      await db.delete(siteLocation).where(eq(siteLocation.id, loc));
       await db.delete(site).where(eq(site.id, siteA));
     }
   });

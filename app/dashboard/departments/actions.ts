@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { department, user } from "@/drizzle/schema";
+import { department, user, workArea } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError } from "@/lib/db-errors";
 import { requireHO, type SessionUser } from "@/lib/session";
@@ -164,9 +164,11 @@ export async function deleteDepartment(id: string): Promise<ActionState> {
     return { ok: false, message: "Department not found." };
   }
 
-  // Users bound via user.departmentId are the rows that block a delete;
-  // anything else is caught by the driver-side FK as a backstop. Only LIVE
-  // users count — an already soft-deleted user must not resurrect its own
+  // Rows the delete may not touch: users bound via user.departmentId AND
+  // work areas still hanging off the department (a live work_area row
+  // would lose its option entry and fail its edits) — anything else is
+  // caught by the driver-side FK as a backstop. Only LIVE rows count — an
+  // already soft-deleted user or work area must not resurrect its own
   // binding.
   const bound = await db
     .select({ id: user.id })
@@ -175,6 +177,14 @@ export async function deleteDepartment(id: string): Promise<ActionState> {
     .limit(1);
   if (bound.length > 0) {
     return { ok: false, message: "Users are still bound to this department" };
+  }
+  const [boundWa] = await db
+    .select({ id: workArea.id })
+    .from(workArea)
+    .where(and(eq(workArea.departmentId, id), isNull(workArea.deletedAt)))
+    .limit(1);
+  if (boundWa) {
+    return { ok: false, message: "Work areas still exist under this department" };
   }
 
   try {
@@ -223,9 +233,10 @@ export async function setActiveBulk(
 
 // Bulk department unregistration. Rows with LIVE users still bound are
 // skipped (not fatal) with the same guard message the single-row path
-// gives: the bound check rides the same ownership WHERE, so foreign
-// departments can never leak into either count. The write soft-deletes —
-// deleted_at is set, the row itself stays.
+// gives, as are rows that still hold live work areas under them: the
+// bound checks ride the same ownership WHERE, so foreign departments can
+// never leak into either count. The write soft-deletes — deleted_at is
+// set, the row itself stays.
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const actor = await requireHO();
 
@@ -238,7 +249,7 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
 
   // User-bound rows among the requested set, scoped by the same weld —
   // this select maps 1:1 onto "these rows will refuse to delete."
-  const boundRows = await db
+  const userBoundRows = await db
     .select({ id: user.departmentId })
     .from(user)
     .innerJoin(department, eq(user.departmentId, department.id))
@@ -246,11 +257,33 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
       and(departmentBulkMutationWhere(actor, validIds), isNull(user.deletedAt)),
     );
 
-  const boundIds = new Set(
-    boundRows
+  const userBoundIds = new Set(
+    userBoundRows
       .filter((row): row is { id: string } => row.id !== null)
       .map((row) => row.id),
   );
+
+  // Same weld for the work-area subtree guard: a department that still
+  // holds live work areas refuses to delete, same "skip what you can"
+  // semantics as the bound users above.
+  const workAreaBoundRows = await db
+    .select({ id: workArea.departmentId })
+    .from(workArea)
+    .innerJoin(department, eq(workArea.departmentId, department.id))
+    .where(
+      and(
+        departmentBulkMutationWhere(actor, validIds),
+        isNull(workArea.deletedAt),
+      ),
+    );
+
+  const workAreaOnlyIds = new Set(
+    workAreaBoundRows
+      .map((row) => row.id)
+      .filter((id) => id !== null && !userBoundIds.has(id)),
+  );
+
+  const blockedIds = new Set([...userBoundIds, ...workAreaOnlyIds]);
 
   try {
     const deleted = await db
@@ -259,16 +292,25 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
       .where(
         departmentBulkMutationWhere(
           actor,
-          validIds.filter((id) => !boundIds.has(id)),
+          validIds.filter((id) => !blockedIds.has(id)),
         ),
       );
     const result: ActionState = {
       ok: true,
       applied: deleted.rowCount ?? 0,
-      blocked: boundIds.size,
+      blocked: blockedIds.size,
     };
-    if (boundIds.size > 0) {
-      result.message = `${boundIds.size} department${boundIds.size === 1 ? "" : "s"} skipped: Users are still bound to this department`;
+    if (blockedIds.size > 0) {
+      // Same message the single-row path gives per blocking reason; a
+      // department bound by both reads once under the users reason.
+      const reasons: string[] = [];
+      if (userBoundIds.size > 0) {
+        reasons.push("Users are still bound to this department");
+      }
+      if (workAreaOnlyIds.size > 0) {
+        reasons.push("Work areas still exist under this department");
+      }
+      result.message = `${blockedIds.size} department${blockedIds.size === 1 ? "" : "s"} skipped: ${reasons.join("; ")}`;
     }
     revalidatePath("/dashboard/departments");
     return result;

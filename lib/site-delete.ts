@@ -58,9 +58,12 @@ export async function deleteSiteGuarded(
     return { ok: false, message: "Locations still exist under this site" };
   }
 
-  // (a2) Live departments under the site (issue #67). Work areas hang off
-  // departments through the composite FK that pins the same site, so this
-  // one check covers both subtrees; only the topmost layer is named.
+  // (b) Live departments under the site. A live work area or user under
+  // such a department has its own independently guarded delete paths
+  // ("Work areas still exist under this department" / "Users are still
+  // bound to this department"), so an empty department never strands them;
+  // work areas hang off departments through the composite FK that pins the
+  // same site. Only the topmost layer is named here.
   const [dept] = await tx
     .select({ id: department.id })
     .from(department)
