@@ -7,7 +7,6 @@ import {
   PencilIcon,
   PlusIcon,
   PowerIcon,
-  Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,6 +27,7 @@ import type {
   UserRow,
   WorkAreaOption,
 } from "@/types/forms";
+import { RowDeleteItem } from "@/components/row-delete-item";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -636,13 +636,10 @@ export function UserRowActions({
             <KeyRoundIcon />
             Reset password
           </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setDialog("delete")}
-          >
-            <Trash2Icon />
-            Delete
-          </DropdownMenuItem>
+          <RowDeleteItem
+            isActive={user.isActive}
+            onOpen={() => setDialog("delete")}
+          />
         </DropdownMenuGroup>
       </DropdownMenuContent>
       {/* Controlled dialogs live outside the menu popup so the menu can

@@ -6,7 +6,6 @@ import {
   EllipsisIcon,
   PencilIcon,
   PowerIcon,
-  Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -23,6 +22,7 @@ import {
   toggleWorkArea,
   updateWorkArea,
 } from "@/app/dashboard/work-areas/actions";
+import { RowDeleteItem } from "@/components/row-delete-item";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -381,13 +381,10 @@ export function WorkAreaRowActions({
             <PencilIcon />
             Edit
           </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setDialog("delete")}
-          >
-            <Trash2Icon />
-            Delete
-          </DropdownMenuItem>
+          <RowDeleteItem
+            isActive={workArea.isActive}
+            onOpen={() => setDialog("delete")}
+          />
         </DropdownMenuGroup>
       </DropdownMenuContent>
       {/* Controlled dialogs live outside the menu popup so the menu can

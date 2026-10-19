@@ -6,7 +6,6 @@ import {
   PencilIcon,
   PlusIcon,
   PowerIcon,
-  Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -19,6 +18,7 @@ import {
   toggleSite,
   updateSite,
 } from "@/app/dashboard/sites/actions";
+import { RowDeleteItem } from "@/components/row-delete-item";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -174,13 +174,10 @@ export function SiteRowActions({ site }: { site: SiteRow }) {
             <PencilIcon />
             Edit
           </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setDialog("delete")}
-          >
-            <Trash2Icon />
-            Delete
-          </DropdownMenuItem>
+          <RowDeleteItem
+            isActive={site.isActive}
+            onOpen={() => setDialog("delete")}
+          />
         </DropdownMenuGroup>
       </DropdownMenuContent>
       {/* Controlled dialogs live outside the menu popup so the menu can

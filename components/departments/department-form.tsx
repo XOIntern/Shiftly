@@ -6,7 +6,6 @@ import {
   EllipsisIcon,
   PencilIcon,
   PowerIcon,
-  Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -19,6 +18,7 @@ import {
   toggleDepartment,
   updateDepartment,
 } from "@/app/dashboard/departments/actions";
+import { RowDeleteItem } from "@/components/row-delete-item";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -279,13 +279,10 @@ export function DepartmentRowActions({
             <PencilIcon />
             Edit
           </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setDialog("delete")}
-          >
-            <Trash2Icon />
-            Delete
-          </DropdownMenuItem>
+          <RowDeleteItem
+            isActive={department.isActive}
+            onOpen={() => setDialog("delete")}
+          />
         </DropdownMenuGroup>
       </DropdownMenuContent>
       {/* Controlled dialogs live outside the menu popup so the menu can
