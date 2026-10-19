@@ -1,6 +1,6 @@
 import type { EffectiveRules, RuleKey } from "@/types/engine";
 
-// Pure validator for draft rosters over the effective rules C1–C7.
+// Pure validator for draft rosters over the effective rules C1–C8.
 // No DB, no Next, no clock — assignments + worker profiles + resolved rules
 // in, violations out. Rules enter only via the `rules` parameter: a site
 // with c1 = 6 legitimately allows 6 work days per week.
@@ -68,6 +68,7 @@ export function validateRoster(
     checkRestAfterShift3(days, workerId, rules, violations);
     checkMandatoryBreak(days, workerId, rules, violations);
     checkWorkArea(days, workerId, workers[workerId], rules, violations);
+    checkQualification(days, workerId, workers[workerId], rules, violations);
   }
 
   return violations;
@@ -222,4 +223,20 @@ function checkWorkArea(
       });
     }
   }
+}
+
+// C8 (dormant): will flag assignments to work requiring a qualification the
+// worker lacks. There is nothing to compare until workers carry
+// qualifications and work areas declare requirements — until then every
+// worker skips, the same way a C7 worker without a profile does. When that
+// data model lands, filling in the comparison is the only change needed.
+function checkQualification(
+  days: RosterAssignment[],
+  workerId: string,
+  profile: WorkerProfile | undefined,
+  rules: EffectiveRules,
+  violations: Violation[],
+): void {
+  if (!rules.c8.value || !profile) return;
+  // dormant: no qualification data to compare yet
 }

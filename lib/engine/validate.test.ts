@@ -7,7 +7,7 @@ import type { RuleConfigRow } from "@/types/domain";
 import { validateRoster, type RosterAssignment, type Shift, type WorkerProfile } from "./validate";
 
 // Task 3 of the config-rules epic (GitHub #50): the pure validator over a
-// draft roster. Rules C1–C7 are evaluated against the effective rules the
+// draft roster. Rules C1–C8 are evaluated against the effective rules the
 // caller resolved — the validator itself never reads defaults. No DB, no
 // Next, no clock: assignments + worker profiles + rules in, violations out.
 
@@ -187,5 +187,18 @@ describe("validateRoster (issue #50 task 3)", () => {
     const assignments = [assign("w9", "2026-01-05", 1, "wa-z")];
 
     expect(validateRoster(assignments, { w2: { workAreaId: "wa-a" } }, rules())).toEqual([]);
+  });
+
+  test("C8 stays dormant while qualification data is not modeled", () => {
+    // wa-a matches the worker profile, so only a live C8 could fire.
+    const assignments = [assign("w1", "2026-01-05")];
+
+    expect(validateRoster(assignments, workers, rules({ c8: true }))).toEqual([]);
+  });
+
+  test("C8 skips when disabled", () => {
+    const assignments = [assign("w1", "2026-01-05")];
+
+    expect(validateRoster(assignments, workers, rules({ c8: false }))).toEqual([]);
   });
 });
