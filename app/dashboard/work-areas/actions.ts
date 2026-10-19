@@ -11,7 +11,7 @@ import { requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
-import { workAreaCreateSchema, workAreaUpdateSchema } from "@/lib/validators";
+import { workAreaCreateSchema, workAreaUpdateSchema } from "@/schema/validators";
 import {
   workAreaMutationWhere,
   workAreaOwnedByActor,

@@ -14,7 +14,7 @@ import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import {
   departmentCreateSchema,
   departmentUpdateSchema,
-} from "@/lib/validators";
+} from "@/schema/validators";
 import {
   departmentMutationWhere,
   departmentOwnedByActor,

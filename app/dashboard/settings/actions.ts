@@ -7,7 +7,7 @@ import { auth } from "@/lib/auth";
 import { changePasswordErrorState } from "@/lib/change-password-errors";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom } from "@/lib/action-state";
-import { changePasswordSchema } from "@/lib/validators";
+import { changePasswordSchema } from "@/schema/validators";
 
 // No requireUser() gate here: the endpoint's sensitiveSessionMiddleware
 // already rejects unauthenticated calls with UNAUTHORIZED (pinned by the

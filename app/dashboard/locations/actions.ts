@@ -11,7 +11,7 @@ import { requireHO } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
-import { locationCreateSchema, locationUpdateSchema } from "@/lib/validators";
+import { locationCreateSchema, locationUpdateSchema } from "@/schema/validators";
 import {
   locationMutationWhere,
   locationOwnedByActor,
