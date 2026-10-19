@@ -4,7 +4,13 @@ import { describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { position, site, siteLocation, worker } from "@/drizzle/schema";
+import {
+  position,
+  site,
+  siteLocation,
+  worker,
+  workerPosition,
+} from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
 // The position actions resolve their actor through requireUser — swapped
@@ -62,6 +68,16 @@ async function seedSiteWithPositions(positionNames: string[]) {
   );
 
   const cleanup = async () => {
+    // Child-first: the pivot rows hold the RESTRICT composite FKs.
+    const workerRows = await db
+      .select({ id: worker.id })
+      .from(worker)
+      .where(eq(worker.siteId, siteA));
+    for (const row of workerRows) {
+      await db
+        .delete(workerPosition)
+        .where(eq(workerPosition.workerId, row.id));
+    }
     await db.delete(worker).where(eq(worker.siteId, siteA));
     for (const id of positionIds) {
       await db.delete(position).where(eq(position.id, id));
@@ -72,7 +88,13 @@ async function seedSiteWithPositions(positionNames: string[]) {
   return { siteA, locA, positionIds, cleanup };
 }
 
-async function seedLiveWorker(positionId: string, siteId: string, locId: string) {
+// A worker holding the given set: positionId is the temporary dual-write
+// (NOT NULL until migration 0016) and carries no set semantics.
+async function seedWorkerHolding(
+  positionIds: string[],
+  siteId: string,
+  locId: string,
+) {
   const [row] = await db
     .insert(worker)
     .values({
@@ -80,10 +102,25 @@ async function seedLiveWorker(positionId: string, siteId: string, locId: string)
       siteId,
       employeeId: `t12-wbg-${randomUUID()}`,
       name: "T12 WBG Worker",
-      positionId,
+      positionId: positionIds[0],
     })
     .returning({ id: worker.id });
+  await db.insert(workerPosition).values(
+    positionIds.map((positionId) => ({
+      workerId: row.id,
+      positionId,
+      siteId,
+    })),
+  );
   return row.id;
+}
+
+async function seedLiveWorker(
+  positionId: string,
+  siteId: string,
+  locId: string,
+) {
+  return seedWorkerHolding([positionId], siteId, locId);
 }
 
 describe("position bound-guard", () => {
@@ -144,11 +181,14 @@ describe("position bound-guard", () => {
 
   test("deleteBulk splits applied and blocked across referenced positions", async () => {
     const { siteA, locA, positionIds, cleanup } =
-      await seedSiteWithPositions(["pa", "pb"]);
-    const [referencedId, freeId] = positionIds;
+      await seedSiteWithPositions(["pa", "pb", "pc"]);
+    const [referencedId, freeId, outsideId] = positionIds;
 
     try {
-      await seedLiveWorker(referencedId, siteA, locA);
+      // A two-position worker: the batch holds neither the placeholder
+      // positionId nor a single-position guess — only the pivot says which
+      // positions it holds.
+      await seedWorkerHolding([outsideId, referencedId], siteA, locA);
       actor = makeActor("superadmin", null, null);
 
       const { deleteBulk } = await import("./actions");
@@ -227,6 +267,60 @@ describe("position bound-guard", () => {
         .select({ deletedAt: position.deletedAt })
         .from(position)
         .where(eq(position.id, freeId));
+      expect(row.deletedAt).not.toBeNull();
+    } finally {
+      await cleanup();
+    }
+  });
+  test("a worker holding the position among several blocks the delete", async () => {
+    const { siteA, locA, positionIds, cleanup } =
+      await seedSiteWithPositions(["pa", "pb"]);
+    const [firstId, secondId] = positionIds;
+
+    try {
+      // The placeholder carries the first id; the second is held only
+      // through the pivot.
+      await seedWorkerHolding([firstId, secondId], siteA, locA);
+      actor = makeActor("superadmin", null, null);
+
+      const { deletePosition } = await import("./actions");
+      const result = await deletePosition(secondId);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toBe("Some workers still reference this position");
+
+      const [row] = await db
+        .select({ deletedAt: position.deletedAt })
+        .from(position)
+        .where(eq(position.id, secondId));
+      expect(row.deletedAt).toBeNull();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("soft-deleted worker does not block the position delete", async () => {
+    const { siteA, locA, positionIds, cleanup } =
+      await seedSiteWithPositions(["pa"]);
+
+    try {
+      const [positionId] = positionIds;
+      const workerId = await seedLiveWorker(positionId, siteA, locA);
+      // Soft delete only flips worker.deleted_at: its pivot row stays.
+      await db
+        .update(worker)
+        .set({ deletedAt: new Date() })
+        .where(eq(worker.id, workerId));
+      actor = makeActor("superadmin", null, null);
+
+      const { deletePosition } = await import("./actions");
+      const result = await deletePosition(positionId);
+
+      expect(result.ok).toBe(true);
+      const [row] = await db
+        .select({ deletedAt: position.deletedAt })
+        .from(position)
+        .where(eq(position.id, positionId));
       expect(row.deletedAt).not.toBeNull();
     } finally {
       await cleanup();
