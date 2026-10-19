@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Version | 0.3 |
+| Version | 0.4 |
 | Source | Derived from PRD v0.2 |
 | Status | Awaiting review; some decisions still TBD (see section 10) |
 | Audience | Developers building Shiftly |
@@ -16,6 +16,8 @@
 > **Revision (Oct 2026):** departments moved from the site_location level to the **site** level, and a new **work_area** entity was added. `department` is parented under `site`; `work_area` is scoped by both a `site_location` and a `department`, guarded by composite foreign keys that require the location and department to belong to the same site. Workers, MP requests, and rates remain at the location level.
 >
 > **Revision (Oct 2026):** the **department** entity was removed. `work_area` is now the single grouping unit, parented directly under `site_location` — the same-site guarantee comes from the `(site_location_id, site_id)` composite foreign key into `site_location (id, site_id)`. Users may bind optionally to a work area. The roster engine's grouping unit — MP requirements, assignments, and rule C7 — is the work area. The department concept is retired; this note supersedes the earlier revision notes above wherever they mention departments.
+>
+> **Update (Oct 2026):** rule configuration and the audit trail are now implemented as real tables — `roster_rule_config` and the append-only `audit_log` in `drizzle/schema/rule-config-schema.ts`, managed through a Settings page. Rule config resolves at **three** scope levels (global base → per-site override → per-location override); this supersedes the "per site" wording in §5.2 and §6 wherever it appears.
 
 ---
 
@@ -172,7 +174,7 @@ graph LR
 | C6 | Mandatory break duration | 4 consecutive days |
 | C7 | Workers only assigned within their work area/qualification | active |
 
-Global configuration can be overridden per site. Only HO (or superadmin) may change it, every change is logged (old value → new value), and changes only apply to rosters created afterward (not retroactive).
+Global configuration can be overridden per site and per site_location (most specific wins). Only HO (or superadmin) may change it, every change is logged (old value → new value), and changes only apply to rosters created afterward (not retroactive). Implemented: the `roster_rule_config` table with scope-specific partial unique indexes (section 6).
 
 ### 5.3 Evaluation strategy (engine acceptance criteria)
 
@@ -237,7 +239,7 @@ erDiagram
         bool without_roster "exception with a trail"
     }
     RULE_CONFIG {
-        string scope "global | per site"
+        string scope "global | per site | per location"
         json parameter "C1-C7, old -> new values in audit"
     }
     RATE_CONFIG {
@@ -251,7 +253,7 @@ erDiagram
 
 Schema design notes:
 
-- **Implemented so far**: `site`, `site_location`, `user`, and `work_area` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`, `drizzle/schema/work-area-schema.ts`) with FK-restricted parent references, `is_active` flags, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). `site` and `site_location` carry `(id, site_id)` unique keys so the `work_area` composite FK can enforce same-site scoping at the DB level. Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
+- **Implemented so far**: `site`, `site_location`, `user`, `work_area`, `roster_rule_config`, and `audit_log` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`, `drizzle/schema/work-area-schema.ts`, `drizzle/schema/rule-config-schema.ts`) with FK-restricted parent references, `is_active` flags where applicable, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). `site` and `site_location` carry `(id, site_id)` unique keys so the `work_area` composite FK can enforce same-site scoping at the DB level. `roster_rule_config` resolves each rule (C1–C7) at three scopes — global base, per-site, per-location — via scope-specific partial unique indexes, with a CHECK welding every location-level row to its parent site; the append-only `audit_log` is the soft-delete exception (rows are written once and kept, no `updated_at`). Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
 - **Deletion guards**: a `site` is refused deletion while live work areas exist under it; existing site_locations, work areas, and users have their own guards (users check work-area bindings first).
 - **No client entity**: the earlier Client → Site hierarchy was removed (Oct 2026 revision). What used to be "the client" (Nestle Group) is now a **site**; what used to be "a site with a city" is now a **site_location**. Client companies remain external counterparties — they convey MP requirements manually — but are not tables in the system.
 - **Site is framework, location is operations**: a `SITE` carries its name and its HO binding; shift definitions, workers, MP requests, and location rates all live under `SITE_LOCATION`.
@@ -260,7 +262,7 @@ Schema design notes:
 - **User bindings**: `role` ∈ (superadmin, ho, admin). The HO carries exactly one `siteId`; the Admin carries exactly one `siteLocationId`; the superadmin is bound to nothing and has full access. Users may additionally carry an optional `workAreaId` (nullable FK, delete-restricted; scoped management mirrors the work-area module).
 - **Versioned RosterPlan**: publishing creates a new version recorded in the audit trail; post-publish edits produce the next version.
 - **AttendanceRecord without a roster**: attendance for a worker without a roster entry remains possible, flagged as an exception (dispensation) with a trail.
-- **Hierarchical RuleConfig**: a global row as the base, per-site rows as overrides (managed by HO). The same resolution pattern is used by RateConfig (section 8).
+- **Hierarchical RuleConfig**: a global row as the base, per-site and per-location rows as overrides (managed by HO). The same resolution pattern is used by RateConfig (section 8).
 - Configuration changes are **not retroactive**: a published roster stores the configuration context in effect when it was created.
 
 ---
@@ -282,7 +284,7 @@ Note: the client (e.g. Nestle) has no access to the application; MP requirements
 The principle from PRD US-11: scoping is enforced **at the data/authorization level, not by hiding UI**. The implementation status:
 
 1. Every user session carries its scope: superadmin = "all", HO = one site (covering all of its site_locations), Admin = one site_location — implemented in `lib/scope.ts` (`scopeOf`, `canManageUser`, `userScopeFilter`).
-2. All access to operational data (workers, roster, attendance, MP requests, site configuration) goes through a single data-access layer that **must** inject the location filter (for Admin) or the site filter (for HO) from the session; superadmin bypasses filters. Domain modules have no query path that bypasses it. (Implemented for the user/site/location modules; the roster/attendance modules don't exist yet.)
+2. All access to operational data (workers, roster, attendance, MP requests, site configuration) goes through a single data-access layer that **must** inject the location filter (for Admin) or the site filter (for HO) from the session; superadmin bypasses filters. Domain modules have no query path that bypasses it. (Implemented for the user/site/location, work-area, and rule-config modules; the roster/attendance modules don't exist yet.)
 3. Session-based authentication via Better Auth (email + password) on the server, mounted at `app/api/auth/[...all]/route.ts`; soft-deleted users are blocked from sign-in and their sessions evicted. Optional MFA in a later phase.
 
 ---
