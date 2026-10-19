@@ -4,13 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import {
-  department,
-  site,
-  siteLocation,
-  user,
-  workArea,
-} from "@/drizzle/schema";
+import { site, siteLocation, user, workArea } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
 // The work-area actions resolve their actor through requireUser — swapped
@@ -32,7 +26,6 @@ mock.module("next/cache", () => ({
 describe("work-areas bulk actions", () => {
   test("admin rewrites only its own site_location's work areas", async () => {
     const siteA = randomUUID();
-    const depA = randomUUID();
     const locA = randomUUID();
     const locB = randomUUID();
     const waA = randomUUID();
@@ -46,13 +39,10 @@ describe("work-areas bulk actions", () => {
         { id: locA, siteId: siteA, name: "T5 WA Loc A" },
         { id: locB, siteId: siteA, name: "T5 WA Loc B" },
       ]);
-      await db.insert(department).values([
-        { id: depA, siteId: siteA, name: "T5 WA Dept A" },
-      ]);
       await db.insert(workArea).values([
-        { id: waA, departmentId: depA, siteLocationId: locA, siteId: siteA, name: "T5 WA A" },
-        { id: waA2, departmentId: depA, siteLocationId: locA, siteId: siteA, name: "T5 WA A2" },
-        { id: waB, departmentId: depA, siteLocationId: locB, siteId: siteA, name: "T5 WA B" },
+        { id: waA, siteLocationId: locA, siteId: siteA, name: "T5 WA A" },
+        { id: waA2, siteLocationId: locA, siteId: siteA, name: "T5 WA A2" },
+        { id: waB, siteLocationId: locB, siteId: siteA, name: "T5 WA B" },
       ]);
       await db.insert(user).values([
         {
@@ -96,7 +86,6 @@ describe("work-areas bulk actions", () => {
       await db.delete(workArea).where(eq(workArea.id, waA));
       await db.delete(workArea).where(eq(workArea.id, waA2));
       await db.delete(workArea).where(eq(workArea.id, waB));
-      await db.delete(department).where(eq(department.id, depA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locB));
       await db.delete(site).where(eq(site.id, siteA));
@@ -105,7 +94,6 @@ describe("work-areas bulk actions", () => {
 
   test("admin cannot re-parent a work area into a foreign location", async () => {
     const siteA = randomUUID();
-    const depA = randomUUID();
     const locA = randomUUID();
     const foreignLoc = randomUUID();
     const waA = randomUUID();
@@ -117,12 +105,9 @@ describe("work-areas bulk actions", () => {
         { id: locA, siteId: siteA, name: "T5 WA RP Loc" },
         { id: foreignLoc, siteId: siteA, name: "T5 WA RP Foreign" },
       ]);
-      await db.insert(department).values([
-        { id: depA, siteId: siteA, name: "T5 WA RP Dept" },
-      ]);
       await db
         .insert(workArea)
-        .values({ id: waA, departmentId: depA, siteLocationId: locA, siteId: siteA, name: "T5 WA RP" });
+        .values({ id: waA, siteLocationId: locA, siteId: siteA, name: "T5 WA RP" });
       await db.insert(user).values([
         {
           id: adminA,
@@ -148,7 +133,6 @@ describe("work-areas bulk actions", () => {
       // The client asks for the foreign location; the action must pin the
       // actor's own site_location and never let an FK error escape.
       const result = await updateWorkArea(waA, {
-        departmentId: depA,
         siteLocationId: foreignLoc,
         name: "T5 WA RP Renamed",
         isActive: true,
@@ -163,17 +147,15 @@ describe("work-areas bulk actions", () => {
     } finally {
       await db.delete(user).where(eq(user.id, adminA));
       await db.delete(workArea).where(eq(workArea.id, waA));
-      await db.delete(department).where(eq(department.id, depA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(siteLocation).where(eq(siteLocation.id, foreignLoc));
       await db.delete(site).where(eq(site.id, siteA));
     }
   });
 
-  test("superadmin create with cross-site department+location is rejected cleanly", async () => {
+  test("superadmin create derives site_id from the chosen site_location", async () => {
     const siteA = randomUUID();
     const siteB = randomUUID();
-    const depA = randomUUID();
     const locB = randomUUID();
     const saActor = randomUUID();
 
@@ -181,9 +163,6 @@ describe("work-areas bulk actions", () => {
       await db.insert(site).values([
         { id: siteA, name: `t5-wa-xs-a-${siteA}` },
         { id: siteB, name: `t5-wa-xs-b-${siteB}` },
-      ]);
-      await db.insert(department).values([
-        { id: depA, siteId: siteA, name: "T5 WA XS Dept" },
       ]);
       await db
         .insert(siteLocation)
@@ -201,24 +180,23 @@ describe("work-areas bulk actions", () => {
 
       const { createWorkArea } = await import("./actions");
       const result = await createWorkArea({
-        departmentId: depA,
         siteLocationId: locB,
         name: "T5 WA XS",
       });
 
-      // The composite FK rejects the cross-site pairing — surfaced as a
-      // clean message, never a 500.
-      expect(result.ok).toBe(false);
-      expect(result.message).toBe(
-        "Department and location must belong to the same site",
-      );
-      const rows = await db
-        .select({ id: workArea.id })
+      // siteId is never taken from the client: the action derives it from
+      // the work area's own site_location, so the composite FK pairing is
+      // decided server-side.
+      expect(result.ok).toBe(true);
+      const [row] = await db
+        .select({ id: workArea.id, siteId: workArea.siteId })
         .from(workArea)
         .where(eq(workArea.siteLocationId, locB));
-      expect(rows.length).toBe(0);
+      expect(row?.siteId).toBe(siteB);
+      if (row) {
+        await db.delete(workArea).where(eq(workArea.id, row.id));
+      }
     } finally {
-      await db.delete(department).where(eq(department.id, depA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locB));
       await db.delete(site).where(eq(site.id, siteA));
       await db.delete(site).where(eq(site.id, siteB));
@@ -227,7 +205,6 @@ describe("work-areas bulk actions", () => {
 
   test("an unbound admin (siteLocationId null) mutates nothing, fail closed", async () => {
     const siteA = randomUUID();
-    const depA = randomUUID();
     const locA = randomUUID();
     const waA = randomUUID();
     const adminA = randomUUID();
@@ -237,12 +214,9 @@ describe("work-areas bulk actions", () => {
       await db.insert(siteLocation).values([
         { id: locA, siteId: siteA, name: "T5 WA UB Loc" },
       ]);
-      await db.insert(department).values([
-        { id: depA, siteId: siteA, name: "T5 WA UB Dept" },
-      ]);
       await db
         .insert(workArea)
-        .values({ id: waA, departmentId: depA, siteLocationId: locA, siteId: siteA, name: "T5 WA UB" });
+        .values({ id: waA, siteLocationId: locA, siteId: siteA, name: "T5 WA UB" });
       await db.insert(user).values([
         {
           id: adminA,
@@ -278,7 +252,6 @@ describe("work-areas bulk actions", () => {
     } finally {
       await db.delete(user).where(eq(user.id, adminA));
       await db.delete(workArea).where(eq(workArea.id, waA));
-      await db.delete(department).where(eq(department.id, depA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(site).where(eq(site.id, siteA));
     }

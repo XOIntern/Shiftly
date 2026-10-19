@@ -1,7 +1,7 @@
 import { and, asc, count, eq, ilike, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
-import { department, site, siteLocation, workArea } from "@/drizzle/schema";
+import { site, siteLocation, workArea } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { buildOrder } from "@/lib/table-order";
 import {
@@ -12,11 +12,7 @@ import {
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWorkAreaButton } from "@/components/work-areas/work-area-form";
-import type {
-  DepartmentOption,
-  SiteLocationOption,
-  SiteOption,
-} from "@/types/forms";
+import type { SiteLocationOption, SiteOption } from "@/types/forms";
 import { WorkAreasTable } from "@/components/work-areas/work-areas-table";
 
 // Deliberate block: the page queries master data behind the session check,
@@ -29,10 +25,9 @@ export const instant = false;
 const SORTABLE = {
   name: workArea.name,
   siteName: site.name,
-  departmentName: department.name,
   isActive: workArea.isActive,
 };
-const DEFAULT_ORDER = [asc(site.name), asc(department.name), asc(workArea.name)];
+const DEFAULT_ORDER = [asc(site.name), asc(workArea.name)];
 
 // The reference algorithm (see the Sites pilot, epic #24): validate URL
 // state, count first for pageCount, clamp the page, then fetch one page.
@@ -70,9 +65,8 @@ export default async function WorkAreasPage({
     isSuperadmin && siteId ? eq(workArea.siteId, siteId) : undefined;
 
   const pattern = ilikePattern(q);
-  // Name-only search; the joined site/department names are deliberately not
-  // searched (locked decision 3). Null-safe and(...) composes
-  // scope+search+filters.
+  // Name-only search; the joined site name is deliberately not searched
+  // (locked decision 3). Null-safe and(...) composes scope+search+filters.
   const where = and(
     ...(pattern ? [ilike(workArea.name, pattern)] : []),
     ...(status ? [eq(workArea.isActive, status === "active")] : []),
@@ -88,69 +82,15 @@ export default async function WorkAreasPage({
   const [{ count: rowCount }] = await db
     .select({ count: count() })
     .from(workArea)
-    .innerJoin(department, eq(workArea.departmentId, department.id))
     .innerJoin(site, eq(workArea.siteId, site.id))
     .where(and(where, isNull(workArea.deletedAt)));
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
-  // Dialog options: the departments the actor may reference + the
-  // site_locations their scope allows for the location column — filtered to
-  // the actor's scope. For an admin the departments join through their own
-  // site_location (their location's site); site locations shrink to the
-  // actor's own bindings, and an unbound actor gets nothing.
-  let departmentsQuery: Promise<
-    Array<{ id: string; name: string; siteId: string }>
-  >;
-  if (isSuperadmin) {
-    departmentsQuery = db
-      .select({
-        id: department.id,
-        name: department.name,
-        siteId: department.siteId,
-      })
-      .from(department)
-      .where(isNull(department.deletedAt))
-      .orderBy(asc(department.name));
-  } else if (isHo) {
-    departmentsQuery = actor.siteId
-      ? db
-          .select({
-            id: department.id,
-            name: department.name,
-            siteId: department.siteId,
-          })
-          .from(department)
-          .where(
-            and(
-              eq(department.siteId, actor.siteId),
-              isNull(department.deletedAt),
-            ),
-          )
-          .orderBy(asc(department.name))
-      : Promise.resolve([]);
-  } else if (actor.siteLocationId) {
-    departmentsQuery = db
-      .select({
-        id: department.id,
-        name: department.name,
-        siteId: department.siteId,
-      })
-      .from(department)
-      .innerJoin(siteLocation, eq(department.siteId, siteLocation.siteId))
-      .where(
-        and(
-          eq(siteLocation.id, actor.siteLocationId),
-          isNull(department.deletedAt),
-        ),
-      )
-      .orderBy(asc(department.name));
-  } else {
-    departmentsQuery = Promise.resolve([]);
-  }
-
-  const [departments, siteLocations, sites, workAreas] = await Promise.all([
-    departmentsQuery,
+  // Dialog options: the site_locations the actor's scope allows for the
+  // location select — filtered to the actor's scope. Site locations shrink
+  // to the actor's own bindings, and an unbound actor gets nothing.
+  const [siteLocations, sites, workAreas] = await Promise.all([
     db
       .select({
         id: siteLocation.id,
@@ -176,8 +116,7 @@ export default async function WorkAreasPage({
     // Dialog/SiteFilter site options, selected straight from site like the
     // locations page, with per-role branches: superadmin sees all sites;
     // an ho their own site; an admin their binding's site via their
-    // site_location row (mirroring departments' derivation); an unbound
-    // actor gets nothing (sql`false`).
+    // site_location row; an unbound actor gets nothing (sql`false`).
     isSuperadmin
       ? db
           .select({ id: site.id, name: site.name })
@@ -212,14 +151,13 @@ export default async function WorkAreasPage({
         id: workArea.id,
         name: workArea.name,
         isActive: workArea.isActive,
-        departmentId: workArea.departmentId,
         siteLocationId: workArea.siteLocationId,
         siteId: workArea.siteId,
         siteName: site.name,
-        departmentName: department.name,
+        locationName: siteLocation.name,
       })
       .from(workArea)
-      .innerJoin(department, eq(workArea.departmentId, department.id))
+      .innerJoin(siteLocation, eq(workArea.siteLocationId, siteLocation.id))
       .innerJoin(site, eq(workArea.siteId, site.id))
       .where(and(where, isNull(workArea.deletedAt)))
       .orderBy(...order)
@@ -238,7 +176,6 @@ export default async function WorkAreasPage({
           </p>
         </div>
         <CreateWorkAreaButton
-          departments={departments satisfies DepartmentOption[]}
           siteLocations={siteLocations satisfies SiteLocationOption[]}
           pinnedLocationName={
             actor.role === "admin"
@@ -251,7 +188,6 @@ export default async function WorkAreasPage({
         <CardContent>
           <WorkAreasTable
             workAreas={workAreas}
-            departments={departments satisfies DepartmentOption[]}
             siteLocations={siteLocations satisfies SiteLocationOption[]}
             pinnedLocationName={
               actor.role === "admin" ? siteLocations[0]?.name : undefined

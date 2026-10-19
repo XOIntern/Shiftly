@@ -13,11 +13,9 @@ export type LocationOption = {
   siteName: string | null;
 };
 
-// Departments/work areas (issue #66): mirrors the site/location options.
-// Work-area rows key on the site_location so the select can shrink to the
-// target admin's chosen location; the page pre-scopes both option lists.
-export type DepartmentOption = { id: string; name: string; siteId: string };
-
+// Work areas (issue #66): mirrors the site/location options. Work-area
+// rows key on the site_location so the select can shrink to the target
+// admin's chosen location; the page pre-scopes both option lists.
 export type WorkAreaOption = {
   id: string;
   name: string;
@@ -47,27 +45,17 @@ export type LocationRow = {
   siteName: string;
 };
 
-// A department row the page hands the actions — siteName comes from the
-// required inner join, so it can't be null.
-export type DepartmentRow = {
-  id: string;
-  name: string;
-  isActive: boolean;
-  siteId: string;
-  siteName: string;
-};
-
-// A work-area row the page hands the actions — siteName/departmentName come
-// from the required inner joins, so they can't be null.
+// A work-area row the page hands the actions — siteName comes from the
+// required inner join, so it can't be null. locationName rides along from
+// the row's location join (optional: dialogs that don't show it omit it).
 export type WorkAreaRow = {
   id: string;
   name: string;
   isActive: boolean;
-  departmentId: string;
   siteLocationId: string;
   siteId: string;
   siteName: string;
-  departmentName: string;
+  locationName?: string | null;
 };
 
 // One row of the users table — server-selectable fields only.
@@ -87,7 +75,6 @@ export type UserFormData = {
   role: Role;
   siteId: string | null;
   siteLocationId: string | null;
-  departmentId: string | null;
   workAreaId: string | null;
 };
 

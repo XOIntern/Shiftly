@@ -14,7 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import { UserRowActions } from "@/components/users/user-form";
 import type { Role } from "@/types/domain";
 import type {
-  DepartmentOption,
   LocationOption,
   SiteOption,
   UserFormData,
@@ -36,7 +35,6 @@ export function UsersTable({
   actorRole,
   sites,
   locations,
-  departments,
   workAreas,
   pageCount,
   total,
@@ -45,7 +43,6 @@ export function UsersTable({
   actorRole: Role;
   sites: SiteOption[];
   locations: LocationOption[];
-  departments: DepartmentOption[];
   workAreas: WorkAreaOption[];
   pageCount: number;
   total: number;
@@ -114,13 +111,12 @@ export function UsersTable({
                 actorRole={actorRole}
                 sites={sites}
                 locations={locations}
-                departments={departments}
                 workAreas={workAreas}
               />
             ) : null,
         }),
       ]),
-    [actorRole, sites, locations, departments, workAreas],
+    [actorRole, sites, locations, workAreas],
   );
 
   return (

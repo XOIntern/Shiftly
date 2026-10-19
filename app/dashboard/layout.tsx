@@ -50,11 +50,6 @@ const superadminNavMain = [
     icon: <Building2Icon />,
   },
   {
-    title: "Departments",
-    url: "/dashboard/departments",
-    icon: <UsersIcon />,
-  },
-  {
     title: "Work areas",
     url: "/dashboard/work-areas",
     icon: <BuildingIcon />,
@@ -76,11 +71,6 @@ const hoNavMain = [
     title: "Locations",
     url: "/dashboard/locations",
     icon: <Building2Icon />,
-  },
-  {
-    title: "Departments",
-    url: "/dashboard/departments",
-    icon: <BuildingIcon />,
   },
   {
     title: "Work areas",

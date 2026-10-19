@@ -20,7 +20,6 @@ import { GENERIC_ERROR } from "@/lib/action-state";
 import type { ActionState } from "@/types/action-state";
 import type { Role } from "@/types/domain";
 import type {
-  DepartmentOption,
   LocationOption,
   SiteOption,
   UserFormData,
@@ -88,7 +87,6 @@ function UserForm({
   user,
   sites,
   locations,
-  departments,
   workAreas,
   onSaved,
 }: {
@@ -98,7 +96,6 @@ function UserForm({
   user?: UserFormData;
   sites: SiteOption[];
   locations: LocationOption[];
-  departments: DepartmentOption[];
   workAreas: WorkAreaOption[];
   onSaved: () => void;
 }) {
@@ -108,7 +105,6 @@ function UserForm({
   const roleId = useId();
   const siteFieldId = useId();
   const locationFieldId = useId();
-  const departmentFieldId = useId();
   const workAreaFieldId = useId();
 
   const [name, setName] = useState(user?.name ?? "");
@@ -121,9 +117,6 @@ function UserForm({
   const [site, setSite] = useState<string | null>(user?.siteId ?? null);
   const [location, setLocation] = useState<string | null>(
     user?.siteLocationId ?? null,
-  );
-  const [department, setDepartment] = useState<string | null>(
-    user?.departmentId ?? null,
   );
   const [workArea, setWorkArea] = useState<string | null>(
     user?.workAreaId ?? null,
@@ -141,10 +134,7 @@ function UserForm({
 
   // An ho actor cannot change a binding on edit (the action pins it), so
   // the location select renders disabled there; creation keeps it editable
-  // because choosing the location is the point. The department is NOT
-  // pinned this way: the action lets an ho pick their own site's
-  // department on an edit (issue #66 golden path) — the select stays
-  // usable and the payload's departmentId is sent as-is.
+  // because choosing the location is the point.
   const locationLocked = mode === "edit" && actorRole === "ho";
 
   const siteItems: {
@@ -166,19 +156,6 @@ function UserForm({
       label: siteName ? `${siteName} (${name})` : name,
       value: id,
     })),
-  ];
-
-  // A department is site-scoped: for an ho target the pick must match the
-  // site select; for an admin the page already scopes the options.
-  const departmentItems: {
-    label: string;
-    value: string | null;
-    disabled?: boolean;
-  }[] = [
-    { label: "Select a department", value: null, disabled: true },
-    ...departments
-      .filter((option) => (role === "ho" ? option.siteId === site : true))
-      .map(({ id, name }) => ({ label: name, value: id })),
   ];
 
   // Work areas key off the admin's chosen site_location (issue #66): the
@@ -229,9 +206,6 @@ function UserForm({
           ...(role === "admin"
             ? { siteLocationId: location ?? undefined }
             : {}),
-          ...(role === "admin" || role === "ho"
-            ? { departmentId: department ?? undefined }
-            : {}),
           ...(role === "admin" && actorRole === "superadmin"
             ? { workAreaId: workArea ?? undefined }
             : {}),
@@ -247,9 +221,6 @@ function UserForm({
           ...(createRole === "admin"
             ? { siteLocationId: location ?? undefined }
             : {}),
-          ...(createRole === "admin" || createRole === "ho"
-            ? { departmentId: department ?? undefined }
-            : {}),
           ...(createRole === "admin" && actorRole === "superadmin"
             ? { workAreaId: workArea ?? undefined }
             : {}),
@@ -263,7 +234,7 @@ function UserForm({
       if (result.fieldErrors) {
         // Errors for keys without a rendered field (id, form-level parse
         // messages) would vanish otherwise: lift them into the message slot.
-        const known = ["name", "email", "password", "role", "siteId", "siteLocationId", "departmentId", "workAreaId", "form"];
+        const known = ["name", "email", "password", "role", "siteId", "siteLocationId", "workAreaId", "form"];
         const stray = Object.entries(result.fieldErrors).filter(
           ([key]) => !known.includes(key),
         );
@@ -345,7 +316,6 @@ function UserForm({
               // now-irrelevant binding.
               setSite(null);
               setLocation(null);
-              setDepartment(null);
               setWorkArea(null);
             }}
           >
@@ -450,46 +420,6 @@ function UserForm({
             ) : null}
           </Field>
         ) : null}
-        {role === "superadmin" || role === null ? null : (
-          // Department binding (issue #66): any ho or admin target may
-          // carry one. An ho target's departments shrink to the chosen
-          // site; an admin target's arrive pre-scoped from the page.
-          <Field
-            data-invalid={fieldErrors?.departmentId ? "true" : undefined}
-          >
-            <FieldLabel htmlFor={departmentFieldId}>Department</FieldLabel>
-            <Select
-              items={departmentItems}
-              value={department}
-              onValueChange={(value) => setDepartment(value as string | null)}
-            >
-              <SelectTrigger id={departmentFieldId} className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {departmentItems.map((item) => (
-                    <SelectItem
-                      key={item.value ?? "placeholder"}
-                      value={item.value}
-                      disabled={item.disabled}
-                    >
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {departmentItems.length === 1 ? (
-              <FieldDescription>
-                No departments available — create one first.
-              </FieldDescription>
-            ) : null}
-            {fieldErrors?.departmentId ? (
-              <FieldError errors={[{ message: fieldErrors.departmentId }]} />
-            ) : null}
-          </Field>
-        )}
         {role === "admin" && actorRole === "superadmin" ? (
           // Work-area binding (issue #66): admins only, superadmin-managed
           // — an ho actor never sets one (the action strips it). Options
@@ -544,13 +474,11 @@ export function CreateUserButton({
   actorRole,
   sites,
   locations,
-  departments,
   workAreas,
 }: {
   actorRole: Role;
   sites: SiteOption[];
   locations: LocationOption[];
-  departments: DepartmentOption[];
   workAreas: WorkAreaOption[];
 }) {
   const [open, setOpen] = useState(false);
@@ -574,7 +502,6 @@ export function CreateUserButton({
           actorRole={actorRole}
           sites={sites}
           locations={locations}
-          departments={departments}
           workAreas={workAreas}
           onSaved={() => setOpen(false)}
         />
@@ -589,7 +516,6 @@ export function UserRowActions({
   actorRole,
   sites,
   locations,
-  departments,
   workAreas,
 }: {
   user: UserRow;
@@ -597,7 +523,6 @@ export function UserRowActions({
   actorRole: Role;
   sites: SiteOption[];
   locations: LocationOption[];
-  departments: DepartmentOption[];
   workAreas: WorkAreaOption[];
 }) {
   const [dialog, setDialog] = useState<
@@ -649,7 +574,6 @@ export function UserRowActions({
         user={form}
         sites={sites}
         locations={locations}
-        departments={departments}
         workAreas={workAreas}
         open={dialog === "edit"}
         onOpenChange={(open) => {
@@ -738,7 +662,6 @@ function EditUserDialog({
   user,
   sites,
   locations,
-  departments,
   workAreas,
   open,
   onOpenChange,
@@ -747,7 +670,6 @@ function EditUserDialog({
   user: UserFormData;
   sites: SiteOption[];
   locations: LocationOption[];
-  departments: DepartmentOption[];
   workAreas: WorkAreaOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -767,7 +689,6 @@ function EditUserDialog({
           user={user}
           sites={sites}
           locations={locations}
-          departments={departments}
           workAreas={workAreas}
           onSaved={() => onOpenChange(false)}
         />
