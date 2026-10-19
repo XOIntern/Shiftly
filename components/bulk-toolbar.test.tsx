@@ -25,33 +25,65 @@ function hasButton(html: string, label: string) {
   return html.includes(`>${label}<`);
 }
 
+// The opening tag of the button carrying the label — lets assertions see
+// the disabled attribute without a DOM. The class attribute also contains
+// the word "disabled" (disabled:pointer-events-none…), so the attribute
+// must be matched with its own `disabled=` token.
+function isDisabled(html: string, label: string) {
+  const tag = html.match(new RegExp(`<button[^>]*>${label}<`))?.[0];
+  return tag !== undefined && new RegExp(`\\sdisabled=`).test(tag);
+}
+
 describe("BulkToolbar lifecycle button visibility", () => {
-  test("an all-Active selection hides Activate and keeps Deactivate", () => {
+  test("an all-Active selection hides Activate and keeps Deactivate enabled", () => {
     const html = renderBulk(2, [true, true]);
 
     expect(hasButton(html, "Activate")).toBeFalse();
     expect(hasButton(html, "Deactivate")).toBeTrue();
+    expect(isDisabled(html, "Deactivate")).toBeFalse();
+    expect(html.includes('data-slot="tooltip-trigger"')).toBeFalse();
   });
 
-  test("an all-Inactive selection hides Deactivate and keeps Activate", () => {
+  test("an all-Inactive selection hides Deactivate and keeps Activate enabled", () => {
     const html = renderBulk(2, [false, false]);
 
     expect(hasButton(html, "Deactivate")).toBeFalse();
     expect(hasButton(html, "Activate")).toBeTrue();
+    expect(isDisabled(html, "Activate")).toBeFalse();
   });
 
-  test("a mixed selection keeps both lifecycle buttons", () => {
+  test("a mixed selection disables both lifecycle buttons", () => {
     const html = renderBulk(2, [true, false]);
 
     expect(hasButton(html, "Activate")).toBeTrue();
     expect(hasButton(html, "Deactivate")).toBeTrue();
+    expect(isDisabled(html, "Activate")).toBeTrue();
+    expect(isDisabled(html, "Deactivate")).toBeTrue();
   });
 
-  test("no status info keeps both buttons (back-compat)", () => {
+  test("a mixed selection wraps the verbs in a tooltip trigger", () => {
+    const html = renderBulk(2, [true, false]);
+
+    expect(html.includes('data-slot="tooltip-trigger"')).toBeTrue();
+  });
+
+  test("no status info keeps both buttons enabled (back-compat)", () => {
     const html = renderBulk(2, undefined);
 
     expect(hasButton(html, "Activate")).toBeTrue();
     expect(hasButton(html, "Deactivate")).toBeTrue();
+    expect(isDisabled(html, "Activate")).toBeFalse();
+    expect(isDisabled(html, "Deactivate")).toBeFalse();
+    expect(html.includes('data-slot="tooltip-trigger"')).toBeFalse();
+  });
+
+  test("an empty status list keeps both buttons enabled (unknown)", () => {
+    const html = renderBulk(2, []);
+
+    expect(hasButton(html, "Activate")).toBeTrue();
+    expect(hasButton(html, "Deactivate")).toBeTrue();
+    expect(isDisabled(html, "Activate")).toBeFalse();
+    expect(isDisabled(html, "Deactivate")).toBeFalse();
   });
 
   test("the Clear button is gone; the header checkbox clears instead", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import type { ReactNode } from "react";
 import { toast } from "sonner";
 
 import {
@@ -14,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ActionState } from "@/lib/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
 
@@ -26,11 +28,14 @@ type BulkOperation = () => Promise<ActionState>;
 // delete is not undoable. Lifecycle buttons hide when they cannot change
 // anything: an all-Active selection needs Deactivate only, an
 // all-Inactive one needs Activate only, and unknown status keeps both
-// (old behavior). Delete is a post-deactivation verb: it hides while any
-// selected row is still active and shows for an all-Inactive selection —
-// or when status is unknown (same back-compat rule). Every confirm runs
-// its server action through one transition so the whole strip disables
-// while a mutation is in flight.
+// (old behavior). A mixed selection (some active, some inactive) keeps
+// both visible but disabled — either verb would only half-apply — and a
+// tooltip tells the operator to narrow the selection to one status.
+// Delete is a post-deactivation verb: it hides while any selected row is
+// still active and shows for an all-Inactive selection — or when status
+// is unknown (same back-compat rule). Every confirm runs its server
+// action through one transition so the whole strip disables while a
+// mutation is in flight.
 type Confirm = { operation: BulkOperation; verb: string } | null;
 
 export function BulkToolbar({
@@ -82,6 +87,13 @@ export function BulkToolbar({
     statuses.length > 0 && statuses.every((status) => !status);
   const uniformActive =
     statuses.length > 0 && statuses.every((status) => status);
+  // A mixed selection can only half-apply either verb, so both sit
+  // disabled behind a tooltip; the operator narrows to a single status
+  // to bulk-toggle.
+  const mixed =
+    statuses.length > 0 &&
+    statuses.some(Boolean) &&
+    statuses.some((status) => !status);
   // Delete is a post-deactivation verb: hide it while any selected row is
   // still active; unknown status keeps it (same back-compat rule as above).
   const deleteVisible =
@@ -98,32 +110,57 @@ export function BulkToolbar({
       : "The selected rows will be set inactive. Anything that runs off them stops; re-activating restores it."
     : "";
 
+  const activate = (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={pending || mixed}
+      onClick={() => setConfirm({ operation: onActivate, verb: "activate" })}
+    >
+      Activate
+    </Button>
+  );
+
+  const deactivate = (
+    <Button
+      size="sm"
+      variant="destructive"
+      disabled={pending || mixed}
+      onClick={() =>
+        setConfirm({ operation: onDeactivate, verb: "deactivate" })
+      }
+    >
+      Deactivate
+    </Button>
+  );
+
+  // A disabled <button> fires no pointer events, so the tooltip trigger
+  // is a span wrapping it (the shadcn disabled-button pattern; Base UI
+  // tooltips work standalone, no provider needed).
+  const withMixedTooltip = (button: ReactNode) => (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-block w-fit" />}>
+        {button}
+      </TooltipTrigger>
+      <TooltipContent>
+        Selection has mixed statuses — select rows with a single status to
+        bulk-toggle.
+      </TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-sm text-muted-foreground" data-selected-count>
         {label}
       </span>
-      {!uniformActive ? (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={pending}
-          onClick={() => setConfirm({ operation: onActivate, verb: "activate" })}
-        >
-          Activate
-        </Button>
-      ) : null}
+      {!uniformActive ? (mixed ? withMixedTooltip(activate) : activate) : null}
       {!uniformInactive ? (
-        <Button
-          size="sm"
-          variant="destructive"
-          disabled={pending}
-          onClick={() =>
-            setConfirm({ operation: onDeactivate, verb: "deactivate" })
-          }
-        >
-          Deactivate
-        </Button>
+        mixed ? (
+          withMixedTooltip(deactivate)
+        ) : (
+          deactivate
+        )
       ) : null}
       {deleteVisible ? (
         <Button
