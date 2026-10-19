@@ -10,8 +10,10 @@ export interface RuleConfigRow {
 }
 
 // Must stay in sync with ROLES (lib/scope.ts): the type was previously
-// derived as (typeof ROLES)[number], but types/ never imports from lib/,
-// so the union is spelled out here.
+// derived as (typeof ROLES)[number], which would need a value import
+// (forbidden from values in lib/ into types/) or a cycle, so the union is
+// spelled out here. Value imports from lib/ into types/ stay forbidden;
+// type-only imports are allowed.
 export type Role = "superadmin" | "ho" | "admin";
 
 export type Scope =

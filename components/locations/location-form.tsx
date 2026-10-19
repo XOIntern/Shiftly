@@ -63,15 +63,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// A location row the page hands the actions — siteName comes from the
-// required inner join, so it can't be null.
-export type LocationOption = {
-  id: string;
-  name: string;
-  siteId: string;
-  siteName: string;
-};
-
 type LocationFieldErrors = Record<string, string>;
 
 type SelectOption = {

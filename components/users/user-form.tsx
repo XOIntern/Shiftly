@@ -73,8 +73,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// Role comes from lib/scope (single source of truth, shared with the
-// actions); the dialog only renders the select from it.
+// Role's type lives in @/types/domain; the ROLES value (runtime source
+// of truth) stays in lib/scope.ts. The dialog only renders the select from it.
 
 const roleItemsAll: { label: string; value: Role }[] = [
   { label: "Superadmin", value: "superadmin" },

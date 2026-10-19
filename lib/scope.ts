@@ -6,7 +6,7 @@ import type { Role, Scope } from "@/types/domain";
 
 // The enum stays the single source of truth for what a role string can be:
 // lib/validators.ts and every call site gate role inputs against this list.
-export const ROLES = ["superadmin", "ho", "admin"] as const;
+export const ROLES = ["superadmin", "ho", "admin"] as const satisfies readonly Role[];
 
 // The role alone decides the Scope shape; the role's own binding fills it
 // in (docs/architecture.md v0.2 §6): superadmin is global, ho is scoped to
