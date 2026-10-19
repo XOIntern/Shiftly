@@ -52,6 +52,25 @@ export const positionUpdateSchema = positionCreateSchema.extend({
   isActive: z.boolean(),
 });
 
+// Workers (worker-crud epic, 2026-10-20): mirrors workAreaCreateSchema —
+// siteLocationId and positionId are required (the worker reports to its
+// location and holds a position directly), siteId stays optional at the
+// schema level (the actions derive it from the site_location, so the
+// dialog does not send one). contractEndDate is a date string.
+export const workerCreateSchema = z.object({
+  siteId: z.uuid().optional(),
+  siteLocationId: z.uuid(),
+  positionId: z.uuid(),
+  employeeId: z.string().trim().min(1).max(100),
+  name: nameField,
+  contractEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+export const workerUpdateSchema = workerCreateSchema.extend({
+  id: z.uuid(),
+  isActive: z.boolean(),
+});
+
 // Role/binding invariants (docs/architecture.md v0.2 §6): superadmin is
 // global (no site/location binding, and — since the dropped-department
 // epic — no department binding either), ho binds exactly one site and
@@ -186,6 +205,8 @@ export type WorkAreaCreateInput = z.infer<typeof workAreaCreateSchema>;
 export type WorkAreaUpdateInput = z.infer<typeof workAreaUpdateSchema>;
 export type PositionCreateInput = z.infer<typeof positionCreateSchema>;
 export type PositionUpdateInput = z.infer<typeof positionUpdateSchema>;
+export type WorkerCreateInput = z.infer<typeof workerCreateSchema>;
+export type WorkerUpdateInput = z.infer<typeof workerUpdateSchema>;
 export type UserCreateInput = z.infer<typeof userCreateSchema>;
 export type UserUpdateInput = z.infer<typeof userUpdateSchema>;
 export type UserPasswordInput = z.infer<typeof userPasswordSchema>;
