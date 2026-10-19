@@ -6,8 +6,9 @@ import { z } from "zod";
 
 import { siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { requireHO, type SessionUser } from "@/lib/session";
-import type { ActionState } from "@/lib/action-state";
+import { requireHO } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
+import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { resolveRules } from "@/lib/engine/resolve";
 import type { RuleKey } from "@/types/engine";

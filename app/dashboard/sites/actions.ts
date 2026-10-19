@@ -8,7 +8,7 @@ import { site } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError } from "@/lib/db-errors";
 import { requireSuperadmin } from "@/lib/session";
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { siteCreateSchema, siteUpdateSchema } from "@/lib/validators";
 import { deleteSiteGuarded } from "@/lib/site-delete";

@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { changePasswordErrorState } from "@/lib/change-password-errors";
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom } from "@/lib/action-state";
 import { changePasswordSchema } from "@/lib/validators";
 

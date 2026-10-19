@@ -11,7 +11,7 @@ import {
   siteLocation,
   user,
 } from "@/drizzle/schema";
-import type { SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
 
 // The rule-config action resolves its actor through requireHO — swapped for
 // a stub that mirrors the real gate (superadmin and ho pass; admin is

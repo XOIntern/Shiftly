@@ -4,16 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/drizzle/schema";
-
-export type SessionUser = {
-  id: string;
-  name: string;
-  email: string;
-  role: "superadmin" | "ho" | "admin";
-  siteId: string | null;
-  siteLocationId: string | null;
-  isActive: boolean;
-};
+import type { SessionUser } from "@/types/session";
 
 export async function getUser(): Promise<SessionUser | null> {
   const session = await auth.api.getSession({ headers: await headers() });

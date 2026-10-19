@@ -7,8 +7,9 @@ import { z } from "zod";
 import { department, siteLocation, user, workArea } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/lib/db-errors";
-import { requireUser, type SessionUser } from "@/lib/session";
-import type { ActionState } from "@/lib/action-state";
+import { requireUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
+import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { workAreaCreateSchema, workAreaUpdateSchema } from "@/lib/validators";
 import {

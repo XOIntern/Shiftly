@@ -18,7 +18,7 @@ import {
   updateUser,
 } from "@/app/dashboard/users/actions";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
 import type { Role } from "@/types/domain";
 import { Button } from "@/components/ui/button";
 import {

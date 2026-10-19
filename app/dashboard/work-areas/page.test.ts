@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { department, site, siteLocation, workArea } from "@/drizzle/schema";
-import type { SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
 
 // The work-areas page reads its actor through requireUser (all three roles
 // manage their own scope) — swapped for a stub so the real server component

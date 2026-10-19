@@ -14,8 +14,9 @@ import {
 } from "@/lib/db-errors";
 import { canManageActorTarget } from "@/lib/scope";
 import type { Role } from "@/types/domain";
-import { requireHO, type SessionUser } from "@/lib/session";
-import type { ActionState } from "@/lib/action-state";
+import { requireHO } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
+import type { ActionState } from "@/types/action-state";
 import {
   fieldErrorsFrom,
   GENERIC_ERROR,

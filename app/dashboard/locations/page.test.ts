@@ -5,7 +5,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation } from "@/drizzle/schema";
-import type { SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
 
 // The locations page reads its actor through requireHO — swapped for a
 // stub so the real server component can render against the test database.

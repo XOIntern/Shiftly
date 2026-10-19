@@ -8,7 +8,7 @@ import { pgErrorCode } from "./db-errors";
 import { deleteSiteGuarded } from "./site-delete";
 import { userScopeFilter } from "./scope";
 import { session, site, siteLocation, user } from "../drizzle/schema";
-import type { SessionUser } from "./session";
+import type { SessionUser } from "@/types/session";
 
 // Task 1 of the soft-delete epic (GitHub #37): site, site_location and user
 // gain a nullable deleted_at and their unique constraints become partial
