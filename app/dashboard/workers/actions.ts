@@ -180,10 +180,6 @@ export async function createWorker(input: {
           siteId: derivedSiteId,
           employeeId: parsed.data.employeeId,
           name: parsed.data.name,
-          // Temporary dual-write: worker.position_id is still NOT NULL
-          // until migration 0016 drops it. The first id carries no primary
-          // meaning — the set lives in worker_position.
-          positionId: parsed.data.positionIds[0],
           contractEndDate: parsed.data.contractEndDate ?? null,
         })
         .returning({ id: worker.id });
@@ -277,8 +273,6 @@ export async function updateWorker(
         .set({
           siteLocationId: parsed.data.siteLocationId,
           siteId: derivedSiteId,
-          // Temporary dual-write until migration 0016 (see createWorker).
-          positionId: parsed.data.positionIds[0],
           employeeId: parsed.data.employeeId,
           name: parsed.data.name,
           contractEndDate: parsed.data.contractEndDate ?? null,

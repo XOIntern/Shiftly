@@ -112,7 +112,6 @@ async function seedWorkerFixtures() {
       id: wA,
       siteId: siteA,
       siteLocationId: locA1,
-      positionId: posA,
       employeeId: `t13-wpage-emp-a-${wA.slice(0, 8)}`,
       name: "t13-wpage-worker-a",
     },
@@ -120,7 +119,6 @@ async function seedWorkerFixtures() {
       id: wB,
       siteId: siteB,
       siteLocationId: locB,
-      positionId: posB,
       employeeId: `t13-wpage-emp-b-${wB.slice(0, 8)}`,
       name: "t13-wpage-worker-b",
     },
@@ -327,8 +325,6 @@ describe("workers page server queries", () => {
         id: bare,
         siteId: fx.ids.siteA,
         siteLocationId: fx.ids.locA1,
-        // Still NOT NULL until migration 0016; the set lives in the pivot.
-        positionId: fx.ids.posA,
         employeeId: `t13-wpage-emp-bare-${bare.slice(0, 8)}`,
         name: "t13-wpage-worker-bare",
       });

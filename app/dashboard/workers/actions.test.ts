@@ -97,8 +97,6 @@ async function seedWorkerWithPositions(args: {
     siteId: args.siteId,
     employeeId: args.employeeId,
     name: args.name,
-    // Still NOT NULL until migration 0016; carries no set semantics.
-    positionId: args.positionIds[0],
   });
   await db.insert(workerPosition).values(
     args.positionIds.map((positionId) => ({
@@ -189,7 +187,6 @@ describe("worker actions", () => {
       // siteId was never sent: the action derived it from the location.
       expect(row.siteId).toBe(fx.siteA);
       expect(row.siteLocationId).toBe(fx.locA1);
-      expect(row.positionId).toBe(fx.posA);
       expect(row.name).toBe("T11 Wact Worker RT");
       expect(row.contractEndDate).toBe("2027-01-31");
       expect(row.isActive).toBe(true);
@@ -278,7 +275,6 @@ describe("worker actions", () => {
         .where(eq(worker.employeeId, "t11-wact-emp-adm"));
       expect(row.siteLocationId).toBe(fx.locA1);
       expect(row.siteId).toBe(fx.siteA);
-      expect(row.positionId).toBe(fx.posA);
     } finally {
       await dropWorkersByEmployeeId("t11-wact-emp-adm");
       await db.delete(position).where(eq(position.id, fx.posA));
@@ -337,7 +333,6 @@ describe("worker actions", () => {
         siteId: fx.siteA,
         employeeId: "t11-wact-emp-dup",
         name: "T11 Wact Worker Dup",
-        positionId: fx.posA,
       });
 
       actor = makeActor("superadmin", null, null);
@@ -386,7 +381,6 @@ describe("worker actions", () => {
         siteId: fx.siteA,
         employeeId: "t11-wact-emp-umov",
         name: "T11 Wact Worker UMov",
-        positionId: fx.posA,
       });
 
       actor = makeActor("ho", fx.siteA, null);
@@ -413,7 +407,6 @@ describe("worker actions", () => {
         .where(eq(worker.id, wid));
       expect(row.siteLocationId).toBe(fx.locA1);
       expect(row.siteId).toBe(fx.siteA);
-      expect(row.positionId).toBe(fx.posA);
       expect(row.contractEndDate).toBeNull();
     } finally {
       await dropWorkerById(wid);
@@ -438,7 +431,6 @@ describe("worker actions", () => {
         siteId: fx.siteA,
         employeeId: "t11-wact-emp-mov",
         name: "T11 Wact Worker Mov",
-        positionId: fx.posA,
         contractEndDate: "2027-06-30",
       });
 
@@ -461,7 +453,6 @@ describe("worker actions", () => {
       const [row] = await db.select().from(worker).where(eq(worker.id, wid));
       expect(row.siteId).toBe(fx.siteB);
       expect(row.siteLocationId).toBe(fx.locB);
-      expect(row.positionId).toBe(fx.posB);
       expect(row.name).toBe("T11 Wact Worker Moved");
       expect(row.contractEndDate).toBe("2028-06-30");
       expect(row.isActive).toBe(false);
@@ -495,7 +486,6 @@ describe("worker actions", () => {
         siteId: fx.siteA,
         employeeId: "t11-wact-emp-inact",
         name: "T11 Wact Worker Inact",
-        positionId: fx.posA,
       });
 
       actor = makeActor("superadmin", null, null);
@@ -513,8 +503,8 @@ describe("worker actions", () => {
       // not touch the position must never fail because it was deactivated
       // since the picker snapshot.
       expect(result.ok).toBe(true);
-      const [row] = await db.select().from(worker).where(eq(worker.id, wid));
-      expect(row.positionId).toBe(inactivePos);
+      const attached = await pivotPositions(wid);
+      expect(attached.map((p) => p.id)).toEqual([inactivePos]);
     } finally {
       await dropWorkerById(wid);
       await db.delete(position).where(eq(position.id, inactivePos));
@@ -543,16 +533,14 @@ describe("worker actions", () => {
           siteId: fx.siteA,
           employeeId: "t11-wact-emp-mdup",
           name: "T11 Wact Worker MDup 1",
-          positionId: fx.posA,
-        },
+          },
         {
           id: w2,
           siteLocationId: fx.locA2,
           siteId: fx.siteA,
           employeeId: "t11-wact-emp-mdup",
           name: "T11 Wact Worker MDup 2",
-          positionId: fx.posA,
-        },
+          },
       ]);
 
       actor = makeActor("superadmin", null, null);
@@ -596,7 +584,6 @@ describe("worker actions", () => {
         siteId: fx.siteB,
         employeeId: "t11-wact-emp-fn",
         name: "T11 Wact Worker FN",
-        positionId: fx.posB,
       });
 
       actor = makeActor("ho", fx.siteA, null);
@@ -709,24 +696,21 @@ describe("worker actions", () => {
           siteId: fx.siteA,
           employeeId: "t11-wact-emp-b1",
           name: "T11 Wact Worker B1",
-          positionId: fx.posA,
-        },
+          },
         {
           id: wA2,
           siteLocationId: fx.locA2,
           siteId: fx.siteA,
           employeeId: "t11-wact-emp-b2",
           name: "T11 Wact Worker B2",
-          positionId: fx.posA,
-        },
+          },
         {
           id: wB1,
           siteLocationId: fx.locB,
           siteId: fx.siteB,
           employeeId: "t11-wact-emp-b3",
           name: "T11 Wact Worker B3",
-          positionId: fx.posB,
-        },
+          },
       ]);
 
       // Location-scoped: the admin welds on site_location_id, so the site

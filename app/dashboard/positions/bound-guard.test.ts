@@ -88,8 +88,8 @@ async function seedSiteWithPositions(positionNames: string[]) {
   return { siteA, locA, positionIds, cleanup };
 }
 
-// A worker holding the given set: positionId is the temporary dual-write
-// (NOT NULL until migration 0016) and carries no set semantics.
+// A worker holding the given set: the pivot is the only source of position
+// qualifications.
 async function seedWorkerHolding(
   positionIds: string[],
   siteId: string,
@@ -102,7 +102,6 @@ async function seedWorkerHolding(
       siteId,
       employeeId: `t12-wbg-${randomUUID()}`,
       name: "T12 WBG Worker",
-      positionId: positionIds[0],
     })
     .returning({ id: worker.id });
   await db.insert(workerPosition).values(

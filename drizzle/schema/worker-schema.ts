@@ -17,10 +17,11 @@ import { position } from "./position-schema";
 import { site, siteLocation } from "./site-schema";
 
 // Workers are site_location-scoped rows — the unit the roster engine
-// schedules (they never log in). The two composite FKs pin both the
-// site_location and the position onto the SAME site as the denormalized
-// site_id — cross-site pairing is impossible even by direct insert (23503),
-// pinned in lib/worker-fk.test.ts.
+// schedules (they never log in). The site_location FK pins the location onto
+// the SAME site as the denormalized site_id — cross-site pairing is
+// impossible even by direct insert (23503), pinned in lib/worker-fk.test.ts.
+// A worker's qualifications are a SET: the positions live in worker_position
+// (multi-position spec, 2026-10-20) with no primary and no order.
 
 export const worker = pgTable(
   "worker",
@@ -30,7 +31,6 @@ export const worker = pgTable(
     siteId: uuid("site_id").notNull(),
     employeeId: text("employee_id").notNull(),
     name: text("name").notNull(),
-    positionId: uuid("position_id").notNull(),
     contractEndDate: date("contract_end_date"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -50,11 +50,6 @@ export const worker = pgTable(
       name: "worker_site_location_site_fk",
       columns: [table.siteLocationId, table.siteId],
       foreignColumns: [siteLocation.id, siteLocation.siteId],
-    }).onDelete("restrict"),
-    foreignKey({
-      name: "worker_position_site_fk",
-      columns: [table.positionId, table.siteId],
-      foreignColumns: [position.id, position.siteId],
     }).onDelete("restrict"),
   ],
 );
@@ -101,10 +96,6 @@ export const workerRelations = relations(worker, ({ one, many }) => ({
   site: one(site, {
     fields: [worker.siteId],
     references: [site.id],
-  }),
-  position: one(position, {
-    fields: [worker.positionId],
-    references: [position.id],
   }),
   positions: many(workerPosition),
 }));

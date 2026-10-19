@@ -13,77 +13,23 @@ import {
   workerPosition,
 } from "../drizzle/schema";
 
-// Pinning test (GitHub #83): the worker table's two composite FKs pin both
-// the site_location and the position onto the SAME site as the denormalized
-// site_id — a cross-site pairing must be rejected at the DB level with 23503
-// no matter which site the worker row itself claims. The partial unique on
+// Pinning test (GitHub #83): the worker table's composite site_location FK
+// pins the location onto the SAME site as the denormalized site_id — a
+// cross-site pairing must be rejected at the DB level with 23503 no matter
+// which site the worker row itself claims. The partial unique on
 // (site_location_id, employee_id) makes employee_id unique per location
 // among live rows (soft delete frees it), and the location FK's ON DELETE
-// RESTRICT protects live workers from losing their site_location.
+// RESTRICT protects live workers from losing their site_location. Position
+// qualifications live on worker_position (see the suite below).
 let fixtureSeq = 0;
 const nextSeq = () => ++fixtureSeq;
 
 describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", () => {
-  test("position from site B + site_id = A: rejected with 23503", async () => {
-    const run = `t${nextSeq()}`;
-    const siteAId = randomUUID();
-    const siteBId = randomUUID();
-    const locationId = randomUUID();
-    const positionId = randomUUID();
-    const workerId = randomUUID();
-
-    try {
-      await db.insert(site).values([
-        { id: siteAId, name: `${run}-worker-site-a-${siteAId}` },
-        { id: siteBId, name: `${run}-worker-site-b-${siteBId}` },
-      ]);
-      await db.insert(siteLocation).values({
-        id: locationId,
-        siteId: siteAId,
-        name: `${run}-Location A`,
-      });
-      await db.insert(position).values({
-        id: positionId,
-        siteId: siteBId,
-        name: `${run}-Position B`,
-      });
-
-      let code: string | undefined;
-      try {
-        await db.insert(worker).values({
-          id: workerId,
-          siteLocationId: locationId, // site A — valid
-          siteId: siteAId,
-          employeeId: `${run}-emp-1`,
-          name: `${run}-Cross Position Worker`,
-          positionId, // site B — mismatch
-        });
-      } catch (err) {
-        code = pgErrorCode(err);
-      }
-      expect(code).toBe("23503");
-
-      // The rejected insert must have left nothing behind.
-      const rows = await db
-        .select()
-        .from(worker)
-        .where(eq(worker.id, workerId));
-      expect(rows).toHaveLength(0);
-    } finally {
-      await db.delete(worker).where(eq(worker.id, workerId));
-      await db.delete(position).where(eq(position.id, positionId));
-      await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
-      await db.delete(site).where(eq(site.id, siteAId));
-      await db.delete(site).where(eq(site.id, siteBId));
-    }
-  });
-
   test("site_location from site B + site_id = A: rejected with 23503", async () => {
     const run = `t${nextSeq()}`;
     const siteAId = randomUUID();
     const siteBId = randomUUID();
     const locationId = randomUUID();
-    const positionId = randomUUID();
     const workerId = randomUUID();
 
     try {
@@ -96,11 +42,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId: siteBId,
         name: `${run}-Location B`,
       });
-      await db.insert(position).values({
-        id: positionId,
-        siteId: siteAId,
-        name: `${run}-Position A`,
-      });
 
       let code: string | undefined;
       try {
@@ -110,7 +51,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
           siteId: siteAId,
           employeeId: `${run}-emp-1`,
           name: `${run}-Cross Location Worker`,
-          positionId, // site A — valid
         });
       } catch (err) {
         code = pgErrorCode(err);
@@ -125,7 +65,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
       expect(rows).toHaveLength(0);
     } finally {
       await db.delete(worker).where(eq(worker.id, workerId));
-      await db.delete(position).where(eq(position.id, positionId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteAId));
       await db.delete(site).where(eq(site.id, siteBId));
@@ -136,7 +75,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
     const run = `t${nextSeq()}`;
     const siteId = randomUUID();
     const locationId = randomUUID();
-    const positionId = randomUUID();
     const workerId = randomUUID();
 
     try {
@@ -149,11 +87,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId,
         name: `${run}-Location Same`,
       });
-      await db.insert(position).values({
-        id: positionId,
-        siteId,
-        name: `${run}-Position Same`,
-      });
 
       await db.insert(worker).values({
         id: workerId,
@@ -161,7 +94,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId,
         employeeId: `${run}-emp-1`,
         name: `${run}-Same Site Worker`,
-        positionId,
         contractEndDate: "2026-12-31",
       });
 
@@ -174,13 +106,11 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
       expect(row.siteId).toBe(siteId);
       expect(row.employeeId).toBe(`${run}-emp-1`);
       expect(row.name).toBe(`${run}-Same Site Worker`);
-      expect(row.positionId).toBe(positionId);
       expect(row.contractEndDate).toBe("2026-12-31");
       expect(row.isActive).toBe(true);
       expect(row.deletedAt).toBeNull();
     } finally {
       await db.delete(worker).where(eq(worker.id, workerId));
-      await db.delete(position).where(eq(position.id, positionId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
     }
@@ -191,7 +121,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
     const siteId = randomUUID();
     const location1Id = randomUUID();
     const location2Id = randomUUID();
-    const positionId = randomUUID();
     const worker1Id = randomUUID();
     const worker2Id = randomUUID();
 
@@ -204,11 +133,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         { id: location1Id, siteId, name: `${run}-Location One` },
         { id: location2Id, siteId, name: `${run}-Location Two` },
       ]);
-      await db.insert(position).values({
-        id: positionId,
-        siteId,
-        name: `${run}-Position Same`,
-      });
 
       await db.insert(worker).values({
         id: worker1Id,
@@ -216,7 +140,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId,
         employeeId: `${run}-emp-shared`,
         name: `${run}-Worker One`,
-        positionId,
       });
       await db.insert(worker).values({
         id: worker2Id,
@@ -224,7 +147,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId,
         employeeId: `${run}-emp-shared`,
         name: `${run}-Worker Two`,
-        positionId,
       });
 
       const rows = await db
@@ -235,7 +157,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
     } finally {
       await db.delete(worker).where(eq(worker.id, worker1Id));
       await db.delete(worker).where(eq(worker.id, worker2Id));
-      await db.delete(position).where(eq(position.id, positionId));
       await db.delete(siteLocation).where(eq(siteLocation.id, location1Id));
       await db.delete(siteLocation).where(eq(siteLocation.id, location2Id));
       await db.delete(site).where(eq(site.id, siteId));
@@ -246,7 +167,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
     const run = `t${nextSeq()}`;
     const siteId = randomUUID();
     const locationId = randomUUID();
-    const positionId = randomUUID();
     const worker1Id = randomUUID();
     const worker2Id = randomUUID();
     const worker3Id = randomUUID();
@@ -261,11 +181,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId,
         name: `${run}-Location One`,
       });
-      await db.insert(position).values({
-        id: positionId,
-        siteId,
-        name: `${run}-Position Same`,
-      });
 
       await db.insert(worker).values({
         id: worker1Id,
@@ -273,7 +188,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId,
         employeeId: `${run}-emp-dup`,
         name: `${run}-Worker One`,
-        positionId,
       });
 
       // Second live insert with the same (location, employee_id) → 23505.
@@ -285,8 +199,7 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
           siteId,
           employeeId: `${run}-emp-dup`,
           name: `${run}-Worker Two`,
-          positionId,
-        });
+          });
       } catch (err) {
         code = pgErrorCode(err);
       }
@@ -304,7 +217,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId,
         employeeId: `${run}-emp-dup`,
         name: `${run}-Worker Three`,
-        positionId,
       });
 
       const rows = await db
@@ -316,7 +228,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
       await db.delete(worker).where(eq(worker.id, worker1Id));
       await db.delete(worker).where(eq(worker.id, worker2Id));
       await db.delete(worker).where(eq(worker.id, worker3Id));
-      await db.delete(position).where(eq(position.id, positionId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
     }
@@ -326,7 +237,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
     const run = `t${nextSeq()}`;
     const siteId = randomUUID();
     const locationId = randomUUID();
-    const positionId = randomUUID();
     const workerId = randomUUID();
 
     try {
@@ -339,18 +249,12 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
         siteId,
         name: `${run}-Location One`,
       });
-      await db.insert(position).values({
-        id: positionId,
-        siteId,
-        name: `${run}-Position Same`,
-      });
       await db.insert(worker).values({
         id: workerId,
         siteLocationId: locationId,
         siteId,
         employeeId: `${run}-emp-1`,
         name: `${run}-Live Worker`,
-        positionId,
       });
 
       let code: string | undefined;
@@ -375,7 +279,6 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
       expect(rows).toHaveLength(1);
     } finally {
       await db.delete(worker).where(eq(worker.id, workerId));
-      await db.delete(position).where(eq(position.id, positionId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
     }
@@ -418,15 +321,12 @@ async function seedPivotFixture(): Promise<PivotFixture> {
     { id: positionA, siteId: siteA, name: `${run}-Position A` },
     { id: positionB, siteId: siteB, name: `${run}-Position B` },
   ]);
-  // positionId is still NOT NULL until migration 0016; it carries no
-  // multi-position meaning.
   await db.insert(worker).values({
     id: workerId,
     siteLocationId: locationA,
     siteId: siteA,
     employeeId: `${run}-emp-1`,
     name: `${run}-Worker`,
-    positionId: positionA,
   });
 
   return { siteA, siteB, locationA, positionA, positionB, workerId };
