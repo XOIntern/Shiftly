@@ -5,7 +5,13 @@ import { eq } from "drizzle-orm";
 
 import { db } from "./db";
 import { pgErrorCode } from "./db-errors";
-import { position, site, siteLocation, worker } from "../drizzle/schema";
+import {
+  position,
+  site,
+  siteLocation,
+  worker,
+  workerPosition,
+} from "../drizzle/schema";
 
 // Pinning test (GitHub #83): the worker table's two composite FKs pin both
 // the site_location and the position onto the SAME site as the denormalized
@@ -372,6 +378,177 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
       await db.delete(position).where(eq(position.id, positionId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
+    }
+  });
+});
+
+// Multi-position spec (GitHub #92): worker_position is the qualification set.
+// Its two composite FKs weld each pair to one site, so a cross-site pair and
+// a duplicate pair are impossible even by direct insert.
+type PivotFixture = {
+  siteA: string;
+  siteB: string;
+  locationA: string;
+  positionA: string;
+  positionB: string;
+  workerId: string;
+};
+
+let pivotSeq = 0;
+
+async function seedPivotFixture(): Promise<PivotFixture> {
+  const run = `t20-mp-${++pivotSeq}`;
+  const siteA = randomUUID();
+  const siteB = randomUUID();
+  const locationA = randomUUID();
+  const positionA = randomUUID();
+  const positionB = randomUUID();
+  const workerId = randomUUID();
+
+  await db.insert(site).values([
+    { id: siteA, name: `${run}-site-a-${siteA}` },
+    { id: siteB, name: `${run}-site-b-${siteB}` },
+  ]);
+  await db.insert(siteLocation).values({
+    id: locationA,
+    siteId: siteA,
+    name: `${run}-Location A`,
+  });
+  await db.insert(position).values([
+    { id: positionA, siteId: siteA, name: `${run}-Position A` },
+    { id: positionB, siteId: siteB, name: `${run}-Position B` },
+  ]);
+  // positionId is still NOT NULL until migration 0016; it carries no
+  // multi-position meaning.
+  await db.insert(worker).values({
+    id: workerId,
+    siteLocationId: locationA,
+    siteId: siteA,
+    employeeId: `${run}-emp-1`,
+    name: `${run}-Worker`,
+    positionId: positionA,
+  });
+
+  return { siteA, siteB, locationA, positionA, positionB, workerId };
+}
+
+async function dropPivotFixture(fixture: PivotFixture) {
+  // Child-first: pivot → worker → position → location → site.
+  await db
+    .delete(workerPosition)
+    .where(eq(workerPosition.workerId, fixture.workerId));
+  await db.delete(worker).where(eq(worker.id, fixture.workerId));
+  await db
+    .delete(position)
+    .where(eq(position.id, fixture.positionA));
+  await db
+    .delete(position)
+    .where(eq(position.id, fixture.positionB));
+  await db
+    .delete(siteLocation)
+    .where(eq(siteLocation.id, fixture.locationA));
+  await db.delete(site).where(eq(site.id, fixture.siteA));
+  await db.delete(site).where(eq(site.id, fixture.siteB));
+}
+
+describe("worker_position composite-FK & PK guards (multi-position spec, 2026-10-20)", () => {
+  test("position from site B + pivot site_id = A: rejected with 23503", async () => {
+    const fixture = await seedPivotFixture();
+
+    try {
+      let code: string | undefined;
+      try {
+        await db.insert(workerPosition).values({
+          workerId: fixture.workerId,
+          positionId: fixture.positionB,
+          siteId: fixture.siteA,
+        });
+      } catch (err) {
+        code = pgErrorCode(err);
+      }
+      expect(code).toBe("23503");
+
+      const rows = await db
+        .select()
+        .from(workerPosition)
+        .where(eq(workerPosition.workerId, fixture.workerId));
+      expect(rows).toHaveLength(0);
+    } finally {
+      await dropPivotFixture(fixture);
+    }
+  });
+
+  test("pivot site_id that does not match the worker's site: rejected with 23503", async () => {
+    const fixture = await seedPivotFixture();
+
+    try {
+      let code: string | undefined;
+      try {
+        await db.insert(workerPosition).values({
+          workerId: fixture.workerId,
+          positionId: fixture.positionA,
+          siteId: fixture.siteB,
+        });
+      } catch (err) {
+        code = pgErrorCode(err);
+      }
+      expect(code).toBe("23503");
+
+      const rows = await db
+        .select()
+        .from(workerPosition)
+        .where(eq(workerPosition.workerId, fixture.workerId));
+      expect(rows).toHaveLength(0);
+    } finally {
+      await dropPivotFixture(fixture);
+    }
+  });
+
+  test("duplicate (worker, position) pair: rejected with 23505", async () => {
+    const fixture = await seedPivotFixture();
+
+    try {
+      await db.insert(workerPosition).values({
+        workerId: fixture.workerId,
+        positionId: fixture.positionA,
+        siteId: fixture.siteA,
+      });
+
+      let code: string | undefined;
+      try {
+        await db.insert(workerPosition).values({
+          workerId: fixture.workerId,
+          positionId: fixture.positionA,
+          siteId: fixture.siteA,
+        });
+      } catch (err) {
+        code = pgErrorCode(err);
+      }
+      expect(code).toBe("23505");
+    } finally {
+      await dropPivotFixture(fixture);
+    }
+  });
+
+  test("valid same-site pair: inserts", async () => {
+    const fixture = await seedPivotFixture();
+
+    try {
+      await db.insert(workerPosition).values({
+        workerId: fixture.workerId,
+        positionId: fixture.positionA,
+        siteId: fixture.siteA,
+      });
+
+      const rows = await db
+        .select()
+        .from(workerPosition)
+        .where(eq(workerPosition.workerId, fixture.workerId));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].positionId).toBe(fixture.positionA);
+      expect(rows[0].siteId).toBe(fixture.siteA);
+    } finally {
+      await dropPivotFixture(fixture);
     }
   });
 });
