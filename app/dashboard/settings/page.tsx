@@ -26,13 +26,14 @@ import {
 // https://nextjs.org/docs/messages/blocking-prerender-dynamic
 export const instant = false;
 
-// Rules C1–C7 (docs/architecture.md §5) in display order, with the slot
+// Rules C1–C8 (docs/architecture.md §5) in display order, with the slot
 // each key resolves through in EffectiveRules.
 const RULE_META: Array<{
   key: RuleKey;
   slot: keyof EffectiveRules;
   kind: "int" | "bool";
   meaning: string;
+  note?: string;
 }> = [
   { key: "C1", slot: "c1", kind: "int", meaning: "Max work days per week" },
   { key: "C2", slot: "c2", kind: "int", meaning: "Max work days per month" },
@@ -59,17 +60,27 @@ const RULE_META: Array<{
     key: "C7",
     slot: "c7",
     kind: "bool",
-    meaning: "Work area/qualification match",
+    meaning: "Work area match",
+  },
+  {
+    key: "C8",
+    slot: "c8",
+    kind: "bool",
+    meaning: "Work qualification match",
+    // The engine check is deliberately dormant until qualification data
+    // exists; say so rather than presenting an enforcing rule that isn't.
+    note: "Dormant until worker qualifications are recorded",
   },
 ];
 
 function ruleRows(rules: EffectiveRules): RuleRowView[] {
-  return RULE_META.map(({ key, slot, kind, meaning }) => ({
+  return RULE_META.map(({ key, slot, kind, meaning, note }) => ({
     key,
     meaning,
     kind,
     value: rules[slot].value,
     source: rules[slot].source,
+    ...(note ? { note } : {}),
   }));
 }
 

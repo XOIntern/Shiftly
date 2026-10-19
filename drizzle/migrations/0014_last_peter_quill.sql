@@ -1,0 +1,1 @@
+ALTER TYPE "public"."roster_rule_key" ADD VALUE 'C8';

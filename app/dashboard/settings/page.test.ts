@@ -25,6 +25,7 @@ type RuleRowView = {
   kind: "int" | "bool";
   value: number | boolean;
   source: string;
+  note?: string;
 };
 
 type RulesNode = {
@@ -93,7 +94,7 @@ function row(rows: RuleRowView[], key: string): RuleRowView {
 // t6- prefixed real-DB fixtures: uuid slices keep suites collision-free on
 // the shared dev DB.
 describe("settings roster rules card (issue #53)", () => {
-  test("ho sees the seven rules with effective values, source labels, and edit controls", async () => {
+  test("ho sees the eight rules with effective values, source labels, and edit controls", async () => {
     const siteA = await seedSite();
     const locA = await seedLocation(siteA, `t6-rules-loc-a-${randomUUID().slice(0, 6)}`);
     const locB = await seedLocation(siteA, `t6-rules-loc-b-${randomUUID().slice(0, 6)}`);
@@ -118,13 +119,28 @@ describe("settings roster rules card (issue #53)", () => {
 
       expect(props.canEdit).toBe(true);
       expect(props.role).toBe("ho");
-      expect(props.rows).toHaveLength(7);
+      expect(props.rows).toHaveLength(8);
       // Every row carries a meaning and a valid source label.
       for (const r of props.rows) {
         expect(r.meaning.length).toBeGreaterThan(0);
         expect(["default", "global", "site", "location"]).toContain(r.source);
         expect(["int", "bool"]).toContain(r.kind);
       }
+      // The split: C7 keeps the work area, C8 is the new qualification rule.
+      // C8's engine check is dormant until qualification data exists, so the
+      // row carries that caveat alongside the pinned meaning.
+      expect(row(props.rows, "C7").meaning).toBe("Work area match");
+      expect(row(props.rows, "C8")).toEqual({
+        key: "C8",
+        meaning: "Work qualification match",
+        kind: "bool",
+        // Shared dev DB: a stray global C8 row may exist, so the effective
+        // value and source are asserted as base scopes, not pinned literals.
+        value: expect.any(Boolean),
+        source: expect.any(String),
+        note: "Dormant until worker qualifications are recorded",
+      });
+      expect(["default", "global"]).toContain(row(props.rows, "C8").source);
       // Most-specific-wins: global row wins C1, the ho's site row wins C2.
       expect(row(props.rows, "C1")).toEqual({
         key: "C1",
@@ -174,7 +190,7 @@ describe("settings roster rules card (issue #53)", () => {
 
       expect(props.canEdit).toBe(false);
       expect(props.role).toBe("admin");
-      expect(props.rows).toHaveLength(7);
+      expect(props.rows).toHaveLength(8);
       // The admin still sees real effective values — the location row wins.
       expect(row(props.rows, "C1").value).toBe(7);
       expect(row(props.rows, "C1").source).toBe("location");
@@ -196,7 +212,7 @@ describe("settings roster rules card (issue #53)", () => {
     const props = await renderSettings();
 
     expect(props.canEdit).toBe(true);
-    expect(props.rows).toHaveLength(7);
+    expect(props.rows).toHaveLength(8);
     for (const r of props.rows) {
       // No site to hang rows on: only the global base or the default.
       expect(["default", "global"]).toContain(r.source);
@@ -221,7 +237,7 @@ describe("settings roster rules card (issue #53)", () => {
 
       expect(props.canEdit).toBe(true);
       expect(props.role).toBe("superadmin");
-      expect(props.rows).toHaveLength(7);
+      expect(props.rows).toHaveLength(8);
       for (const r of props.rows) {
         expect(["default", "global"]).toContain(r.source);
       }

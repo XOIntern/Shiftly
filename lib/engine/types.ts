@@ -12,4 +12,5 @@ export const DEFAULT_RULES: EffectiveRules = Object.freeze({
   c5: Object.freeze({ value: 60, source: "default" }),
   c6: Object.freeze({ value: 4, source: "default" }),
   c7: Object.freeze({ value: true, source: "default" }),
+  c8: Object.freeze({ value: true, source: "default" }),
 });
