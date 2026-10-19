@@ -571,6 +571,90 @@ describe("users bindings (department/work-area, issue #66)", () => {
     }
   });
 
+  test("superadmin create binds an admin (locA) to a FOREIGN site's department → pairing error, nothing persists", async () => {
+    actor = superActorRow;
+    const { createUser } = await import("./actions");
+    const email = `t9-pair-dept-create-${randomUUID()}@shiftly.test`;
+    const result = await createUser({
+      name: "T9 Dept Pair Create",
+      email,
+      password: "password123",
+      role: "admin",
+      siteLocationId: locA,
+      departmentId: deptB,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors).toEqual({
+      departmentId: "Department must belong to your site",
+    });
+    const [row] = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, email));
+    expect(row).toBeUndefined();
+  });
+
+  test("superadmin create binds an ho (siteA) to a FOREIGN site's department → pairing error, nothing persists", async () => {
+    actor = superActorRow;
+    const { createUser } = await import("./actions");
+    const email = `t9-pair-dept-ho-create-${randomUUID()}@shiftly.test`;
+    const result = await createUser({
+      name: "T9 HO Dept Pair Create",
+      email,
+      password: "password123",
+      role: "ho",
+      siteId: siteA,
+      departmentId: deptB,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors).toEqual({
+      departmentId: "Department must belong to your site",
+    });
+    const [row] = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, email));
+    expect(row).toBeUndefined();
+  });
+
+  test("superadmin update binds an admin (locA) to a FOREIGN site's department → pairing error, nothing changes", async () => {
+    actor = superActorRow;
+    const id = await mintUser({ role: "admin", siteLocationId: locA });
+    const { updateUser } = await import("./actions");
+    const result = await updateUser(id, {
+      name: "T9 Dept Pair Edit",
+      role: "admin",
+      siteLocationId: locA,
+      departmentId: deptB,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors).toEqual({
+      departmentId: "Department must belong to your site",
+    });
+    const row = await loadBindings(id);
+    expect(row?.departmentId).toBe(null);
+    expect(row?.siteLocationId).toBe(locA);
+  });
+
+  test("superadmin update binds an ho (siteA) to a FOREIGN site's department → pairing error, nothing changes", async () => {
+    actor = superActorRow;
+    const id = await mintUser({ role: "ho", siteId: siteA });
+    const { updateUser } = await import("./actions");
+    const result = await updateUser(id, {
+      name: "T9 HO Dept Pair Edit",
+      role: "ho",
+      siteId: siteA,
+      departmentId: deptB,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors).toEqual({
+      departmentId: "Department must belong to your site",
+    });
+    const row = await loadBindings(id);
+    expect(row?.departmentId).toBe(null);
+    expect(row?.siteId).toBe(siteA);
+  });
+
   test("ho edit of a drifted admin (pre-existing mismatched work area) succeeds — net not applied to ho", async () => {
     actor = hoActorRow;
     const id = await mintUser({ role: "admin", siteLocationId: locA });

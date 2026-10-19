@@ -149,16 +149,53 @@ const DEPARTMENT_GONE_ERROR = {
   },
 };
 
+const DEPARTMENT_PAIRING_FIELD_ERRORS = {
+  departmentId: "Department must belong to your site",
+} as const;
+
+// Departments are still site-scoped for superadmin actors: a plain FK
+// would otherwise let a target's department silently pull from another
+// site than the one the target's own binding points at. Same reuse as the
+// ho path's pairing error — the field error the target's site mismatch
+// already answers with.
+function departmentPairingError() {
+  return { ok: false, fieldErrors: DEPARTMENT_PAIRING_FIELD_ERRORS };
+}
+
 async function loadDepartmentBinding(
   departmentId: string,
-): Promise<{ deleted: boolean } | null> {
+): Promise<{ deleted: boolean; siteId: string } | null> {
   const [dept] = await db
-    .select({ deletedAt: department.deletedAt })
+    .select({ deletedAt: department.deletedAt, siteId: department.siteId })
     .from(department)
     .where(eq(department.id, departmentId))
     .limit(1);
-  return dept ? { deleted: dept.deletedAt !== null } : null;
+  return dept
+    ? { deleted: dept.deletedAt !== null, siteId: dept.siteId }
+    : null;
 }
+
+// The site a department binding must pair with: an ho target's site is the
+// ho row's own binding; an admin target's is the site of the location the
+// target is (or will be) bound to. Returns null when the role carries no
+// department-shaped binding subtree to pair against.
+async function targetPairingSiteId(
+  role: Role,
+  siteId: string | null,
+  siteLocationId: string | null,
+): Promise<string | null> {
+  if (role === "ho") return siteId;
+  if (role === "admin" && siteLocationId) {
+    const [loc] = await db
+      .select({ siteId: siteLocation.siteId })
+      .from(siteLocation)
+      .where(eq(siteLocation.id, siteLocationId))
+      .limit(1);
+    return loc?.siteId ?? null;
+  }
+  return null;
+}
+
 
 // Loads a work area for the pairing net below (un-scoped: soft-deleted rows
 // are looked up too, since the FK sees them). null → the row doesn't exist
@@ -230,9 +267,11 @@ export async function createUser(input: {
 
   // Departments are site-scoped: an ho actor's pick must live in their
   // own site (soft-deleted departments are not bindable). Superadmin
-  // actors may bind any department to the targets they provision — but a
-  // physically present soft-deleted row is caught by the load below, since
-  // the FK checks existence only.
+  // actors may pick any department — but a physically present
+  // soft-deleted row is caught by the load below, and the department's
+  // site must pair with the target's own binding site (the FK checks
+  // existence only, so a cross-site pairing would otherwise persist
+  // silently).
   const departmentId = parsed.data.departmentId ?? null;
   if (actor.role === "ho" && departmentId) {
     if (!(await departmentAllowsBinding(departmentId, actor.siteId))) {
@@ -242,8 +281,17 @@ export async function createUser(input: {
       };
     }
   } else if (actor.role === "superadmin" && departmentId) {
-    if ((await loadDepartmentBinding(departmentId))?.deleted) {
-      return DEPARTMENT_GONE_ERROR;
+    const bound = await loadDepartmentBinding(departmentId);
+    if (bound?.deleted) return DEPARTMENT_GONE_ERROR;
+    if (bound) {
+      const requiredSiteId = await targetPairingSiteId(
+        role,
+        siteId,
+        siteLocationId,
+      );
+      if (requiredSiteId && bound.siteId !== requiredSiteId) {
+        return departmentPairingError();
+      }
     }
   }
 
@@ -414,11 +462,22 @@ export async function updateUser(
     }
   }
 
-  // Same soft-delete weld for the superadmin edit path (mirrors the work
-  // area net above; the ho path's site weld already covers deleted rows).
+  // Same weld for the superadmin edit path (mirrors the work area net
+  // above; the ho path's site weld already covers deleted rows). The
+  // department's site must also pair with the target's binding site —
+  // same reuse of "must belong to your site" as the ho path's error.
   if (actor.role === "superadmin" && departmentId) {
-    if ((await loadDepartmentBinding(departmentId))?.deleted) {
-      return DEPARTMENT_GONE_ERROR;
+    const bound = await loadDepartmentBinding(departmentId);
+    if (bound?.deleted) return DEPARTMENT_GONE_ERROR;
+    if (bound) {
+      const requiredSiteId = await targetPairingSiteId(
+        role,
+        siteId,
+        siteLocationId,
+      );
+      if (requiredSiteId && bound.siteId !== requiredSiteId) {
+        return departmentPairingError();
+      }
     }
   }
 
