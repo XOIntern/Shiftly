@@ -59,6 +59,23 @@ export type PositionRow = {
   siteName: string;
 };
 
+// One row of the workers table — server-selectable fields only.
+// siteName/locationName/positionName come from the required inner joins,
+// so they can't be null.
+export type WorkerRow = {
+  id: string;
+  employeeId: string;
+  name: string;
+  isActive: boolean;
+  contractEndDate: string | null;
+  siteLocationId: string;
+  positionId: string;
+  siteId: string;
+  siteName: string;
+  locationName: string;
+  positionName: string;
+};
+
 // One row of the users table — server-selectable fields only.
 export type UserRow = {
   id: string;

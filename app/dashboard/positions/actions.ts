@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { position, siteLocation } from "@/drizzle/schema";
+import { position, siteLocation, worker } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/lib/db-errors";
 import { requireUser } from "@/lib/session";
@@ -196,10 +196,19 @@ export async function deletePosition(id: string): Promise<ActionState> {
     return { ok: false, message: "Invalid position id." };
   }
 
-  // Foreign positions answer "not found." — no scope leaks. The workers
-  // bound-guard lands with the worker table; soft delete is direct today.
+  // Foreign positions answer "not found." — no scope leaks. Workers matter
+  // just as much: a position with live workers referencing it cannot be
+  // hidden while the roster still schedules against it.
   if (!(await positionOwnedByActor(actor, id))) {
     return { ok: false, message: "Position not found." };
+  }
+
+  const [{ count: liveWorkers }] = await db
+    .select({ count: count() })
+    .from(worker)
+    .where(and(eq(worker.positionId, id), isNull(worker.deletedAt)));
+  if (liveWorkers > 0) {
+    return { ok: false, message: "Some workers still reference this position" };
   }
 
   try {
@@ -246,9 +255,10 @@ export async function setActiveBulk(
   }
 }
 
-// Bulk position unregistration. Rows are soft-deleted; there is no bound
-// guard yet (the worker table does not exist), so blocked is always 0 —
-// the shape stays identical to the other bulk actions for the toolbar.
+// Bulk position unregistration. Rows are soft-deleted, but positions still
+// referenced by live workers are held back — "do what you can" applies to
+// the guard too: one grouped count splits the batch into applied rows and
+// blocked ids without round-tripping per position.
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const actor = await requireUser();
 
@@ -260,14 +270,33 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
   }
 
   try {
-    const deleted = await db
-      .update(position)
-      .set({ deletedAt: new Date() })
-      .where(positionBulkMutationWhere(actor, validIds));
+    const referenced = await db
+      .select({ positionId: worker.positionId, live: count() })
+      .from(worker)
+      .where(
+        and(
+          inArray(worker.positionId, validIds),
+          isNull(worker.deletedAt),
+        ),
+      )
+      .groupBy(worker.positionId);
+    // Positions with live workers stay visible; the rest of the batch is
+    // free to hide.
+    const blockedIds = new Set(referenced.map((row) => row.positionId));
+    const freeIds = validIds.filter((id) => !blockedIds.has(id));
+
+    let applied = 0;
+    if (freeIds.length > 0) {
+      const deleted = await db
+        .update(position)
+        .set({ deletedAt: new Date() })
+        .where(positionBulkMutationWhere(actor, freeIds));
+      applied = deleted.rowCount ?? 0;
+    }
     const result: ActionState = {
       ok: true,
-      applied: deleted.rowCount ?? 0,
-      blocked: 0,
+      applied,
+      blocked: blockedIds.size,
     };
     revalidatePath("/dashboard/positions");
     return result;

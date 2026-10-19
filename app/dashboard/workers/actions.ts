@@ -1,0 +1,379 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { z } from "zod";
+
+import { position, siteLocation, worker } from "@/drizzle/schema";
+import { db } from "@/lib/db";
+import { mapDbError, pgErrorCode } from "@/lib/db-errors";
+import { requireUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
+import type { ActionState } from "@/types/action-state";
+import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
+import { workerCreateSchema, workerUpdateSchema } from "@/schema/validators";
+import {
+  workerBulkMutationWhere,
+  workerMutationWhere,
+  workerOwnedByActor,
+} from "@/lib/worker-scope";
+
+// Maps a driver error to the action result shape; mapDbError returns null for
+// anything unexpected, so fall back to a generic message.
+function dbResult(err: unknown): ActionState {
+  const mapped = mapDbError(err, { kind: "worker-employee-id" });
+  if (mapped) return { ok: false, message: mapped };
+  return { ok: false, message: GENERIC_ERROR };
+}
+
+// The composite FKs on worker (site_location+site, position+site) carry ON
+// DELETE restrict, so a pairing whose parent row vanished between the pick
+// and the write surfaces as 23503/23001. Any other firing is a race — this
+// is the net.
+const FK_MESSAGE = "Selected location or position no longer exists";
+
+function fkResult(err: unknown): ActionState {
+  const code = pgErrorCode(err);
+  if (code === "23503" || code === "23001") {
+    return { ok: false, message: FK_MESSAGE };
+  }
+  return dbResult(err);
+}
+
+// Admin actors are pinned to their own site_location — anything the client
+// sent is ignored. A superadmin keeps the input value; an ho has no
+// location binding and keeps the input too, but their site scope below
+// verifies it.
+function effectiveSiteLocationId(
+  actor: SessionUser,
+  inputSiteLocationId: string | undefined,
+): string | undefined {
+  return actor.role === "admin"
+    ? (actor.siteLocationId ?? undefined)
+    : inputSiteLocationId;
+}
+
+// siteId is NEVER trusted from the client: it is derived from the worker's
+// own site_location, so the composite FK pairing is decided server-side.
+// A soft-deleted location cannot parent a worker (live-row weld).
+async function deriveSiteId(siteLocationId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ siteId: siteLocation.siteId })
+    .from(siteLocation)
+    .where(
+      and(eq(siteLocation.id, siteLocationId), isNull(siteLocation.deletedAt)),
+    )
+    .limit(1);
+  return row ? row.siteId : null;
+}
+
+// The position must be live and parent to the SAME site as the derived
+// location, or no worker write happens. Inactive positions are tolerated:
+// an edit that never touches the position must not fail because it was
+// deactivated since the picker snapshot.
+type PositionCheck =
+  | { ok: true }
+  | { fieldError: "Position must be in the same site as the location" };
+
+async function loadAndCheckPosition(
+  positionId: string,
+  siteId: string,
+): Promise<PositionCheck> {
+  const [row] = await db
+    .select({ siteId: position.siteId })
+    .from(position)
+    .where(and(eq(position.id, positionId), isNull(position.deletedAt)))
+    .limit(1);
+  return row && row.siteId === siteId
+    ? { ok: true }
+    : { fieldError: "Position must be in the same site as the location" };
+}
+
+// Scope check for the chosen location: an ho may only reference a location
+// under their own site. A foreign location surfaces as a field error,
+// mirroring the work-area actions' per-field shape for scope violations. An
+// admin's pick is pinned to their own binding before this runs;
+// superadmin is unscoped.
+const LOCATION_SCOPE_FIELD_ERRORS = {
+  siteLocationId: "Location must be in your site",
+} as const;
+
+function locationInScope(actor: SessionUser, locationSiteId: string | null) {
+  return actor.role !== "ho" || locationSiteId === actor.siteId;
+}
+
+// Shared create/update checks on the NEW location: derive its site, then
+// fail closed at the field. An admin's binding is the only location they
+// can ever land on, so a binding that no longer resolves to a live row
+// answers "not found" (a move is impossible; the override re-pins). Any
+// other missing/dead pick — there is no required field left to ask for —
+// surfaces as "Location is required".
+async function deriveLocationSiteId(
+  actor: SessionUser,
+  siteLocationId: string,
+): Promise<string | { fieldErrors: Record<string, string> }> {
+  const derivedSiteId = await deriveSiteId(siteLocationId);
+  if (derivedSiteId) return derivedSiteId;
+  if (actor.role === "admin") {
+    return { fieldErrors: { siteLocationId: "Location not found." } };
+  }
+  return { fieldErrors: { siteLocationId: "Location is required" } };
+}
+
+export async function createWorker(input: {
+  siteLocationId?: string;
+  positionId?: string;
+  employeeId: string;
+  name: string;
+  contractEndDate?: string;
+}): Promise<ActionState> {
+  const actor = await requireUser();
+
+  const parsed = workerCreateSchema.safeParse({
+    // Ignored — derived from the site_location below.
+    siteId: undefined,
+    siteLocationId: effectiveSiteLocationId(actor, input.siteLocationId),
+    positionId: input.positionId,
+    employeeId: input.employeeId,
+    name: input.name,
+    contractEndDate: input.contractEndDate,
+  });
+  if (!parsed.success) {
+    return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
+  }
+
+  const derivedSiteId = await deriveLocationSiteId(
+    actor,
+    parsed.data.siteLocationId,
+  );
+  if (typeof derivedSiteId !== "string") {
+    return { ok: false, fieldErrors: derivedSiteId.fieldErrors };
+  }
+  if (!locationInScope(actor, derivedSiteId)) {
+    return { ok: false, fieldErrors: LOCATION_SCOPE_FIELD_ERRORS };
+  }
+  const positionCheck = await loadAndCheckPosition(
+    parsed.data.positionId,
+    derivedSiteId,
+  );
+  if ("fieldError" in positionCheck) {
+    return {
+      ok: false,
+      fieldErrors: { positionId: positionCheck.fieldError },
+    };
+  }
+
+  try {
+    await db.insert(worker).values({
+      siteLocationId: parsed.data.siteLocationId,
+      siteId: derivedSiteId,
+      employeeId: parsed.data.employeeId,
+      name: parsed.data.name,
+      positionId: parsed.data.positionId,
+      contractEndDate: parsed.data.contractEndDate ?? null,
+    });
+  } catch (err) {
+    return fkResult(err);
+  }
+
+  revalidatePath("/dashboard/workers");
+  return { ok: true };
+}
+
+export async function updateWorker(
+  id: string,
+  input: {
+    siteLocationId?: string;
+    positionId?: string;
+    employeeId: string;
+    name: string;
+    contractEndDate?: string;
+    isActive: boolean;
+  },
+): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid worker id." };
+  }
+
+  // Ownership before any write: the row must already sit in the actor's
+  // scope, or a foreign worker would be rewritten. A worker is the one
+  // master-data row that MOVES — so the new location is derived, scoped
+  // and paired with the position after this gate, never before.
+  if (!(await workerOwnedByActor(actor, id))) {
+    return { ok: false, message: "Worker not found." };
+  }
+
+  const parsed = workerUpdateSchema.safeParse({
+    id,
+    // Ignored — derived from the site_location below.
+    siteId: undefined,
+    siteLocationId: effectiveSiteLocationId(actor, input.siteLocationId),
+    positionId: input.positionId,
+    employeeId: input.employeeId,
+    name: input.name,
+    contractEndDate: input.contractEndDate,
+    isActive: input.isActive,
+  });
+  if (!parsed.success) {
+    return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
+  }
+
+  const derivedSiteId = await deriveLocationSiteId(
+    actor,
+    parsed.data.siteLocationId,
+  );
+  if (typeof derivedSiteId !== "string") {
+    return { ok: false, fieldErrors: derivedSiteId.fieldErrors };
+  }
+  if (!locationInScope(actor, derivedSiteId)) {
+    return { ok: false, fieldErrors: LOCATION_SCOPE_FIELD_ERRORS };
+  }
+  const positionCheck = await loadAndCheckPosition(
+    parsed.data.positionId,
+    derivedSiteId,
+  );
+  if ("fieldError" in positionCheck) {
+    return {
+      ok: false,
+      fieldErrors: { positionId: positionCheck.fieldError },
+    };
+  }
+
+  try {
+    const updated = await db
+      .update(worker)
+      .set({
+        siteLocationId: parsed.data.siteLocationId,
+        siteId: derivedSiteId,
+        positionId: parsed.data.positionId,
+        employeeId: parsed.data.employeeId,
+        name: parsed.data.name,
+        contractEndDate: parsed.data.contractEndDate ?? null,
+        isActive: parsed.data.isActive,
+      })
+      // Weld: the ownership predicate rides inside the mutating WHERE.
+      .where(workerMutationWhere(actor, id))
+      .returning({ id: worker.id });
+    if (updated.length === 0) {
+      return { ok: false, message: "Worker not found." };
+    }
+  } catch (err) {
+    return fkResult(err);
+  }
+
+  revalidatePath("/dashboard/workers");
+  return { ok: true };
+}
+
+export async function toggleWorker(id: string): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid worker id." };
+  }
+
+  try {
+    const toggled = await db
+      .update(worker)
+      .set({ isActive: sql`not ${worker.isActive}` })
+      .where(workerMutationWhere(actor, id))
+      .returning({ isActive: worker.isActive });
+    if (toggled.length === 0) {
+      return { ok: false, message: "Worker not found." };
+    }
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  revalidatePath("/dashboard/workers");
+  return { ok: true };
+}
+
+export async function deleteWorker(id: string): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid worker id." };
+  }
+
+  // Foreign workers answer "not found." — no scope leaks. Workers have no
+  // children, so soft delete is direct today.
+  if (!(await workerOwnedByActor(actor, id))) {
+    return { ok: false, message: "Worker not found." };
+  }
+
+  try {
+    await db
+      .update(worker)
+      .set({ deletedAt: new Date() })
+      // Weld: same ownership-in-WHERE as update/toggle.
+      .where(workerMutationWhere(actor, id));
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  revalidatePath("/dashboard/workers");
+  return { ok: true };
+}
+
+// Bulk subset-write of worker.isActive. "Do what you can": malformed ids
+// are dropped and the ownership weld rides inside the mutating WHERE, so an
+// admin (or ho) can never widen its batch past its own scope no matter what
+// ids arrive.
+export async function setActiveBulk(
+  ids: string[],
+  isActive: boolean,
+): Promise<ActionState> {
+  const actor = await requireUser();
+
+  const validIds = [...new Set(ids)].filter(
+    (id) => z.uuid().safeParse(id).success,
+  );
+  if (validIds.length === 0) {
+    return { ok: false, message: "No workers selected." };
+  }
+
+  try {
+    const updated = await db
+      .update(worker)
+      .set({ isActive })
+      .where(workerBulkMutationWhere(actor, validIds))
+      .returning({ id: worker.id });
+    revalidatePath("/dashboard/workers");
+    return { ok: true, applied: updated.length };
+  } catch (err) {
+    return dbResult(err);
+  }
+}
+
+// Bulk worker unregistration. Rows are soft-deleted; workers have no
+// children, so blocked is always 0 — the shape stays identical to the other
+// bulk actions for the toolbar.
+export async function deleteBulk(ids: string[]): Promise<ActionState> {
+  const actor = await requireUser();
+
+  const validIds = [...new Set(ids)].filter(
+    (id) => z.uuid().safeParse(id).success,
+  );
+  if (validIds.length === 0) {
+    return { ok: false, message: "No workers selected." };
+  }
+
+  try {
+    const deleted = await db
+      .update(worker)
+      .set({ deletedAt: new Date() })
+      .where(workerBulkMutationWhere(actor, validIds));
+    const result: ActionState = {
+      ok: true,
+      applied: deleted.rowCount ?? 0,
+      blocked: 0,
+    };
+    revalidatePath("/dashboard/workers");
+    return result;
+  } catch (err) {
+    return dbResult(err);
+  }
+}
