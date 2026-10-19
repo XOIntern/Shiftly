@@ -3,7 +3,7 @@
 import { useId, useState, useTransition } from "react";
 
 import { updateRuleConfig } from "@/app/dashboard/settings/rule-config-actions";
-import type { RuleKey, RuleSource } from "@/lib/engine/types";
+import type { RuleKey, RuleSource } from "@/types/engine";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";

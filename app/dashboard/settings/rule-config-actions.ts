@@ -10,7 +10,7 @@ import { requireHO, type SessionUser } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { resolveRules } from "@/lib/engine/resolve";
-import type { RuleKey } from "@/lib/engine/types";
+import type { RuleKey } from "@/types/engine";
 import {
   findC6Violations,
   loadGlobalRows,

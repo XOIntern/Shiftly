@@ -16,7 +16,8 @@ import {
   parseTableSearchParams,
 } from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
-import { canManageActorTarget, userScopeFilter, type Role } from "@/lib/scope";
+import { canManageActorTarget, userScopeFilter } from "@/lib/scope";
+import type { Role } from "@/types/domain";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   CreateUserButton,

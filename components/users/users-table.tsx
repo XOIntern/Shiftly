@@ -20,7 +20,7 @@ import {
   type UserRow,
   type WorkAreaOption,
 } from "@/components/users/user-form";
-import type { Role } from "@/lib/scope";
+import type { Role } from "@/types/domain";
 
 const helper = createColumnHelper<
   typeof dataTableFeatures,

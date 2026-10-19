@@ -1,14 +1,6 @@
-import type { EffectiveRule, EffectiveRules, RuleKey } from "./types";
+import type { EffectiveRule, EffectiveRules, RuleKey } from "@/types/engine";
+import type { RuleConfigRow } from "@/types/domain";
 import { DEFAULT_RULES } from "./types";
-
-// The shape Task 4's DB layer feeds in, one row per (scope, rule key).
-// A row is "present with value" for a rule only when the value column that
-// rule actually uses is non-null; null on both sides reads as absent.
-export interface RuleConfigRow {
-  ruleKey: RuleKey;
-  intValue: number | null;
-  boolValue: boolean | null;
-}
 
 const readInt = (row: RuleConfigRow): number | null => row.intValue;
 const readBool = (row: RuleConfigRow): boolean | null => row.boolValue;

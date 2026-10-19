@@ -12,7 +12,8 @@ import {
   pgErrorCode,
   pgErrorConstraint,
 } from "@/lib/db-errors";
-import { canManageActorTarget, type Role } from "@/lib/scope";
+import { canManageActorTarget } from "@/lib/scope";
+import type { Role } from "@/types/domain";
 import { requireHO, type SessionUser } from "@/lib/session";
 import type { ActionState } from "@/lib/action-state";
 import {

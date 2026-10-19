@@ -13,7 +13,7 @@ const INT_RANGES: Record<"C1" | "C2" | "C5" | "C6", { min: number; max?: number 
 const INT_RULE_KEYS = new Set<RuleKey>(["C1", "C2", "C5", "C6"]);
 const BOOL_RULE_KEYS = new Set<RuleKey>(["C3", "C4", "C7"]);
 
-import type { RuleKey } from "./engine/types";
+import type { RuleKey } from "@/types/engine";
 
 // One write payload: the rule key, its scope, and exactly one value column
 // filled per the key's type. The siteLocationId is validated as a uuid

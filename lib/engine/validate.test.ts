@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_RULES } from "./types";
-import type { EffectiveRule, EffectiveRules } from "./types";
-import { resolveRules, type RuleConfigRow } from "./resolve";
+import type { EffectiveRule, EffectiveRules } from "@/types/engine";
+import { resolveRules } from "./resolve";
+import type { RuleConfigRow } from "@/types/domain";
 import { validateRoster, type RosterAssignment, type Shift, type WorkerProfile } from "./validate";
 
 // Task 3 of the config-rules epic (GitHub #50): the pure validator over a

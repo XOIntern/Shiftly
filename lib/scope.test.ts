@@ -11,7 +11,7 @@ import {
   scopeOf,
   userScopeFilter,
 } from "./scope";
-import type { Role, Scope } from "./scope";
+import type { Role, Scope } from "@/types/domain";
 
 const SITE_A = "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02";
 const SITE_B = "7d2c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b03";

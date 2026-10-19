@@ -3,7 +3,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { site, siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { resolveRules } from "@/lib/engine/resolve";
-import type { EffectiveRules, RuleKey } from "@/lib/engine/types";
+import type { EffectiveRules, RuleKey } from "@/types/engine";
 import {
   loadGlobalRows,
   loadLocationRows,
