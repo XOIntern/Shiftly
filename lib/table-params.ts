@@ -2,15 +2,14 @@
 // Deliberately framework-free: server pages await searchParams with it and
 // client components read useSearchParams with it (epic #24).
 
+import type { TableSort } from "@/types/data-table";
+
 export const TABLE_PAGE_SIZE = 10;
 // Rows-per-page choices the footer Select offers; the URL pageSize param
 // accepts only these (anything else parses to the first option).
 export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50];
 
 export type SortDir = "asc" | "desc";
-// One sort key: a column id plus its direction. Whitelisting the column
-// id happens per page (buildOrder), never here.
-export type TableSort = { columnId: string; dir: SortDir };
 
 // Multi-sort cap: three levels cover the real master-data needs without
 // letting a crafted URL stack an unbounded ORDER BY.
