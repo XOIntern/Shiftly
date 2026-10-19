@@ -4,6 +4,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -35,6 +36,10 @@ export const position = pgTable(
     uniqueIndex("position_site_id_name_unique")
       .on(table.siteId, table.name)
       .where(sql`deleted_at is null`),
+    // Plain (non-partial) unique CONSTRAINT on the parent pair so the
+    // composite FK from worker(position_id, site_id) resolves at
+    // FK-creation time (see ./worker-schema.ts comment).
+    unique("position_id_site_id_unique").on(table.id, table.siteId),
   ],
 );
 
