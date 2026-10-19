@@ -54,12 +54,6 @@ describe("BulkToolbar lifecycle button visibility", () => {
     expect(hasButton(html, "Deactivate")).toBeTrue();
   });
 
-  test("Delete stays visible on a well-behaved selection", () => {
-    const html = renderBulk(2, [true, true]);
-
-    expect(hasButton(html, "Delete")).toBeTrue();
-  });
-
   test("the Clear button is gone; the header checkbox clears instead", () => {
     const html = renderBulk(2, [true, false]);
 
@@ -71,5 +65,37 @@ describe("BulkToolbar lifecycle button visibility", () => {
 
     expect(html.includes("Deactivate 2 sites?")).toBeFalse();
     expect(html.includes("Delete 2 sites?")).toBeFalse();
+  });
+});
+
+describe("BulkToolbar delete button visibility", () => {
+  test("no status info keeps Delete visible (back-compat)", () => {
+    const html = renderBulk(2, undefined);
+
+    expect(hasButton(html, "Delete")).toBeTrue();
+  });
+
+  test("an empty status list keeps Delete visible (unknown)", () => {
+    const html = renderBulk(2, []);
+
+    expect(hasButton(html, "Delete")).toBeTrue();
+  });
+
+  test("an all-Inactive selection keeps Delete visible", () => {
+    const html = renderBulk(2, [false, false]);
+
+    expect(hasButton(html, "Delete")).toBeTrue();
+  });
+
+  test("an all-Active selection hides Delete", () => {
+    const html = renderBulk(2, [true, true]);
+
+    expect(hasButton(html, "Delete")).toBeFalse();
+  });
+
+  test("a mixed selection hides Delete — one active row suppresses it", () => {
+    const html = renderBulk(2, [true, false]);
+
+    expect(hasButton(html, "Delete")).toBeFalse();
   });
 });

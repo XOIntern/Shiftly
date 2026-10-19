@@ -26,8 +26,11 @@ type BulkOperation = () => Promise<ActionState>;
 // delete is not undoable. Lifecycle buttons hide when they cannot change
 // anything: an all-Active selection needs Deactivate only, an
 // all-Inactive one needs Activate only, and unknown status keeps both
-// (old behavior). Every confirm runs its server action through one
-// transition so the whole strip disables while a mutation is in flight.
+// (old behavior). Delete is a post-deactivation verb: it hides while any
+// selected row is still active and shows for an all-Inactive selection —
+// or when status is unknown (same back-compat rule). Every confirm runs
+// its server action through one transition so the whole strip disables
+// while a mutation is in flight.
 type Confirm = { operation: BulkOperation; verb: string } | null;
 
 export function BulkToolbar({
@@ -79,6 +82,11 @@ export function BulkToolbar({
     statuses.length > 0 && statuses.every((status) => !status);
   const uniformActive =
     statuses.length > 0 && statuses.every((status) => status);
+  // Delete is a post-deactivation verb: hide it while any selected row is
+  // still active; unknown status keeps it (same back-compat rule as above).
+  const deleteVisible =
+    onDelete !== undefined &&
+    (statuses.length === 0 || statuses.every((status) => !status));
 
   const confirmTitle = confirm
     ? `${confirm.verb[0].toUpperCase()}${confirm.verb.slice(1)} ${count} ${entityName}${plural}?`
@@ -117,7 +125,7 @@ export function BulkToolbar({
           Deactivate
         </Button>
       ) : null}
-      {onDelete ? (
+      {deleteVisible ? (
         <Button
           size="sm"
           variant="destructive"
