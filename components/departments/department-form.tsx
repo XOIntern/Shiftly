@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
+import type { DepartmentRow, SiteOption } from "@/types/forms";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createDepartment,
@@ -61,18 +62,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-export type SiteOption = { id: string; name: string };
-
-// A department row the page hands the actions — siteName comes from the
-// required inner join, so it can't be null.
-export type DepartmentRow = {
-  id: string;
-  name: string;
-  isActive: boolean;
-  siteId: string;
-  siteName: string;
-};
 
 type DepartmentFieldErrors = Record<string, string>;
 

@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation } from "@/drizzle/schema";
-import type { SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
 
 // The bulk actions resolve their actor through requireSuperadmin — swapped
 // for a stub so the real server actions read against the test database.

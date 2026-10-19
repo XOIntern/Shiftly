@@ -2,8 +2,10 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 
 import { auditLog, rosterRuleConfig, site, siteLocation } from "../drizzle/schema";
 import { db } from "./db";
-import { resolveRules, type RuleConfigRow } from "./engine/resolve";
-import { DEFAULT_RULES, type EffectiveRules } from "./engine/types";
+import { resolveRules } from "./engine/resolve";
+import { DEFAULT_RULES } from "./engine/types";
+import type { EffectiveRules } from "@/types/engine";
+import type { RuleConfigRow } from "@/types/domain";
 
 // The scope a config row (and its audit entry) belongs to. A location-level
 // scope always names its parent site — mirrored by the table's CHECK weld.

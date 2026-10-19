@@ -13,12 +13,12 @@ import { dataTableFeatures } from "@/components/data-table-features";
 import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
-import {
-  WorkAreaRowActions,
-  type DepartmentOption,
-  type SiteLocationOption,
-  type WorkAreaRow,
-} from "@/components/work-areas/work-area-form";
+import { WorkAreaRowActions } from "@/components/work-areas/work-area-form";
+import type {
+  DepartmentOption,
+  SiteLocationOption,
+  WorkAreaRow,
+} from "@/types/forms";
 
 const helper = createColumnHelper<typeof dataTableFeatures, WorkAreaRow>();
 

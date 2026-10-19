@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
+import type { LocationRow, SiteOption } from "@/types/forms";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createLocation,
@@ -61,26 +62,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-export type SiteOption = { id: string; name: string };
-
-// A location row the page hands the actions — siteName comes from the
-// required inner join, so it can't be null.
-export type LocationOption = {
-  id: string;
-  name: string;
-  siteId: string;
-  siteName: string;
-};
-
-// One row of the locations table — server-selectable fields only.
-export type LocationRow = {
-  id: string;
-  name: string;
-  isActive: boolean;
-  siteId: string;
-  siteName: string;
-};
 
 type LocationFieldErrors = Record<string, string>;
 

@@ -8,7 +8,8 @@ import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
-import { SiteRowActions, type SiteRow } from "@/components/sites/site-form";
+import { SiteRowActions } from "@/components/sites/site-form";
+import type { SiteRow } from "@/types/forms";
 
 const helper = createColumnHelper<typeof dataTableFeatures, SiteRow>();
 

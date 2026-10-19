@@ -16,17 +16,18 @@ import {
   parseTableSearchParams,
 } from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
-import { canManageActorTarget, userScopeFilter, type Role } from "@/lib/scope";
+import { canManageActorTarget, userScopeFilter } from "@/lib/scope";
+import type { Role } from "@/types/domain";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  CreateUserButton,
-  type DepartmentOption,
-  type LocationOption,
-  type SiteOption,
-  type UserFormData,
-  type UserRow,
-  type WorkAreaOption,
-} from "@/components/users/user-form";
+import { CreateUserButton } from "@/components/users/user-form";
+import type {
+  DepartmentOption,
+  LocationOption,
+  SiteOption,
+  UserFormData,
+  UserRow,
+  WorkAreaOption,
+} from "@/types/forms";
 import { UsersTable } from "@/components/users/users-table";
 
 // Deliberate block: the page queries master data behind the HO session check,

@@ -30,12 +30,9 @@ import {
   PAGE_SIZE_OPTIONS,
   parseTableSearchParams,
   TABLE_PAGE_SIZE,
-  type TableSort,
 } from "@/lib/table-params";
-import {
-  dataTableFeatures,
-  type DataTableFeatures,
-} from "@/components/data-table-features";
+import { dataTableFeatures } from "@/components/data-table-features";
+import type { DataTableFeatures, TableSort } from "@/types/data-table";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {

@@ -1,4 +1,4 @@
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
 
 // Maps a Better Auth rejection to the action result shape. Lives outside the

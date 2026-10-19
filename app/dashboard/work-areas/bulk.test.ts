@@ -11,7 +11,7 @@ import {
   user,
   workArea,
 } from "@/drizzle/schema";
-import type { SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
 
 // The work-area actions resolve their actor through requireUser — swapped
 // for a stub so the real server actions read against the test database.

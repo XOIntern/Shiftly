@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation, user } from "@/drizzle/schema";
-import type { SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
 
 // The bulk action resolves its actor through requireHO — swapped for a stub
 // so the real server action reads against the test database without a Next

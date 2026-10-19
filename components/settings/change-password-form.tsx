@@ -3,7 +3,7 @@
 import { useId, useState, useTransition } from "react";
 
 import { changePassword } from "@/app/dashboard/settings/actions";
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {

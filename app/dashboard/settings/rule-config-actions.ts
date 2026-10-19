@@ -6,11 +6,12 @@ import { z } from "zod";
 
 import { siteLocation } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { requireHO, type SessionUser } from "@/lib/session";
-import type { ActionState } from "@/lib/action-state";
+import { requireHO } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
+import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { resolveRules } from "@/lib/engine/resolve";
-import type { RuleKey } from "@/lib/engine/types";
+import type { RuleKey } from "@/types/engine";
 import {
   findC6Violations,
   loadGlobalRows,
@@ -19,7 +20,7 @@ import {
   upsertRuleRow,
   type RuleScope,
 } from "@/lib/rule-config";
-import { ruleConfigSchema } from "@/lib/rule-config-validators";
+import { ruleConfigSchema } from "@/schema/rule-config-validators";
 
 // Maps a driver error to the action result shape (same convention as the
 // other dashboard actions). The rule-config upsert has no duplicate-key

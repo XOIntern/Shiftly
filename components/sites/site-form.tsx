@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
+import type { SiteRow } from "@/types/forms";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createSite,
@@ -52,13 +53,6 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-
-// One row of the sites table — server-selectable fields only.
-export type SiteRow = {
-  id: string;
-  name: string;
-  isActive: boolean;
-};
 
 type SiteFieldErrors = Record<string, string>;
 

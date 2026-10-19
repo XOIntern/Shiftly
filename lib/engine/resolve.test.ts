@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_RULES } from "./types";
-import { resolveRules, type RuleConfigRow } from "./resolve";
+import { resolveRules } from "./resolve";
+import type { RuleConfigRow } from "@/types/domain";
 
 // Task 2 of the config-rules epic (GitHub #49): the pure resolver that turns
 // global / site / location config rows into effective rules C1–C7, each

@@ -1,4 +1,4 @@
-import { ROLES } from "./scope";
+import { ROLES } from "../lib/scope";
 import { z } from "zod";
 
 const nameField = z.string().trim().min(1).max(200);

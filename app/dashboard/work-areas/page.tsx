@@ -11,12 +11,12 @@ import {
 } from "@/lib/table-params";
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  CreateWorkAreaButton,
+import { CreateWorkAreaButton } from "@/components/work-areas/work-area-form";
+import type {
   DepartmentOption,
-  type SiteLocationOption,
-  type SiteOption,
-} from "@/components/work-areas/work-area-form";
+  SiteLocationOption,
+  SiteOption,
+} from "@/types/forms";
 import { WorkAreasTable } from "@/components/work-areas/work-areas-table";
 
 // Deliberate block: the page queries master data behind the session check,

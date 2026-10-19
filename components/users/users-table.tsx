@@ -11,16 +11,16 @@ import { RoleFilter } from "@/components/role-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
-import {
-  type DepartmentOption,
-  type LocationOption,
-  type SiteOption,
-  UserRowActions,
-  type UserFormData,
-  type UserRow,
-  type WorkAreaOption,
-} from "@/components/users/user-form";
-import type { Role } from "@/lib/scope";
+import { UserRowActions } from "@/components/users/user-form";
+import type { Role } from "@/types/domain";
+import type {
+  DepartmentOption,
+  LocationOption,
+  SiteOption,
+  UserFormData,
+  UserRow,
+  WorkAreaOption,
+} from "@/types/forms";
 
 const helper = createColumnHelper<
   typeof dataTableFeatures,

@@ -11,10 +11,8 @@ import {
 } from "@/lib/table-params";
 import { requireHO } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  CreateLocationButton,
-  type SiteOption,
-} from "@/components/locations/location-form";
+import { CreateLocationButton } from "@/components/locations/location-form";
+import type { SiteOption } from "@/types/forms";
 import { LocationsTable } from "@/components/locations/locations-table";
 
 // Deliberate block: the page queries master data behind the HO session check,

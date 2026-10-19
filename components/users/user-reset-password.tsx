@@ -4,7 +4,7 @@ import { useId, useState, useTransition } from "react";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 
 import { resetPassword } from "@/app/dashboard/users/actions";
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState } from "@/types/action-state";
 import {
   AlertDialog,
   AlertDialogAction,

@@ -1,4 +1,4 @@
-import type { EffectiveRules, RuleKey } from "./types";
+import type { EffectiveRules, RuleKey } from "@/types/engine";
 
 // Pure validator for draft rosters over the effective rules C1–C7.
 // No DB, no Next, no clock — assignments + worker profiles + resolved rules

@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation, user } from "@/drizzle/schema";
-import type { SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
 
 // resetPassword resolves its actor through requireHO and writes through
 // setCredentialPassword/deleteUserSessions — swapped here (the same

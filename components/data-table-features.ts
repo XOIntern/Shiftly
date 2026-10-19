@@ -17,5 +17,3 @@ export const dataTableFeatures = tableFeatures({
     sortable?: boolean;
   },
 });
-
-export type DataTableFeatures = typeof dataTableFeatures;

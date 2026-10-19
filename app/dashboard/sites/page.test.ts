@@ -5,7 +5,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site } from "@/drizzle/schema";
-import type { SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/types/session";
 
 // The sites page reads its actor through requireSuperadmin — swapped for a
 // stub so the real server component can render against the test database.
