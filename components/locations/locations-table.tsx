@@ -10,11 +10,8 @@ import { dataTableFeatures } from "@/components/data-table-features";
 import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
-import {
-  LocationRowActions,
-  type LocationRow,
-  type SiteOption,
-} from "@/components/locations/location-form";
+import { LocationRowActions } from "@/components/locations/location-form";
+import type { LocationRow, SiteOption } from "@/types/forms";
 
 const helper = createColumnHelper<typeof dataTableFeatures, LocationRow>();
 

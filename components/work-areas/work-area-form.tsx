@@ -11,6 +11,11 @@ import {
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
+import type {
+  DepartmentOption,
+  SiteLocationOption,
+  WorkAreaRow,
+} from "@/types/forms";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createWorkArea,
@@ -61,32 +66,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-// A department the create/edit dialog may reference.
-export type DepartmentOption = { id: string; name: string; siteId: string };
-
-// Site rows threaded into the table's SiteFilter (locations-page shape).
-export type SiteOption = { id: string; name: string };
-
-// A site_location the create/edit dialog may target.
-export type SiteLocationOption = {
-  id: string;
-  name: string;
-  siteId: string;
-};
-
-// A work-area row the page hands the actions — siteName/departmentName come
-// from the required inner joins, so they can't be null.
-export type WorkAreaRow = {
-  id: string;
-  name: string;
-  isActive: boolean;
-  departmentId: string;
-  siteLocationId: string;
-  siteId: string;
-  siteName: string;
-  departmentName: string;
-};
 
 type WorkAreaFieldErrors = Record<string, string>;
 

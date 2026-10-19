@@ -3,7 +3,8 @@
 import { useId, useState, useTransition } from "react";
 
 import { updateRuleConfig } from "@/app/dashboard/settings/rule-config-actions";
-import type { RuleKey, RuleSource } from "@/types/engine";
+import type { RuleKey } from "@/types/engine";
+import type { RuleLocationOption, RuleRowView } from "@/types/forms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -42,25 +43,6 @@ import {
 } from "@/components/ui/table";
 
 type ActorRole = "superadmin" | "ho" | "admin";
-
-// One row of the rules table — the effective value plus where it came from.
-// The server resolves it; the client never recomputes inheritance.
-export type RuleRowView = {
-  key: RuleKey;
-  meaning: string;
-  kind: "int" | "bool";
-  value: number | boolean;
-  source: RuleSource;
-};
-
-// Live locations the dialog may target, already limited by the server to
-// what the actor may touch (their own site for a ho, all sites for a
-// superadmin).
-export type RuleLocationOption = {
-  id: string;
-  name: string;
-  siteName: string;
-};
 
 // The dialog renders error slots for scope, siteLocationId, intValue and
 // boolValue. Refusals keyed to any other field — the null-bound ho's siteId

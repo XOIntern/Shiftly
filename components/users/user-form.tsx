@@ -20,6 +20,14 @@ import {
 import { GENERIC_ERROR } from "@/lib/action-state";
 import type { ActionState } from "@/types/action-state";
 import type { Role } from "@/types/domain";
+import type {
+  DepartmentOption,
+  LocationOption,
+  SiteOption,
+  UserFormData,
+  UserRow,
+  WorkAreaOption,
+} from "@/types/forms";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -67,49 +75,6 @@ import {
 
 // Role comes from lib/scope (single source of truth, shared with the
 // actions); the dialog only renders the select from it.
-
-export type SiteOption = { id: string; name: string };
-
-// siteName can be null only through the left join that produces the list;
-// the select label falls back to the bare location name.
-export type LocationOption = {
-  id: string;
-  name: string;
-  siteId: string;
-  siteName: string | null;
-};
-
-// Departments/work areas (issue #66): mirrors the site/location options.
-// Work-area rows key on the site_location so the select can shrink to the
-// target admin's chosen location; the page pre-scopes both option lists.
-export type DepartmentOption = { id: string; name: string; siteId: string };
-
-export type WorkAreaOption = {
-  id: string;
-  name: string;
-  siteLocationId: string;
-};
-
-// One row of the users table — server-selectable fields only.
-export type UserRow = {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  binding: string | null;
-  isActive: boolean;
-};
-
-// Edit dialog data — the raw bindings the form pre-fills from.
-export type UserFormData = {
-  id: string;
-  name: string;
-  role: Role;
-  siteId: string | null;
-  siteLocationId: string | null;
-  departmentId: string | null;
-  workAreaId: string | null;
-};
 
 const roleItemsAll: { label: string; value: Role }[] = [
   { label: "Superadmin", value: "superadmin" },

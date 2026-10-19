@@ -11,11 +11,8 @@ import {
 } from "@/lib/rule-config";
 import { requireUser } from "@/lib/session";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
-import {
-  RuleConfigTable,
-  type RuleLocationOption,
-  type RuleRowView,
-} from "@/components/settings/rule-config-form";
+import { RuleConfigTable } from "@/components/settings/rule-config-form";
+import type { RuleLocationOption, RuleRowView } from "@/types/forms";
 import {
   Card,
   CardContent,

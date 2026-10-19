@@ -11,10 +11,8 @@ import {
 } from "@/lib/table-params";
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  CreateDepartmentButton,
-  type SiteOption,
-} from "@/components/departments/department-form";
+import { CreateDepartmentButton } from "@/components/departments/department-form";
+import type { SiteOption } from "@/types/forms";
 import { DepartmentsTable } from "@/components/departments/departments-table";
 
 // Deliberate block: the page queries master data behind the session check,
