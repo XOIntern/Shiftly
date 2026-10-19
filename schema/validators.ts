@@ -55,28 +55,21 @@ export const positionUpdateSchema = positionCreateSchema.extend({
 // Role/binding invariants (docs/architecture.md v0.2 §6): superadmin is
 // global (no site/location binding, and — since the dropped-department
 // epic — no department binding either), ho binds exactly one site and
-// never a site_location or work area, admin binds exactly one
-// site_location and never a site, with an optional work-area cross-pin.
+// never a site_location, admin binds exactly one site_location and never
+// a site.
 const roleBindingValid = (user: {
   role: string;
   siteId?: string;
   siteLocationId?: string;
-  workAreaId?: string;
 }) =>
   user.role === "superadmin"
-    ? user.siteId === undefined &&
-      user.siteLocationId === undefined &&
-      user.workAreaId === undefined
+    ? user.siteId === undefined && user.siteLocationId === undefined
     : user.role === "ho"
-      ? user.siteId !== undefined &&
-        user.siteLocationId === undefined &&
-        user.workAreaId === undefined
+      ? user.siteId !== undefined && user.siteLocationId === undefined
       : user.siteLocationId !== undefined && user.siteId === undefined;
 
-// Cross-hairpins note: a workAreaId only belongs to an admin (it is
-// site_location-scoped).
 const bindingMessage =
-  "superadmin carries no bindings; ho requires siteId and forbids siteLocationId and workAreaId; admin requires siteLocationId, may carry workAreaId, and forbids siteId";
+  "superadmin carries no bindings; ho requires siteId and forbids siteLocationId; admin requires siteLocationId and forbids siteId";
 
 const userBaseSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -85,7 +78,6 @@ const userBaseSchema = z.object({
   role: z.enum(ROLES),
   siteId: z.uuid().optional(),
   siteLocationId: z.uuid().optional(),
-  workAreaId: z.uuid().optional(),
 });
 
 export const userCreateSchema = userBaseSchema.refine(roleBindingValid, {
@@ -97,24 +89,19 @@ export const userCreateSchema = userBaseSchema.refine(roleBindingValid, {
 // selects, stale fields from a role switch): those keys are stripped before
 // validation so the role refine judges only the bindings the role owns
 // (per issue #11's refines). ho keeps siteId — a null/absent siteId
-// surfaces as a per-field siteId error — and strips siteLocationId and
-// workAreaId; admin keeps siteLocationId and workAreaId and strips siteId;
-// superadmin gets all three stripped.
+// surfaces as a per-field siteId error — and strips siteLocationId; admin
+// keeps siteLocationId and strips siteId; superadmin gets both stripped.
 const keptBindings = (
   role: string,
   input: {
     siteId?: string | null;
     siteLocationId?: string | null;
-    workAreaId?: string | null;
   },
 ) =>
   role === "ho"
     ? { siteId: input.siteId }
     : role === "admin"
-      ? {
-          siteLocationId: input.siteLocationId,
-          workAreaId: input.workAreaId,
-        }
+      ? { siteLocationId: input.siteLocationId }
       : {};
 
 export function parseUserCreate(input: {
@@ -124,7 +111,6 @@ export function parseUserCreate(input: {
   role: string;
   siteId?: string | null;
   siteLocationId?: string | null;
-  workAreaId?: string | null;
 }) {
   const role = input.role;
   return userCreateSchema.safeParse({
@@ -181,7 +167,6 @@ export function parseUserUpdate(
     role: string;
     siteId?: string | null;
     siteLocationId?: string | null;
-    workAreaId?: string | null;
   },
 ) {
   const role = input.role;

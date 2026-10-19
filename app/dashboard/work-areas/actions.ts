@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { siteLocation, user, workArea } from "@/drizzle/schema";
+import { siteLocation, workArea } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/lib/db-errors";
 import { requireUser } from "@/lib/session";
@@ -224,22 +224,9 @@ export async function deleteWorkArea(id: string): Promise<ActionState> {
     return { ok: false, message: "Invalid work area id." };
   }
 
-  // Foreign work areas answer "not found." — never "users are still bound",
-  // which would leak that the row exists.
+  // Foreign work areas answer "not found." — never anything scope-leaking.
   if (!(await workAreaOwnedByActor(actor, id))) {
     return { ok: false, message: "Work area not found." };
-  }
-
-  // Only LIVE users count — an already soft-deleted user must not
-  // resurrect its own binding. The hide on user.workAreaId stays restrict,
-  // caught by the driver-side FK as a backstop.
-  const bound = await db
-    .select({ id: user.id })
-    .from(user)
-    .where(and(eq(user.workAreaId, id), isNull(user.deletedAt)))
-    .limit(1);
-  if (bound.length > 0) {
-    return { ok: false, message: "Users are still bound to this work area" };
   }
 
   try {
@@ -286,10 +273,7 @@ export async function setActiveBulk(
   }
 }
 
-// Bulk work-area unregistration. Rows with LIVE users still bound are
-// skipped (not fatal) with the same guard message the single-row path
-// gives: the bound check rides the same ownership WHERE, so foreign work
-// areas can never leak into either count. The write soft-deletes.
+// Bulk work-area unregistration. The write soft-deletes.
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   const actor = await requireUser();
 
@@ -300,42 +284,13 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
     return { ok: false, message: "No work areas selected." };
   }
 
-  // User-bound rows among the requested set, scoped by the same weld —
-  // this select maps 1:1 onto "these rows will refuse to delete."
-  const boundRows = await db
-    .select({ id: user.workAreaId })
-    .from(user)
-    .innerJoin(workArea, eq(user.workAreaId, workArea.id))
-    .where(
-      and(workAreaBulkMutationWhere(actor, validIds), isNull(user.deletedAt)),
-    );
-
-  const boundIds = new Set(
-    boundRows
-      .filter((row): row is { id: string } => row.id !== null)
-      .map((row) => row.id),
-  );
-
   try {
     const deleted = await db
       .update(workArea)
       .set({ deletedAt: new Date() })
-      .where(
-        workAreaBulkMutationWhere(
-          actor,
-          validIds.filter((id) => !boundIds.has(id)),
-        ),
-      );
-    const result: ActionState = {
-      ok: true,
-      applied: deleted.rowCount ?? 0,
-      blocked: boundIds.size,
-    };
-    if (boundIds.size > 0) {
-      result.message = `${boundIds.size} work area${boundIds.size === 1 ? "" : "s"} skipped: Users are still bound to this work area`;
-    }
+      .where(workAreaBulkMutationWhere(actor, validIds));
     revalidatePath("/dashboard/work-areas");
-    return result;
+    return { ok: true, applied: deleted.rowCount ?? 0 };
   } catch (err) {
     return dbResult(err);
   }

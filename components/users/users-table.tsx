@@ -18,7 +18,6 @@ import type {
   SiteOption,
   UserFormData,
   UserRow,
-  WorkAreaOption,
 } from "@/types/forms";
 
 const helper = createColumnHelper<
@@ -35,7 +34,6 @@ export function UsersTable({
   actorRole,
   sites,
   locations,
-  workAreas,
   pageCount,
   total,
 }: {
@@ -43,7 +41,6 @@ export function UsersTable({
   actorRole: Role;
   sites: SiteOption[];
   locations: LocationOption[];
-  workAreas: WorkAreaOption[];
   pageCount: number;
   total: number;
 }) {
@@ -111,12 +108,11 @@ export function UsersTable({
                 actorRole={actorRole}
                 sites={sites}
                 locations={locations}
-                workAreas={workAreas}
               />
             ) : null,
         }),
       ]),
-    [actorRole, sites, locations, workAreas],
+    [actorRole, sites, locations],
   );
 
   return (

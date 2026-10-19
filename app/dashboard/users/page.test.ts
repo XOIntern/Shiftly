@@ -822,3 +822,25 @@ describe("users page hides soft-deleted rows (issue #44 task 8)", () => {
     }
   });
 });
+
+// The user work-area binding is removed: the create/edit dialogs no longer
+// receive work-area options at all — the prop must be gone, not empty.
+describe("users page carries no work-area options", () => {
+  test("dialog props have no workAreas key", async () => {
+    actor = {
+      id: randomUUID(),
+      name: "T9 No WA Sa",
+      email: `t9-users-${randomUUID()}@shiftly.test`,
+      role: "superadmin",
+      siteId: null,
+      siteLocationId: null,
+      isActive: true,
+    };
+    const { options } = await renderUsers();
+
+    expect(options.length).toBeGreaterThan(0);
+    for (const option of options) {
+      expect("workAreas" in option).toBe(false);
+    }
+  });
+});

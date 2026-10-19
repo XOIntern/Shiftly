@@ -1,10 +1,10 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { site, siteLocation, user, workArea } from "@/drizzle/schema";
+import { site, siteLocation, user } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 import type { Role } from "@/types/domain";
 
@@ -21,31 +21,12 @@ mock.module("@/lib/session", () => ({
 mock.module("next/cache", () => ({
   revalidatePath: () => {},
 }));
-mock.module("@/lib/credential-store", () => ({
-  deleteUserSessions: async () => {},
-  setCredentialPassword: async () => 0,
-}));
 
-async function loadBindings(id: string) {
-  const [row] = await db
-    .select({
-      workAreaId: user.workAreaId,
-      siteId: user.siteId,
-      siteLocationId: user.siteLocationId,
-    })
-    .from(user)
-    .where(eq(user.id, id));
-  return row;
-}
-
-// Shared fixture: siteA (the ho actor's site) with two locations, each
-// carrying a work area. The rows live for the whole file — only the minted
-// user targets are per-test and cleaned up individually.
+// Shared fixture: siteA (the ho actor's site) with one location. The rows
+// live for the whole file — only the minted user targets are per-test and
+// cleaned up individually.
 const siteA = randomUUID();
 const locA = randomUUID();
-const waA = randomUUID();
-const waB = randomUUID();
-const locB = randomUUID();
 const hoActor = randomUUID();
 const superActor = randomUUID();
 const mkEmail = (id: string) => `t9-users-${id}@shiftly.test`;
@@ -90,28 +71,13 @@ async function mintUser(fields: {
   return id;
 }
 
-describe("users bindings (work-area, issue #66)", () => {
+describe("users bindings (the user work-area binding is removed)", () => {
   beforeAll(async () => {
     await db.insert(site).values([
       { id: siteA, name: `t9-users-site-alpha-${siteA}` },
     ]);
     await db.insert(siteLocation).values([
       { id: locA, siteId: siteA, name: "T9 Users Loc A" },
-      { id: locB, siteId: siteA, name: "T9 Users Loc B" },
-    ]);
-    await db.insert(workArea).values([
-      {
-        id: waA,
-        siteLocationId: locA,
-        siteId: siteA,
-        name: "T9 WA A",
-      },
-      {
-        id: waB,
-        siteLocationId: locB,
-        siteId: siteA,
-        name: "T9 WA B",
-      },
     ]);
     await db.insert(user).values([hoActorRow, superActorRow]);
   });
@@ -122,262 +88,60 @@ describe("users bindings (work-area, issue #66)", () => {
     // Like-based sweep: rows minted by actions that failed mid-test (their
     // ids never got tracked) must not block the fixture teardown.
     await db.delete(user).where(like(user.email, "t9-%@shiftly.test"));
-    await db.delete(workArea).where(like(workArea.name, "T9 WA %"));
     await db.delete(siteLocation).where(eq(siteLocation.id, locA));
-    await db.delete(siteLocation).where(eq(siteLocation.id, locB));
     await db.delete(site).where(eq(site.id, siteA));
   });
 
-  test("superadmin actor persists workAreaId on an admin create", async () => {
+  test("the user table has no work_area_id column", async () => {
+    const result = await db.execute(
+      sql`select column_name from information_schema.columns
+          where table_name = 'user' and column_name = 'work_area_id'`,
+    );
+    expect(result.rows).toEqual([]);
+  });
+
+  test("createUser drops a stray workAreaId payload instead of erroring", async () => {
     actor = superActorRow;
     const { createUser } = await import("./actions");
     const key = randomUUID();
-    const result = await createUser({
-      name: "T9 Admin Super-made",
+    const payload = {
+      name: "T9 Admin No WA",
       email: `t9-admin-${key}@shiftly.test`,
       password: "password123",
       role: "admin",
       siteLocationId: locA,
-      workAreaId: waA,
-    });
+      // The removed binding key must be inert: stripped before validation,
+      // never an error, never persisted.
+      workAreaId: randomUUID(),
+    } as Parameters<typeof createUser>[0];
+    const result = await createUser(payload);
     expect(result.ok).toBe(true);
+
     const [created] = await db
       .select({ id: user.id })
       .from(user)
       .where(eq(user.email, `t9-admin-${key}@shiftly.test`));
     expect(created).toBeDefined();
     trackedIds.push(created!.id);
-    const row = await loadBindings(created!.id);
-    expect(row?.workAreaId).toBe(waA);
-    expect(row?.siteId).toBe(null);
   });
 
-  test("superadmin actor's workAreaId is stripped for a superadmin target", async () => {
-    actor = superActorRow;
-    const { createUser } = await import("./actions");
-    const key = randomUUID();
-    const email = `t9-super-${key}@shiftly.test`;
-    const result = await createUser({
-      name: "T9 Super Tampered",
-      email,
-      password: "password123",
-      role: "superadmin",
-      workAreaId: waA,
-    });
-    expect(result.ok).toBe(true);
-    const [created] = await db
-      .select({ id: user.id })
-      .from(user)
-      .where(eq(user.email, email));
-    expect(created).toBeDefined();
-    trackedIds.push(created!.id);
-    const row = await loadBindings(created!.id);
-    expect(row?.workAreaId).toBe(null);
-    expect(row?.siteId).toBe(null);
-    expect(row?.siteLocationId).toBe(null);
-  });
-
-  test("superadmin actor's ho update never sets a workAreaId", async () => {
-    actor = superActorRow;
-    const id = await mintUser({ role: "ho", siteId: siteA });
-    const { updateUser } = await import("./actions");
-    const result = await updateUser(id, {
-      name: "T9 HO Edited",
-      role: "ho",
-      siteId: siteA,
-      workAreaId: waA,
-    });
-    expect(result.ok).toBe(true);
-    const row = await loadBindings(id);
-    expect(row?.siteId).toBe(siteA);
-    expect(row?.workAreaId).toBe(null);
-  });
-
-  test("superadmin actor persists the work-area binding on an admin edit", async () => {
+  test("updateUser drops a stray workAreaId payload instead of erroring", async () => {
     actor = superActorRow;
     const id = await mintUser({ role: "admin", siteLocationId: locA });
     const { updateUser } = await import("./actions");
-    const result = await updateUser(id, {
+    const payload = {
       name: "T9 Admin Edited",
       role: "admin",
       siteLocationId: locA,
-      workAreaId: waA,
-    });
-    expect(result.ok).toBe(true);
-    const row = await loadBindings(id);
-    expect(row?.workAreaId).toBe(waA);
-  });
-
-  test("ho actor sending workAreaId → never set, nothing persists", async () => {
-    actor = hoActorRow;
-    const { createUser } = await import("./actions");
-    const key = randomUUID();
-    const email = `t9-ho-wa-${key}@shiftly.test`;
-    await createUser({
-      name: "T9 Admin Tampered WA",
-      email,
-      password: "password123",
-      role: "admin",
-      siteLocationId: locA,
-      workAreaId: waA,
-    });
-    const [row] = await db
-      .select({ id: user.id, workAreaId: user.workAreaId })
-      .from(user)
-      .where(eq(user.email, email));
-    expect(row).toBeDefined();
-    trackedIds.push(row!.id);
-    expect(row!.workAreaId).toBe(null);
-  });
-
-  test("superadmin pairs a work area with a foreign location → per-field error", async () => {
-    actor = superActorRow;
-    const { createUser } = await import("./actions");
-    const email = `t9-pair-${randomUUID()}@shiftly.test`;
-    const result = await createUser({
-      name: "T9 Pair Mismatch",
-      email,
-      password: "password123",
-      role: "admin",
-      siteLocationId: locA,
-      workAreaId: waB,
-    });
-    expect(result.ok).toBe(false);
-    expect(result.fieldErrors).toEqual({
-      workAreaId: "Work area must belong to the selected location",
-    });
-    const [row] = await db
-      .select({ id: user.id })
-      .from(user)
-      .where(eq(user.email, email));
-    expect(row).toBeUndefined();
-  });
-
-  test("23503 on the user.work_area FK routes to the work-area message", async () => {
-    // The pairing net passes a nonexistent id through to the insert on
-    // purpose, so the user.work_area FK's own 23503 answers here.
-    actor = superActorRow;
-    const { createUser } = await import("./actions");
-    const email = `t9-fk-wa-${randomUUID()}@shiftly.test`;
-    const result = await createUser({
-      name: "T9 FK WA",
-      email,
-      password: "password123",
-      role: "admin",
-      siteLocationId: locA,
       workAreaId: randomUUID(),
-    });
-    expect(result.ok).toBe(false);
-    expect(result.fieldErrors).toEqual({
-      workAreaId: "Selected work area no longer exists",
-    });
-  });
-
-  test("ho actor edit of an admin keeps the target's pinned work area (golden path)", async () => {
-    actor = hoActorRow;
-    const id = await mintUser({ role: "admin", siteLocationId: locA });
-    // Seed a work area directly — the ho never sets one on edit.
-    await db.update(user).set({ workAreaId: waA }).where(eq(user.id, id));
-    const { updateUser } = await import("./actions");
-    const result = await updateUser(id, {
-      name: "T9 Golden Path",
-      role: "admin",
-      siteLocationId: locA,
-      workAreaId: randomUUID(),
-    });
+    } as Parameters<typeof updateUser>[1];
+    const result = await updateUser(id, payload);
     expect(result.ok).toBe(true);
-    const row = await loadBindings(id);
-    // The tampered pick is stripped; the work area stays pinned to the
-    // target's own.
-    expect(row?.workAreaId).toBe(waA);
-  });
 
-  test("superadmin create binds a SOFT-DELETED work area at the right location → field error, nothing persists", async () => {
-    const deadWa = randomUUID();
-    await db.insert(workArea).values({
-      id: deadWa,
-      siteLocationId: locA,
-      siteId: siteA,
-      name: "T9 WA Dead Create",
-      deletedAt: new Date(),
-    });
-    try {
-      actor = superActorRow;
-      const { createUser } = await import("./actions");
-      const email = `t9-dead-wa-create-${randomUUID()}@shiftly.test`;
-      const result = await createUser({
-        name: "T9 Dead WA Create",
-        email,
-        password: "password123",
-        role: "admin",
-        siteLocationId: locA,
-        workAreaId: deadWa,
-      });
-      expect(result.ok).toBe(false);
-      expect(result.fieldErrors).toEqual({
-        workAreaId: "Selected work area no longer exists",
-      });
-      const [row] = await db
-        .select({ id: user.id })
-        .from(user)
-        .where(eq(user.email, email));
-      expect(row).toBeUndefined();
-    } finally {
-      await db.delete(workArea).where(eq(workArea.id, deadWa));
-    }
-  });
-
-  test("superadmin UPDATE binds a SOFT-DELETED work area at the right location → field error, binding unchanged", async () => {
-    const deadWa = randomUUID();
-    await db.insert(workArea).values({
-      id: deadWa,
-      siteLocationId: locA,
-      siteId: siteA,
-      name: "T9 WA Dead Update",
-      deletedAt: new Date(),
-    });
-    try {
-      actor = superActorRow;
-      const id = await mintUser({ role: "admin", siteLocationId: locA });
-      const { updateUser } = await import("./actions");
-      const result = await updateUser(id, {
-        name: "T9 Dead WA Update",
-        role: "admin",
-        siteLocationId: locA,
-        workAreaId: deadWa,
-      });
-      expect(result.ok).toBe(false);
-      expect(result.fieldErrors).toEqual({
-        workAreaId: "Selected work area no longer exists",
-      });
-      const row = await loadBindings(id);
-      expect(row?.workAreaId).toBe(null);
-      expect(row?.siteLocationId).toBe(locA);
-    } finally {
-      await db.delete(workArea).where(eq(workArea.id, deadWa));
-    }
-  });
-
-  test("ho edit of a drifted admin (pre-existing mismatched work area) succeeds — net not applied to ho", async () => {
-    actor = hoActorRow;
-    const id = await mintUser({ role: "admin", siteLocationId: locA });
-    // Drift seeded directly: the target already carries a work area that
-    // does not pair with its location. The ho edit pins these values, so
-    // the pairing net must not re-check them for an ho actor.
-    await db
-      .update(user)
-      .set({ workAreaId: waB })
+    const [row] = await db
+      .select({ name: user.name })
+      .from(user)
       .where(eq(user.id, id));
-    const { updateUser } = await import("./actions");
-    const result = await updateUser(id, {
-      name: "T9 Drifted Admin Edited",
-      role: "admin",
-      siteLocationId: locA,
-      workAreaId: randomUUID(),
-    });
-    expect(result.ok).toBe(true);
-    const row = await loadBindings(id);
-    expect(row?.workAreaId).toBe(waB);
-    expect(row?.siteLocationId).toBe(locA);
+    expect(row?.name).toBe("T9 Admin Edited");
   });
 });

@@ -186,7 +186,6 @@ describe("positionUpdateSchema", () => {
   });
 });
 
-
 describe("siteCreateSchema", () => {
   test("accepts a valid name", () => {
     const result = siteCreateSchema.safeParse({ name: "HQ Plant" });
@@ -754,12 +753,12 @@ describe("parseUserCreate", () => {
   });
 });
 
-describe("userCreateSchema work-area bindings", () => {
+describe("userCreateSchema with the work-area binding removed", () => {
   const siteUuid = "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02";
   const locUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
   const waUuid = "2f6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b07";
 
-  test("ho never carries workAreaId", () => {
+  test("a stray workAreaId is stripped, not judged, for an ho create", () => {
     const result = userCreateSchema.safeParse({
       name: "HO",
       email: "ho@shiftly.test",
@@ -768,10 +767,13 @@ describe("userCreateSchema work-area bindings", () => {
       siteId: siteUuid,
       workAreaId: waUuid,
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect("workAreaId" in result.data).toBe(false);
+    }
   });
 
-  test("admin may carry workAreaId", () => {
+  test("a stray workAreaId is stripped for an admin create", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
@@ -781,9 +783,12 @@ describe("userCreateSchema work-area bindings", () => {
       workAreaId: waUuid,
     });
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect("workAreaId" in result.data).toBe(false);
+    }
   });
 
-  test("admin without the required siteLocationId still fails even with a workAreaId", () => {
+  test("admin without the required siteLocationId still fails", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
@@ -794,7 +799,7 @@ describe("userCreateSchema work-area bindings", () => {
     expect(result.success).toBe(false);
   });
 
-  test("superadmin carries no workAreaId", () => {
+  test("a stray workAreaId is stripped for a superadmin create", () => {
     const result = userCreateSchema.safeParse({
       name: "Root",
       email: "root@shiftly.test",
@@ -802,17 +807,22 @@ describe("userCreateSchema work-area bindings", () => {
       role: "superadmin",
       workAreaId: waUuid,
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect("workAreaId" in result.data).toBe(false);
+      expect("siteId" in result.data).toBe(false);
+      expect("siteLocationId" in result.data).toBe(false);
+    }
   });
 });
 
-describe("userUpdateSchema work-area bindings", () => {
+describe("userUpdateSchema with the work-area binding removed", () => {
   const id = "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01";
   const siteUuid = "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02";
   const locUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
   const waUuid = "2f6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b07";
 
-  test("ho edit with workAreaId is rejected", () => {
+  test("an ho edit's stray workAreaId is stripped", () => {
     const result = userUpdateSchema.safeParse({
       id,
       name: "HO",
@@ -820,10 +830,13 @@ describe("userUpdateSchema work-area bindings", () => {
       siteId: siteUuid,
       workAreaId: waUuid,
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect("workAreaId" in result.data).toBe(false);
+    }
   });
 
-  test("admin edit may carry workAreaId", () => {
+  test("an admin edit's stray workAreaId is stripped", () => {
     const result = userUpdateSchema.safeParse({
       id,
       name: "Site Admin",
@@ -832,6 +845,9 @@ describe("userUpdateSchema work-area bindings", () => {
       workAreaId: waUuid,
     });
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect("workAreaId" in result.data).toBe(false);
+    }
   });
 });
 
@@ -845,51 +861,51 @@ describe("parseUserCreate work-area stripping", () => {
   const locUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
   const waUuid = "2f6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b07";
 
-  test("ho keeps siteId, strips workAreaId (null siteLocationId too)", () => {
+  test("ho keeps siteId; a stray workAreaId never lands in the data", () => {
     const parsed = parseUserCreate({
       ...base,
       role: "ho",
       siteId: siteUuid,
       siteLocationId: null,
       workAreaId: waUuid,
-    });
+    } as Parameters<typeof parseUserCreate>[0]);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.siteId).toBe(siteUuid);
       expect(parsed.data.siteLocationId).toBeUndefined();
-      expect(parsed.data.workAreaId).toBeUndefined();
+      expect("workAreaId" in parsed.data).toBe(false);
     }
   });
 
-  test("admin keeps siteLocationId and workAreaId, strips siteId", () => {
+  test("admin keeps siteLocationId, strips siteId and workAreaId", () => {
     const parsed = parseUserCreate({
       ...base,
       role: "admin",
       siteId: siteUuid,
       siteLocationId: locUuid,
       workAreaId: waUuid,
-    });
+    } as Parameters<typeof parseUserCreate>[0]);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.siteLocationId).toBe(locUuid);
-      expect(parsed.data.workAreaId).toBe(waUuid);
       expect(parsed.data.siteId).toBeUndefined();
+      expect("workAreaId" in parsed.data).toBe(false);
     }
   });
 
-  test("superadmin gets all three bindings stripped", () => {
+  test("superadmin gets every binding stripped", () => {
     const parsed = parseUserCreate({
       ...base,
       role: "superadmin",
       siteId: siteUuid,
       siteLocationId: locUuid,
       workAreaId: waUuid,
-    });
+    } as Parameters<typeof parseUserCreate>[0]);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.siteId).toBeUndefined();
       expect(parsed.data.siteLocationId).toBeUndefined();
-      expect(parsed.data.workAreaId).toBeUndefined();
+      expect("workAreaId" in parsed.data).toBe(false);
     }
   });
 });
@@ -900,49 +916,49 @@ describe("parseUserUpdate work-area stripping", () => {
   const locUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
   const waUuid = "2f6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b07";
 
-  test("ho keeps siteId, strips workAreaId", () => {
+  test("ho keeps siteId; a stray workAreaId never lands in the data", () => {
     const parsed = parseUserUpdate(id, {
       name: "HO",
       role: "ho",
       siteId: siteUuid,
       workAreaId: waUuid,
-    });
+    } as Parameters<typeof parseUserUpdate>[1]);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.siteId).toBe(siteUuid);
-      expect(parsed.data.workAreaId).toBeUndefined();
+      expect("workAreaId" in parsed.data).toBe(false);
     }
   });
 
-  test("admin keeps siteLocationId and workAreaId, strips siteId", () => {
+  test("admin keeps siteLocationId, strips siteId and workAreaId", () => {
     const parsed = parseUserUpdate(id, {
       name: "Site Admin",
       role: "admin",
       siteId: siteUuid,
       siteLocationId: locUuid,
       workAreaId: waUuid,
-    });
+    } as Parameters<typeof parseUserUpdate>[1]);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.siteLocationId).toBe(locUuid);
-      expect(parsed.data.workAreaId).toBe(waUuid);
       expect(parsed.data.siteId).toBeUndefined();
+      expect("workAreaId" in parsed.data).toBe(false);
     }
   });
 
-  test("superadmin gets all three bindings stripped", () => {
+  test("superadmin gets every binding stripped", () => {
     const parsed = parseUserUpdate(id, {
       name: "Root",
       role: "superadmin",
       siteId: siteUuid,
       siteLocationId: locUuid,
       workAreaId: waUuid,
-    });
+    } as Parameters<typeof parseUserUpdate>[1]);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.siteId).toBeUndefined();
       expect(parsed.data.siteLocationId).toBeUndefined();
-      expect(parsed.data.workAreaId).toBeUndefined();
+      expect("workAreaId" in parsed.data).toBe(false);
     }
   });
 });

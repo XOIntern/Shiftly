@@ -11,7 +11,6 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { site, siteLocation } from "./site-schema";
-import { workArea } from "./work-area-schema";
 
 export const userRoleEnum = pgEnum("user_role", ["superadmin", "ho", "admin"]);
 
@@ -32,13 +31,6 @@ export const user = pgTable(
       onDelete: "restrict",
     }),
     siteLocationId: uuid("site_location_id").references(() => siteLocation.id, {
-      onDelete: "restrict",
-    }),
-    // Work areas epic (GitHub #60/#62, controller ruling): shipped early
-    // so the work-area delete guard can pre-check live users bound via
-    // this column; Task 9 #66 fills the binding side. Nullable — an
-    // unbound user keeps null; restrict guards the delete path.
-    workAreaId: uuid("work_area_id").references(() => workArea.id, {
       onDelete: "restrict",
     }),
     isActive: boolean("is_active").notNull().default(true),

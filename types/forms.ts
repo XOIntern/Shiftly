@@ -13,15 +13,6 @@ export type LocationOption = {
   siteName: string | null;
 };
 
-// Work areas (issue #66): mirrors the site/location options. Work-area
-// rows key on the site_location so the select can shrink to the target
-// admin's chosen location; the page pre-scopes both option lists.
-export type WorkAreaOption = {
-  id: string;
-  name: string;
-  siteLocationId: string;
-};
-
 // A site_location the create/edit dialog may target.
 export type SiteLocationOption = {
   id: string;
@@ -85,7 +76,6 @@ export type UserFormData = {
   role: Role;
   siteId: string | null;
   siteLocationId: string | null;
-  workAreaId: string | null;
 };
 
 // One row of the rules table — the effective value plus where it came from.

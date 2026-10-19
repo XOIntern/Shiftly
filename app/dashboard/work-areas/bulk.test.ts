@@ -245,7 +245,9 @@ describe("work-areas bulk actions", () => {
       const removed = await deleteBulk([waA]);
       expect(removed.ok).toBe(true);
       expect(removed.applied).toBe(0);
-      expect(removed.blocked).toBe(0);
+      // The user work-area binding is gone: deleteBulk can never skip a
+      // row, so no blocked counter travels at all.
+      expect(removed.blocked).toBeUndefined();
 
       const rows = await db.select({ id: workArea.id }).from(workArea);
       expect(rows.find((row) => row.id === waA)).toBeDefined();

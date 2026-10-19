@@ -1,7 +1,7 @@
 import { and, asc, count, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
-import { site, siteLocation, user, workArea } from "@/drizzle/schema";
+import { site, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { buildOrder } from "@/lib/table-order";
 import {
@@ -19,7 +19,6 @@ import type {
   SiteOption,
   UserFormData,
   UserRow,
-  WorkAreaOption,
 } from "@/types/forms";
 import { UsersTable } from "@/components/users/users-table";
 
@@ -113,7 +112,7 @@ export default async function UsersPage({
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
-  const [rows, allSites, allLocations, allWorkAreas] = await Promise.all([
+  const [rows, allSites, allLocations] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -123,7 +122,6 @@ export default async function UsersPage({
         isActive: user.isActive,
         userSiteId: user.siteId,
         userSiteLocationId: user.siteLocationId,
-        userWorkAreaId: user.workAreaId,
         siteName: site.name,
         locationName: siteLocation.name,
         locationSiteId: siteLocation.siteId,
@@ -158,18 +156,6 @@ export default async function UsersPage({
       // Same for a deleted location.
       .where(isNull(siteLocation.deletedAt))
       .orderBy(asc(site.name), asc(siteLocation.name)),
-    // Work areas for the dialogs (issue #66), mirroring the sites/locations
-    // fetch: soft-deleted rows never come back as options.
-    db
-      .select({
-        id: workArea.id,
-        name: workArea.name,
-        siteLocationId: workArea.siteLocationId,
-        siteId: workArea.siteId,
-      })
-      .from(workArea)
-      .where(isNull(workArea.deletedAt))
-      .orderBy(asc(workArea.name)),
   ]);
 
   // An ho provisions into its own site only: locations are pre-filtered so
@@ -180,12 +166,6 @@ export default async function UsersPage({
       ? allLocations.filter((location) => location.siteId === actor.siteId)
       : allLocations;
   const sites: SiteOption[] = actor.role === "ho" ? [] : allSites;
-  // The work-area option list shrinks to the ho actor's own site. The
-  // actions re-check the scope server-side either way.
-  const workAreas: WorkAreaOption[] =
-    actor.role === "ho"
-      ? allWorkAreas.filter((option) => option.siteId === actor.siteId)
-      : allWorkAreas;
 
   const entries = rows.map((row) => ({
     user: {
@@ -202,7 +182,6 @@ export default async function UsersPage({
       role: row.role,
       siteId: row.userSiteId,
       siteLocationId: row.userSiteLocationId,
-      workAreaId: row.userWorkAreaId,
     } satisfies UserFormData,
     canManage: canManageActorTarget(actor, row),
   }));
@@ -221,7 +200,6 @@ export default async function UsersPage({
           actorRole={actor.role}
           sites={sites}
           locations={locations}
-          workAreas={workAreas}
         />
       </div>
       <Card>
@@ -231,7 +209,6 @@ export default async function UsersPage({
             actorRole={actor.role}
             sites={sites}
             locations={locations}
-            workAreas={workAreas}
             pageCount={pageCount}
             total={rowCount}
           />
