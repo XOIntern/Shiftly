@@ -101,6 +101,7 @@ describe("worker-form fixtures", () => {
     for (const id of [POS_A1, POS_A2, POS_B1]) {
       expect(nonPositionIds).not.toContain(id);
     }
+    expect(new Set([POS_A1, POS_A2, POS_B1]).size).toBe(3);
   });
 });
 
