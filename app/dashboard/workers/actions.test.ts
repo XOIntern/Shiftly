@@ -108,6 +108,22 @@ async function seedWorkerWithPositions(args: {
   return id;
 }
 
+// A legacy worker row carries no contract_end_date.
+async function seedLegacyWorker(
+  fx: { locA1: string; siteA: string },
+  wid: string,
+  employeeId: string,
+  name: string,
+) {
+  await db.insert(worker).values({
+    id: wid,
+    siteLocationId: fx.locA1,
+    siteId: fx.siteA,
+    employeeId,
+    name,
+  });
+}
+
 async function pivotPositions(workerId: string) {
   return db
     .select({
@@ -1201,13 +1217,7 @@ describe("worker actions", () => {
 
     try {
       // A legacy row: contract_end_date is NULL.
-      await db.insert(worker).values({
-        id: wid,
-        siteLocationId: fx.locA1,
-        siteId: fx.siteA,
-        employeeId: "t11-wact-emp-ce-legacy",
-        name: "T11 Wact Worker CeLegacy",
-      });
+      await seedLegacyWorker(fx, wid, "t11-wact-emp-ce-legacy", "T11 Wact Worker CeLegacy");
 
       actor = makeActor("superadmin", null, null);
 
@@ -1242,13 +1252,7 @@ describe("worker actions", () => {
     const wid = randomUUID();
 
     try {
-      await db.insert(worker).values({
-        id: wid,
-        siteLocationId: fx.locA1,
-        siteId: fx.siteA,
-        employeeId: "t11-wact-emp-ce-legacy-tgl",
-        name: "T11 Wact Worker CeLegacyTgl",
-      });
+      await seedLegacyWorker(fx, wid, "t11-wact-emp-ce-legacy-tgl", "T11 Wact Worker CeLegacyTgl");
 
       actor = makeActor("superadmin", null, null);
 
