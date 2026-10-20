@@ -82,16 +82,14 @@ function renderForm(props: {
   return renderToStaticMarkup(<WorkerForm {...props} onSaved={() => {}} />);
 }
 
-// The group label and its aria-labelledby must be on a <label> and the
-// role="group" element respectively — a bare substring check would pass
-// even if both attributes moved onto unrelated elements.
-function expectPositionGroupLabelled(html: string) {
+// The field label must point at the chips input and the chips input must be
+// the combobox — a bare substring check would pass even if both attributes
+// moved onto unrelated elements.
+function expectPositionFieldLabelled(html: string) {
   expect(html).toMatch(
-    /<div role="group"[^>]*aria-labelledby="worker-positions-label"/,
+    /<label[^>]*for="worker-positions"[^>]*>Positions<\/label>/,
   );
-  expect(html).toMatch(
-    /<label[^>]*id="worker-positions-label"[^>]*>Positions<\/label>/,
-  );
+  expect(html).toMatch(/<input[^>]*role="combobox"[^>]*id="worker-positions"/);
 }
 
 describe("worker-form fixtures", () => {
@@ -130,9 +128,9 @@ describe("WorkerForm cascade", () => {
     expect(html.includes(">Site<")).toBeTrue();
     expect(html.includes("Select a site first")).toBeTrue();
     expect(html.includes("Select a location first")).toBeTrue();
-    // This is the positionSiteId === null branch: the group must still be
-    // named while the picker shows its "select a location" placeholder.
-    expectPositionGroupLabelled(html);
+    // This is the positionSiteId === null branch: the field must still be
+    // named while the combobox shows its "select a location" placeholder.
+    expectPositionFieldLabelled(html);
   });
 
   test("create with a single site: no Site select, location unlocked", () => {
@@ -195,8 +193,8 @@ describe("visiblePositionOptions", () => {
   });
 });
 
-describe("WorkerForm position checkboxes", () => {
-  test("an edit with two attached positions renders both checked", () => {
+describe("WorkerForm position picker", () => {
+  test("an edit with two attached positions renders a chip for each", () => {
     const html = renderForm({
       sites,
       siteLocations: allLocations,
@@ -210,7 +208,9 @@ describe("WorkerForm position checkboxes", () => {
       },
     });
 
-    expect((html.match(/aria-checked="true"/g) ?? []).length).toBe(2);
+    expect((html.match(/data-slot="combobox-chip"/g) ?? []).length).toBe(2);
+    expect(html.includes("Position Alpha One")).toBeTrue();
+    expect(html.includes("Position Alpha Two")).toBeTrue();
   });
 
   test("an attached inactive position renders with (inactive)", () => {
@@ -240,7 +240,7 @@ describe("WorkerForm position checkboxes", () => {
     expect(html.includes("Position Alpha Two")).toBeFalse();
   });
 
-  test("each checkbox carries its position id and the group is named", () => {
+  test("the field label points at the combobox input and each chip is named", () => {
     const html = renderForm({
       sites,
       siteLocations: allLocations,
@@ -254,12 +254,27 @@ describe("WorkerForm position checkboxes", () => {
       },
     });
 
-    expect(html.includes(`id="position-${POS_A1}"`)).toBeTrue();
-    expect(html.includes(`id="position-${POS_A2}"`)).toBeTrue();
-    expectPositionGroupLabelled(html);
+    expectPositionFieldLabelled(html);
+    // The chip remove button is icon-only, so the chip has to name both the
+    // selection and the removal for assistive tech.
+    expect(html.includes('aria-label="Position Alpha One"')).toBeTrue();
+    expect(html.includes('aria-label="Remove Position Alpha One"')).toBeTrue();
+    expect(html.includes('aria-label="Position Alpha Two (inactive)"')).toBeTrue();
   });
 
-  test("the group keeps its label when the site has no positions", () => {
+  test("the picker stays enabled while the site still has positions", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+      worker: editWorker,
+    });
+
+    expect(html).not.toMatch(/<input[^>]*disabled[^>]*id="worker-positions"/);
+    expect(html.includes('placeholder="Select positions"')).toBeTrue();
+  });
+
+  test("the picker is disabled with a placeholder when the site has no positions", () => {
     const html = renderForm({
       sites,
       siteLocations: allLocations,
@@ -267,28 +282,8 @@ describe("WorkerForm position checkboxes", () => {
       worker: editWorker,
     });
 
-    expectPositionGroupLabelled(html);
-    expect(html.includes("No positions for this site yet")).toBeTrue();
-  });
-
-  test("each checkbox is named by its position name for assistive tech", () => {
-    const html = renderForm({
-      sites,
-      siteLocations: allLocations,
-      positions: allPositions,
-      worker: {
-        ...editWorker,
-        positions: [
-          { id: POS_A1, name: "Position Alpha One", isActive: true },
-          { id: POS_A2, name: "Position Alpha Two", isActive: false },
-        ],
-      },
-    });
-
-    // Base UI puts role="checkbox" on a span and hides the input; the span
-    // carries no name unless we give it one, and a wrapping <label> cannot
-    // name a span.
-    expect(html.includes('aria-label="Position Alpha One"')).toBeTrue();
-    expect(html.includes('aria-label="Position Alpha Two"')).toBeTrue();
+    expectPositionFieldLabelled(html);
+    expect(html).toMatch(/<input[^>]*disabled[^>]*id="worker-positions"/);
+    expect(html.includes('placeholder="No positions for this site yet"')).toBeTrue();
   });
 });

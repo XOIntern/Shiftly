@@ -36,7 +36,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxValue,
+} from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -214,6 +224,13 @@ export function visiblePositionOptions(
   );
 }
 
+// An attached position stays selectable after it is deactivated, so both the
+// chip and the list entry have to say so — otherwise the row reads like any
+// other live option.
+export function positionLabel(option: Pick<PositionRow, "name" | "isActive">) {
+  return option.isActive ? option.name : `${option.name} (inactive)`;
+}
+
 export function WorkerForm({
   positions,
   sites,
@@ -287,16 +304,18 @@ export function WorkerForm({
     positionSiteId,
     positionIds,
   );
-
-  function togglePosition(id: string, checked: boolean) {
-    setPositionIds((current) =>
-      checked
-        ? current.includes(id)
-          ? current
-          : [...current, id]
-        : current.filter((value) => value !== id),
-    );
-  }
+  // Chips are positional in Base UI (its chip removal reads the selected
+  // value by index), so the value array must follow the chip order.
+  const selectedPositions = positionIds.flatMap((id) => {
+    const option = renderedPositions.find((candidate) => candidate.id === id);
+    return option ? [option] : [];
+  });
+  const positionPlaceholder =
+    positionSiteId === null
+      ? "Select a location first"
+      : renderedPositions.length === 0
+        ? "No positions for this site yet"
+        : "Select positions";
 
   // A location move only invalidates the set when the resolved site changes;
   // a same-site move keeps every pick.
@@ -384,37 +403,48 @@ export function WorkerForm({
           error={fieldErrors?.siteLocationId}
         />
 
-        <Field
-          aria-labelledby="worker-positions-label"
-          data-invalid={fieldErrors?.positionIds ? "true" : undefined}
-        >
-          <FieldLabel id="worker-positions-label">Positions</FieldLabel>
-          {positionSiteId === null ? (
-            <p className="text-sm text-muted-foreground">
-              Select a location first
-            </p>
-          ) : renderedPositions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No positions for this site yet
-            </p>
-          ) : (
-            <div className="max-h-48 overflow-y-auto rounded-lg border p-2">
-              {renderedPositions.map((option) => (
-                <label key={option.id} className="flex items-center gap-2">
-                  <Checkbox
-                    id={`position-${option.id}`}
-                    aria-label={option.name}
-                    checked={positionIds.includes(option.id)}
-                    onCheckedChange={(checked) =>
-                      togglePosition(option.id, checked)
-                    }
-                  />
-                  {option.name}
-                  {option.isActive ? null : " (inactive)"}
-                </label>
-              ))}
-            </div>
-          )}
+        <Field data-invalid={fieldErrors?.positionIds ? "true" : undefined}>
+          <FieldLabel htmlFor="worker-positions">Positions</FieldLabel>
+          <Combobox
+            multiple
+            items={renderedPositions}
+            itemToStringLabel={(option) => option.name}
+            isItemEqualToValue={(option, value) => option.id === value.id}
+            value={selectedPositions}
+            onValueChange={(next) =>
+              setPositionIds(next.map((option) => option.id))
+            }
+            disabled={positionSiteId === null || renderedPositions.length === 0}
+          >
+            <ComboboxChips>
+              <ComboboxValue>
+                {selectedPositions.map((option) => (
+                  <ComboboxChip
+                    key={option.id}
+                    aria-label={positionLabel(option)}
+                    removeLabel={`Remove ${positionLabel(option)}`}
+                  >
+                    {positionLabel(option)}
+                  </ComboboxChip>
+                ))}
+              </ComboboxValue>
+              <ComboboxChipsInput
+                id="worker-positions"
+                placeholder={positionPlaceholder}
+                aria-invalid={fieldErrors?.positionIds ? true : undefined}
+              />
+            </ComboboxChips>
+            <ComboboxContent>
+              <ComboboxEmpty>No matching positions.</ComboboxEmpty>
+              <ComboboxList>
+                {(option: PositionRow) => (
+                  <ComboboxItem key={option.id} value={option}>
+                    {positionLabel(option)}
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
           {fieldErrors?.positionIds ? (
             <FieldError errors={[{ message: fieldErrors.positionIds }]} />
           ) : null}
