@@ -22,9 +22,9 @@ const SITE_B = "22222222-2222-2222-2222-222222222222";
 const LOC_A1 = "aaaaaaaa-1111-1111-1111-111111111111";
 const LOC_A2 = "aaaaaaaa-2222-2222-2222-222222222222";
 const LOC_B1 = "bbbbbbbb-1111-1111-1111-111111111111";
-const POS_A1 = "aaaaaaaa-1111-1111-1111-111111111111";
-const POS_A2 = "aaaaaaaa-2222-2222-2222-222222222222";
-const POS_B1 = "bbbbbbbb-1111-1111-1111-111111111111";
+const POS_A1 = "33333333-3333-3333-3333-333333333333";
+const POS_A2 = "44444444-4444-4444-4444-444444444444";
+const POS_B1 = "55555555-5555-5555-5555-555555555555";
 
 const sites: SiteOption[] = [
   { id: SITE_A, name: "Site Alpha" },
@@ -93,6 +93,16 @@ function expectPositionGroupLabelled(html: string) {
     /<label[^>]*id="worker-positions-label"[^>]*>Positions<\/label>/,
   );
 }
+
+describe("worker-form fixtures", () => {
+  test("position fixtures do not collide with site or location ids", () => {
+    const nonPositionIds = [SITE_A, SITE_B, LOC_A1, LOC_A2, LOC_B1];
+
+    for (const id of [POS_A1, POS_A2, POS_B1]) {
+      expect(nonPositionIds).not.toContain(id);
+    }
+  });
+});
 
 describe("positionOptionsFor", () => {
   test("no site picked keeps only positions of every site", () => {
