@@ -191,6 +191,10 @@ describe("worker actions", () => {
       expect(row.contractEndDate).toBe("2027-01-31");
       expect(row.isActive).toBe(true);
       expect(row.deletedAt).toBeNull();
+
+      const pivot = await pivotPositions(row.id);
+      expect(pivot.map((p) => p.id)).toEqual([fx.posA]);
+      expect(pivot.every((p) => p.siteId === fx.siteA)).toBe(true);
     } finally {
       await dropWorkersByEmployeeId("t11-wact-emp-rt");
       await db.delete(position).where(eq(position.id, fx.posA));
@@ -422,18 +426,15 @@ describe("worker actions", () => {
 
   test("superadmin update moves the worker across sites and positions", async () => {
     const fx = await seedGlobalData();
-    const wid = randomUUID();
+    const wid = await seedWorkerWithPositions({
+      siteLocationId: fx.locA1,
+      siteId: fx.siteA,
+      employeeId: "t11-wact-emp-mov",
+      name: "T11 Wact Worker Mov",
+      positionIds: [fx.posA],
+    });
 
     try {
-      await db.insert(worker).values({
-        id: wid,
-        siteLocationId: fx.locA1,
-        siteId: fx.siteA,
-        employeeId: "t11-wact-emp-mov",
-        name: "T11 Wact Worker Mov",
-        contractEndDate: "2027-06-30",
-      });
-
       actor = makeActor("superadmin", null, null);
 
       const { updateWorker } = await import("./actions");
@@ -448,14 +449,20 @@ describe("worker actions", () => {
 
       expect(result.ok).toBe(true);
 
-      // Site, location and position move together — the site is derived
-      // from the new location, so the composite FK pairing is consistent.
+      // Site and location move together — the site is derived from the new
+      // location, so the composite FK pairing is consistent.
       const [row] = await db.select().from(worker).where(eq(worker.id, wid));
       expect(row.siteId).toBe(fx.siteB);
       expect(row.siteLocationId).toBe(fx.locB);
       expect(row.name).toBe("T11 Wact Worker Moved");
       expect(row.contractEndDate).toBe("2028-06-30");
       expect(row.isActive).toBe(false);
+
+      // The old site-A set is replaced, not appended to: the pivot carries
+      // exactly the new position, welded to the new site.
+      const pivot = await pivotPositions(wid);
+      expect(pivot.map((p) => p.id)).toEqual([fx.posB]);
+      expect(pivot.every((p) => p.siteId === fx.siteB)).toBe(true);
     } finally {
       await dropWorkerById(wid);
       await db.delete(position).where(eq(position.id, fx.posA));

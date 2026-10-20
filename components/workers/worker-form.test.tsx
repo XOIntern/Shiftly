@@ -213,4 +213,58 @@ describe("WorkerForm position checkboxes", () => {
 
     expect(html.includes("Position Alpha Two")).toBeFalse();
   });
+
+  test("each checkbox carries its position id and the group is named", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+      worker: {
+        ...editWorker,
+        positions: [
+          { id: POS_A1, name: "Position Alpha One", isActive: true },
+          { id: POS_A2, name: "Position Alpha Two", isActive: false },
+        ],
+      },
+    });
+
+    expect(html.includes(`id="position-${POS_A1}"`)).toBeTrue();
+    expect(html.includes(`id="position-${POS_A2}"`)).toBeTrue();
+    expect(html.includes('id="worker-positions-label"')).toBeTrue();
+    expect(html.includes('aria-labelledby="worker-positions-label"')).toBeTrue();
+  });
+
+  test("the group keeps its label when the site has no positions", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: [],
+      worker: editWorker,
+    });
+
+    expect(html.includes('id="worker-positions-label"')).toBeTrue();
+    expect(html.includes('aria-labelledby="worker-positions-label"')).toBeTrue();
+    expect(html.includes("No positions for this site yet")).toBeTrue();
+  });
+
+  test("each checkbox is named by its position name for assistive tech", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+      worker: {
+        ...editWorker,
+        positions: [
+          { id: POS_A1, name: "Position Alpha One", isActive: true },
+          { id: POS_A2, name: "Position Alpha Two", isActive: false },
+        ],
+      },
+    });
+
+    // Base UI puts role="checkbox" on a span and hides the input; the span
+    // carries no name unless we give it one, and a wrapping <label> cannot
+    // name a span.
+    expect(html.includes('aria-label="Position Alpha One"')).toBeTrue();
+    expect(html.includes('aria-label="Position Alpha Two"')).toBeTrue();
+  });
 });

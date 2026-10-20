@@ -284,17 +284,17 @@ describe("workers page server queries", () => {
   });
   test("each row carries its positions sorted by name", async () => {
     const fx = await seedWorkerFixtures();
-    const beta = randomUUID();
+    const aaa = randomUUID();
 
     try {
       await db.insert(position).values({
-        id: beta,
+        id: aaa,
         siteId: fx.ids.siteA,
-        name: "t13-wpage-beta",
+        name: "t13-wpage-aaa",
       });
       await db.insert(workerPosition).values({
         workerId: fx.ids.wA,
-        positionId: beta,
+        positionId: aaa,
         siteId: fx.ids.siteA,
       });
 
@@ -303,15 +303,15 @@ describe("workers page server queries", () => {
       const page = await renderWorkers({ siteId: fx.ids.siteA });
       const row = page.workers.find((w) => w.id === fx.ids.wA);
       expect(row?.positions?.map((p) => p.name)).toEqual([
+        "t13-wpage-aaa",
         "t13-wpage-alpha",
-        "t13-wpage-beta",
       ]);
     } finally {
       // The local position (and its pivot row) go before the site dies.
       await db
         .delete(workerPosition)
-        .where(eq(workerPosition.positionId, beta));
-      await db.delete(position).where(eq(position.id, beta));
+        .where(eq(workerPosition.positionId, aaa));
+      await db.delete(position).where(eq(position.id, aaa));
       await fx.cleanup();
     }
   });
