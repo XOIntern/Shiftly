@@ -84,7 +84,7 @@ describe("ruleConfigSchema value ranges (issue #52)", () => {
   });
 
   test("bool rules reject an intValue and int rules reject a boolValue", () => {
-    for (const ruleKey of ["C3", "C4", "C7", "C8"] as const) {
+    for (const ruleKey of ["C3", "C4", "C7"] as const) {
       expect(
         schema.safeParse({ ruleKey, scope: "global", intValue: 5, boolValue: null })
           .success,
@@ -102,15 +102,24 @@ describe("ruleConfigSchema value ranges (issue #52)", () => {
     }
   });
 
-  test("C8 requires a bool value", () => {
-    expect(
-      schema.safeParse({ ruleKey: "C8", scope: "global", intValue: null, boolValue: null })
-        .success,
-    ).toBe(false);
-    expect(
-      schema.safeParse({ ruleKey: "C8", scope: "global", intValue: null, boolValue: false })
-        .success,
-    ).toBe(true);
+  test("a stale C8 payload fails on the ruleKey field (invalid enum value)", () => {
+    // The rule set is C1–C7 now, so a stale client writing C8 must get a
+    // field error on ruleKey — not a DB error or a crash.
+    const result = schema.safeParse({
+      ruleKey: "C8",
+      scope: "global",
+      intValue: null,
+      boolValue: false,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // Only the enum issue: the refines never run, so the field error is
+      // the whole response.
+      expect(result.error.issues).toHaveLength(1);
+      expect(result.error.issues[0].path).toContain("ruleKey");
+      // zod v4 wording for an invalid enum value.
+      expect(result.error.issues[0].message).toContain("Invalid option");
+    }
   });
 
   test("rejects an unknown rule key and a bad scope", () => {
