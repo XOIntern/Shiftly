@@ -58,7 +58,10 @@ export const positionUpdateSchema = positionCreateSchema.extend({
 // set, one or more positions of its own site (no primary, no order).
 // siteId stays optional at the schema level (the actions derive it from the
 // site_location, so the dialog does not send one). contractEndDate is a
-// date string.
+// required date string (issue #119): missing or empty answers
+// "Contract end is required", a malformed string answers
+// "Contract end must be a valid date". Legacy NULL rows are untouched until
+// their next edit — toggle/delete never parse this schema.
 export const workerCreateSchema = z.object({
   siteId: z.uuid().optional(),
   siteLocationId: z.uuid(),
@@ -70,7 +73,10 @@ export const workerCreateSchema = z.object({
     }),
   employeeId: z.string().trim().min(1).max(100),
   name: nameField,
-  contractEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  contractEndDate: z
+    .string({ error: "Contract end is required" })
+    .min(1, "Contract end is required")
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Contract end must be a valid date"),
 });
 
 export const workerUpdateSchema = workerCreateSchema.extend({
