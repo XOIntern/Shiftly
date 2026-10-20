@@ -145,6 +145,21 @@ describe("WorkerForm cascade", () => {
     expect(html.includes("Select a location")).toBeTrue();
   });
 
+  test("Employee ID, Name and Contract end inputs carry the required attribute", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+    });
+
+    const inputTags = html.match(/<input\b[^>]*/g) ?? [];
+    for (const id of ["worker-employee-id", "worker-name", "worker-contract-end"]) {
+      const tag = inputTags.find((candidate) => candidate.includes(`id="${id}"`));
+      expect(tag).toBeDefined();
+      expect(tag).toContain("required");
+    }
+  });
+
   test("edit: the site select is pre-set to the worker's site and employee id prefilled", () => {
     const html = renderForm({
       sites,

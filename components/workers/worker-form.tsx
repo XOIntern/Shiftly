@@ -489,6 +489,7 @@ export function WorkerForm({
             value={contractEndDate}
             onChange={(event) => setContractEndDate(event.target.value)}
             aria-invalid={fieldErrors?.contractEndDate ? true : undefined}
+            required
           />
           {fieldErrors?.contractEndDate ? (
             <FieldError errors={[{ message: fieldErrors.contractEndDate }]} />
