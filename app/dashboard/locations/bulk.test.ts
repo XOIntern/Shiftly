@@ -41,11 +41,13 @@ describe("locations bulk actions", () => {
         { id: siteA, name: `t4-loc-sc-alpha-${siteA}` },
         { id: siteB, name: `t4-loc-sc-beta-${siteB}` },
       ]);
-      await db.insert(siteLocation).values([
-        locationRow(locA, siteA, "T4 Loc A"),
-        locationRow(locC, siteA, "T4 Loc C"),
-        locationRow(locB, siteB, "T4 Loc B"),
-      ]);
+      await db
+        .insert(siteLocation)
+        .values([
+          locationRow(locA, siteA, "T4 Loc A"),
+          locationRow(locC, siteA, "T4 Loc C"),
+          locationRow(locB, siteB, "T4 Loc B"),
+        ]);
 
       actor = {
         id: hoActor,
@@ -89,17 +91,23 @@ describe("locations bulk actions", () => {
     const hoActor = randomUUID();
 
     try {
-      await db.insert(site).values([
-        { id: siteA, name: `t4-loc-del-${siteA}` },
-      ]);
-      await db.insert(siteLocation).values([
-        locationRow(free, siteA, "T4 Loc Free"),
-        locationRow(bound, siteA, "T4 Loc Bound"),
-      ]);
+      await db
+        .insert(site)
+        .values([{ id: siteA, name: `t4-loc-del-${siteA}` }]);
+      await db
+        .insert(siteLocation)
+        .values([
+          locationRow(free, siteA, "T4 Loc Free"),
+          locationRow(bound, siteA, "T4 Loc Bound"),
+        ]);
       // A foreign site's location, never the ho's to touch.
       const foreignSite = randomUUID();
-      await db.insert(site).values([{ id: foreignSite, name: `t4-loc-fs-${foreignSite}` }]);
-      await db.insert(siteLocation).values([locationRow(foreign, foreignSite, "T4 Loc Foreign")]);
+      await db
+        .insert(site)
+        .values([{ id: foreignSite, name: `t4-loc-fs-${foreignSite}` }]);
+      await db
+        .insert(siteLocation)
+        .values([locationRow(foreign, foreignSite, "T4 Loc Foreign")]);
       await db.insert(user).values([
         {
           id: adminA,
@@ -166,7 +174,9 @@ describe("locations bulk actions", () => {
 
     try {
       await db.insert(site).values([{ id: siteA, name: `t4-loc-ub-${siteA}` }]);
-      await db.insert(siteLocation).values([locationRow(locA, siteA, "T4 Loc UB")]);
+      await db
+        .insert(siteLocation)
+        .values([locationRow(locA, siteA, "T4 Loc UB")]);
       await db.insert(user).values([
         {
           id: hoActor,
@@ -197,9 +207,7 @@ describe("locations bulk actions", () => {
       expect(removed.applied).toBe(0);
       expect(removed.blocked).toBe(0);
 
-      const rows = await db
-        .select({ id: siteLocation.id })
-        .from(siteLocation);
+      const rows = await db.select({ id: siteLocation.id }).from(siteLocation);
       expect(rows.find((row) => row.id === locA)).toBeDefined();
     } finally {
       await db.delete(user).where(eq(user.id, hoActor));
