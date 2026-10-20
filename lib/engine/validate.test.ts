@@ -7,14 +7,14 @@ import type { RuleConfigRow } from "@/types/domain";
 import { validateRoster, type RosterAssignment, type Shift, type WorkerProfile } from "./validate";
 
 // Task 3 of the config-rules epic (GitHub #50): the pure validator over a
-// draft roster. Rules C1–C8 are evaluated against the effective rules the
+// draft roster. Rules C1–C7 are evaluated against the effective rules the
 // caller resolved — the validator itself never reads defaults. No DB, no
 // Next, no clock: assignments + worker profiles + rules in, violations out.
 
 // Test weeks/months use 2026-01-05 (a Monday) and March 2026 (31 days).
 
 type Override = Partial<Record<"c1" | "c2" | "c5" | "c6", number>> &
-  Partial<Record<"c3" | "c4" | "c7" | "c8", boolean>>;
+  Partial<Record<"c3" | "c4" | "c7", boolean>>;
 
 const rule = <T extends number | boolean>(
   value: T | undefined,
@@ -30,7 +30,6 @@ const rules = (over: Override = {}): EffectiveRules => ({
   c5: rule(over.c5, DEFAULT_RULES.c5),
   c6: rule(over.c6, DEFAULT_RULES.c6),
   c7: rule(over.c7, DEFAULT_RULES.c7),
-  c8: rule(over.c8, DEFAULT_RULES.c8),
 });
 
 const assign = (
@@ -164,41 +163,17 @@ describe("validateRoster (issue #50 task 3)", () => {
     expect(validateRoster(assignments, workers, rules({ c1: 7, c5: 5, c6: 2 }))).toEqual([]);
   });
 
-  test("C7 flags an out-of-work-area assignment", () => {
-    const assignments = [assign("w1", "2026-01-05", 1, "wa-b")];
+  test("C7 stays dormant while qualification data is not modeled", () => {
+    // C7 is enabled but dormant: no worker qualifications or work-area
+    // requirements exist to compare yet, so it flags nothing.
+    const assignments = [assign("w1", "2026-01-05")];
 
-    expect(validateRoster(assignments, workers, rules())).toEqual([
-      {
-        rule: "C7",
-        workerId: "w1",
-        date: "2026-01-05",
-        message: "Assigned to work area wa-b; worker's work area is wa-a",
-      },
-    ]);
+    expect(validateRoster(assignments, workers, rules({ c7: true }))).toEqual([]);
   });
 
   test("C7 skips when disabled", () => {
-    const assignments = [assign("w1", "2026-01-05", 1, "wa-b")];
+    const assignments = [assign("w1", "2026-01-05")];
 
     expect(validateRoster(assignments, workers, rules({ c7: false }))).toEqual([]);
-  });
-
-  test("C7 ignores workers without a profile", () => {
-    const assignments = [assign("w9", "2026-01-05", 1, "wa-z")];
-
-    expect(validateRoster(assignments, { w2: { workAreaId: "wa-a" } }, rules())).toEqual([]);
-  });
-
-  test("C8 stays dormant while qualification data is not modeled", () => {
-    // wa-a matches the worker profile, so only a live C8 could fire.
-    const assignments = [assign("w1", "2026-01-05")];
-
-    expect(validateRoster(assignments, workers, rules({ c8: true }))).toEqual([]);
-  });
-
-  test("C8 skips when disabled", () => {
-    const assignments = [assign("w1", "2026-01-05")];
-
-    expect(validateRoster(assignments, workers, rules({ c8: false }))).toEqual([]);
   });
 });
