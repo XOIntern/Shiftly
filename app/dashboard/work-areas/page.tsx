@@ -128,9 +128,7 @@ export default async function WorkAreasPage({
           ? db
               .select({ id: site.id, name: site.name })
               .from(site)
-              .where(
-                and(eq(site.id, actor.siteId), isNull(site.deletedAt)),
-              )
+              .where(and(eq(site.id, actor.siteId), isNull(site.deletedAt)))
               .orderBy(asc(site.name))
           : Promise.resolve([])
         : actor.siteLocationId
@@ -171,17 +169,15 @@ export default async function WorkAreasPage({
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Work areas</h1>
           <p className="text-sm text-muted-foreground">
-            Operational zones within each location, scoped per role. Every
-            role manages work areas within its own scope.
+            Operational zones within each location, scoped per role. Every role
+            manages work areas within its own scope.
           </p>
         </div>
         <CreateWorkAreaButton
           siteLocations={siteLocations satisfies SiteLocationOption[]}
           sites={sites satisfies SiteOption[]}
           pinnedLocationName={
-            actor.role === "admin"
-              ? siteLocations[0]?.name
-              : undefined
+            actor.role === "admin" ? siteLocations[0]?.name : undefined
           }
         />
       </div>
