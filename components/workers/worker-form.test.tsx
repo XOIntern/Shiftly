@@ -82,6 +82,18 @@ function renderForm(props: {
   return renderToStaticMarkup(<WorkerForm {...props} onSaved={() => {}} />);
 }
 
+// The group label and its aria-labelledby must be on a <label> and the
+// role="group" element respectively — a bare substring check would pass
+// even if both attributes moved onto unrelated elements.
+function expectPositionGroupLabelled(html: string) {
+  expect(html).toMatch(
+    /<div role="group"[^>]*aria-labelledby="worker-positions-label"/,
+  );
+  expect(html).toMatch(
+    /<label[^>]*id="worker-positions-label"[^>]*>Positions<\/label>/,
+  );
+}
+
 describe("positionOptionsFor", () => {
   test("no site picked keeps only positions of every site", () => {
     const options = positionOptionsFor(allPositions, null);
@@ -107,6 +119,9 @@ describe("WorkerForm cascade", () => {
     expect(html.includes(">Site<")).toBeTrue();
     expect(html.includes("Select a site first")).toBeTrue();
     expect(html.includes("Select a location first")).toBeTrue();
+    // This is the positionSiteId === null branch: the group must still be
+    // named while the picker shows its "select a location" placeholder.
+    expectPositionGroupLabelled(html);
   });
 
   test("create with a single site: no Site select, location unlocked", () => {
@@ -230,8 +245,7 @@ describe("WorkerForm position checkboxes", () => {
 
     expect(html.includes(`id="position-${POS_A1}"`)).toBeTrue();
     expect(html.includes(`id="position-${POS_A2}"`)).toBeTrue();
-    expect(html.includes('id="worker-positions-label"')).toBeTrue();
-    expect(html.includes('aria-labelledby="worker-positions-label"')).toBeTrue();
+    expectPositionGroupLabelled(html);
   });
 
   test("the group keeps its label when the site has no positions", () => {
@@ -242,8 +256,7 @@ describe("WorkerForm position checkboxes", () => {
       worker: editWorker,
     });
 
-    expect(html.includes('id="worker-positions-label"')).toBeTrue();
-    expect(html.includes('aria-labelledby="worker-positions-label"')).toBeTrue();
+    expectPositionGroupLabelled(html);
     expect(html.includes("No positions for this site yet")).toBeTrue();
   });
 
