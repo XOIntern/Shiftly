@@ -22,9 +22,9 @@ const SITE_B = "22222222-2222-2222-2222-222222222222";
 const LOC_A1 = "aaaaaaaa-1111-1111-1111-111111111111";
 const LOC_A2 = "aaaaaaaa-2222-2222-2222-222222222222";
 const LOC_B1 = "bbbbbbbb-1111-1111-1111-111111111111";
-const POS_A1 = "aaaaaaaa-1111-1111-1111-111111111111";
-const POS_A2 = "aaaaaaaa-2222-2222-2222-222222222222";
-const POS_B1 = "bbbbbbbb-1111-1111-1111-111111111111";
+const POS_A1 = "33333333-3333-3333-3333-333333333333";
+const POS_A2 = "44444444-4444-4444-4444-444444444444";
+const POS_B1 = "55555555-5555-5555-5555-555555555555";
 
 const sites: SiteOption[] = [
   { id: SITE_A, name: "Site Alpha" },
@@ -82,6 +82,29 @@ function renderForm(props: {
   return renderToStaticMarkup(<WorkerForm {...props} onSaved={() => {}} />);
 }
 
+// The group label and its aria-labelledby must be on a <label> and the
+// role="group" element respectively — a bare substring check would pass
+// even if both attributes moved onto unrelated elements.
+function expectPositionGroupLabelled(html: string) {
+  expect(html).toMatch(
+    /<div role="group"[^>]*aria-labelledby="worker-positions-label"/,
+  );
+  expect(html).toMatch(
+    /<label[^>]*id="worker-positions-label"[^>]*>Positions<\/label>/,
+  );
+}
+
+describe("worker-form fixtures", () => {
+  test("position fixtures do not collide with site or location ids", () => {
+    const nonPositionIds = [SITE_A, SITE_B, LOC_A1, LOC_A2, LOC_B1];
+
+    for (const id of [POS_A1, POS_A2, POS_B1]) {
+      expect(nonPositionIds).not.toContain(id);
+    }
+    expect(new Set([POS_A1, POS_A2, POS_B1]).size).toBe(3);
+  });
+});
+
 describe("positionOptionsFor", () => {
   test("no site picked keeps only positions of every site", () => {
     const options = positionOptionsFor(allPositions, null);
@@ -107,6 +130,9 @@ describe("WorkerForm cascade", () => {
     expect(html.includes(">Site<")).toBeTrue();
     expect(html.includes("Select a site first")).toBeTrue();
     expect(html.includes("Select a location first")).toBeTrue();
+    // This is the positionSiteId === null branch: the group must still be
+    // named while the picker shows its "select a location" placeholder.
+    expectPositionGroupLabelled(html);
   });
 
   test("create with a single site: no Site select, location unlocked", () => {
@@ -230,8 +256,7 @@ describe("WorkerForm position checkboxes", () => {
 
     expect(html.includes(`id="position-${POS_A1}"`)).toBeTrue();
     expect(html.includes(`id="position-${POS_A2}"`)).toBeTrue();
-    expect(html.includes('id="worker-positions-label"')).toBeTrue();
-    expect(html.includes('aria-labelledby="worker-positions-label"')).toBeTrue();
+    expectPositionGroupLabelled(html);
   });
 
   test("the group keeps its label when the site has no positions", () => {
@@ -242,8 +267,7 @@ describe("WorkerForm position checkboxes", () => {
       worker: editWorker,
     });
 
-    expect(html.includes('id="worker-positions-label"')).toBeTrue();
-    expect(html.includes('aria-labelledby="worker-positions-label"')).toBeTrue();
+    expectPositionGroupLabelled(html);
     expect(html.includes("No positions for this site yet")).toBeTrue();
   });
 

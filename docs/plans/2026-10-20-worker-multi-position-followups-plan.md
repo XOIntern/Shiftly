@@ -28,7 +28,7 @@ Failure modes the spec implies; each is pinned by a test in the owning task.
 2. `createWorker`/`updateWorker` stop writing or replacing pivot rows and no role-path test notices — pinned by Task 2's assertions plus its two-insert mutation check.
 3. The group's `aria-labelledby` points at an element that is not rendered in some branch (no site picked, no positions for the site), leaving a dangling reference — pinned by Task 3's empty-state test.
 4. Two rendered options share an id, breaking label association — pinned by Task 3's two-attached-positions test asserting both ids.
-5. The new `id` props disturb label click behaviour or checked-state rendering — pinned by the existing `an edit with two attached positions renders both checked` test staying green.
+5. The new `id` props disturb checked-state rendering — pinned by the existing `an edit with two attached positions renders both checked` test. Label-click behaviour is not pinned: this suite has no DOM environment (no jsdom/testing-library), so the SSR assertion cannot click; production risk is nil because the label/checkbox nesting is unchanged.
 
 ---
 
