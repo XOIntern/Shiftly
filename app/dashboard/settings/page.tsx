@@ -26,7 +26,7 @@ import {
 // https://nextjs.org/docs/messages/blocking-prerender-dynamic
 export const instant = false;
 
-// Rules C1–C8 (docs/architecture.md §5) in display order, with the slot
+// Rules C1–C7 (docs/architecture.md §5) in display order, with the slot
 // each key resolves through in EffectiveRules.
 const RULE_META: Array<{
   key: RuleKey;
@@ -59,12 +59,6 @@ const RULE_META: Array<{
   {
     key: "C7",
     slot: "c7",
-    kind: "bool",
-    meaning: "Work area match",
-  },
-  {
-    key: "C8",
-    slot: "c8",
     kind: "bool",
     meaning: "Work qualification match",
     // The engine check is deliberately dormant until qualification data
