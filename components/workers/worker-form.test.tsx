@@ -85,6 +85,11 @@ function renderForm(props: {
 // The field label must point at the chips input and the chips input must be
 // the combobox — a bare substring check would pass even if both attributes
 // moved onto unrelated elements.
+function inputTagById(html: string, id: string) {
+  const inputTags = html.match(/<input\b[^>]*/g) ?? [];
+  return inputTags.find((candidate) => candidate.includes(`id="${id}"`));
+}
+
 function expectPositionFieldLabelled(html: string) {
   expect(html).toMatch(
     /<label[^>]*for="worker-positions"[^>]*>Positions<\/label>/,
@@ -143,6 +148,42 @@ describe("WorkerForm cascade", () => {
     expect(html.includes(">Site<")).toBeFalse();
     expect(html.includes("Select a site first")).toBeFalse();
     expect(html.includes("Select a location")).toBeTrue();
+  });
+
+  test("the Employee ID input carries the required attribute", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+    });
+
+    const tag = inputTagById(html, "worker-employee-id");
+    expect(tag).toBeDefined();
+    expect(tag).toMatch(/\brequired(?:="")?(?=[\s/>])/);
+  });
+
+  test("the Name input carries the required attribute", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+    });
+
+    const tag = inputTagById(html, "worker-name");
+    expect(tag).toBeDefined();
+    expect(tag).toMatch(/\brequired(?:="")?(?=[\s/>])/);
+  });
+
+  test("the Contract end input carries the required attribute", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+    });
+
+    const tag = inputTagById(html, "worker-contract-end");
+    expect(tag).toBeDefined();
+    expect(tag).toMatch(/\brequired(?:="")?(?=[\s/>])/);
   });
 
   test("edit: the site select is pre-set to the worker's site and employee id prefilled", () => {

@@ -972,6 +972,9 @@ describe("workerCreateSchema positionIds", () => {
     siteLocationId: locationUuid,
     employeeId: "EMP-1",
     name: "Worker One",
+    // Required since issue #119 — the positionIds block tests the position
+    // set, so it always parses with a valid date.
+    contractEndDate: "2027-12-31",
   };
 
   test("accepts two distinct uuid positions", () => {
@@ -1004,5 +1007,54 @@ describe("workerCreateSchema positionIds", () => {
       expect(result.error.issues[0].path.join(".")).toBe("positionIds");
       expect(result.error.issues[0].message).toBe("Select each position once");
     }
+  });
+});
+
+describe("workerCreateSchema contractEndDate", () => {
+  const base = {
+    siteLocationId: "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04",
+    positionIds: ["2f6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b07"],
+    employeeId: "EMP-1",
+    name: "Worker One",
+  };
+
+  test("refuses a missing date with 'Contract end is required'", () => {
+    const result = workerCreateSchema.safeParse(base);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("contractEndDate");
+      expect(result.error.issues[0].message).toBe("Contract end is required");
+    }
+  });
+
+  test("refuses an empty date with 'Contract end is required'", () => {
+    const result = workerCreateSchema.safeParse({ ...base, contractEndDate: "" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("contractEndDate");
+      expect(result.error.issues[0].message).toBe("Contract end is required");
+    }
+  });
+
+  test("refuses a malformed date with 'Contract end must be a valid date'", () => {
+    const result = workerCreateSchema.safeParse({
+      ...base,
+      contractEndDate: "31-12-2027",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("contractEndDate");
+      expect(result.error.issues[0].message).toBe(
+        "Contract end must be a valid date",
+      );
+    }
+  });
+
+  test("accepts a valid date", () => {
+    const result = workerCreateSchema.safeParse({
+      ...base,
+      contractEndDate: "2027-12-31",
+    });
+    expect(result.success).toBe(true);
   });
 });

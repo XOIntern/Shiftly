@@ -108,6 +108,22 @@ async function seedWorkerWithPositions(args: {
   return id;
 }
 
+// A legacy worker row carries no contract_end_date.
+async function seedLegacyWorker(
+  fx: { locA1: string; siteA: string },
+  wid: string,
+  employeeId: string,
+  name: string,
+) {
+  await db.insert(worker).values({
+    id: wid,
+    siteLocationId: fx.locA1,
+    siteId: fx.siteA,
+    employeeId,
+    name,
+  });
+}
+
 async function pivotPositions(workerId: string) {
   return db
     .select({
@@ -219,6 +235,7 @@ describe("worker actions", () => {
         positionIds: [fx.posB],
         employeeId: "t11-wact-emp-ho",
         name: "T11 Wact Worker HO",
+        contractEndDate: "2027-01-31",
       });
 
       expect(result.ok).toBe(false);
@@ -257,6 +274,7 @@ describe("worker actions", () => {
         positionIds: [fx.posB],
         employeeId: "t11-wact-emp-adm",
         name: "T11 Wact Worker Adm",
+        contractEndDate: "2027-01-31",
       });
       expect(foreignPos.ok).toBe(false);
       expect(foreignPos.fieldErrors?.positionIds).toBe(
@@ -270,6 +288,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA],
         employeeId: "t11-wact-emp-adm",
         name: "T11 Wact Worker Adm",
+        contractEndDate: "2027-01-31",
       });
       expect(result.ok).toBe(true);
 
@@ -303,6 +322,7 @@ describe("worker actions", () => {
         positionIds: [fx.posB],
         employeeId: "t11-wact-emp-xs",
         name: "T11 Wact Worker XS",
+        contractEndDate: "2027-01-31",
       });
 
       expect(result.ok).toBe(false);
@@ -347,6 +367,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA],
         employeeId: "t11-wact-emp-dup",
         name: "T11 Wact Worker Dup II",
+        contractEndDate: "2027-01-31",
       });
 
       expect(result.ok).toBe(false);
@@ -358,6 +379,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA],
         employeeId: "t11-wact-emp-dup",
         name: "T11 Wact Worker Dup III",
+        contractEndDate: "2027-01-31",
       });
       expect(otherLoc.ok).toBe(true);
     } finally {
@@ -503,6 +525,7 @@ describe("worker actions", () => {
         positionIds: [inactivePos],
         employeeId: "t11-wact-emp-inact",
         name: "T11 Wact Worker Inact",
+        contractEndDate: "2028-01-31",
         isActive: true,
       });
 
@@ -566,6 +589,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA],
         employeeId: "t11-wact-emp-mdup",
         name: "T11 Wact Worker MDup 2",
+        contractEndDate: "2028-01-31",
         isActive: true,
       });
 
@@ -643,6 +667,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA],
         employeeId: "t11-wact-emp-free",
         name: "T11 Wact Worker Free",
+        contractEndDate: "2027-01-31",
       });
       expect(created.ok).toBe(true);
 
@@ -675,6 +700,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA],
         employeeId: "t11-wact-emp-free",
         name: "T11 Wact Worker Free II",
+        contractEndDate: "2027-01-31",
       });
       expect(reCreated.ok).toBe(true);
     } finally {
@@ -792,6 +818,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA, posA2],
         employeeId: "t11-wact-emp-mp-both",
         name: "T11 Wact Worker MP Both",
+        contractEndDate: "2027-01-31",
       });
       expect(result.ok).toBe(true);
 
@@ -822,6 +849,7 @@ describe("worker actions", () => {
         positionIds: [],
         employeeId: "t11-wact-emp-mp-empty",
         name: "T11 Wact Worker MP Empty",
+        contractEndDate: "2027-01-31",
       });
       expect(result.ok).toBe(false);
       expect(result.fieldErrors?.positionIds).toBeDefined();
@@ -849,6 +877,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA, fx.posA],
         employeeId: "t11-wact-emp-mp-dup",
         name: "T11 Wact Worker MP Dup",
+        contractEndDate: "2027-01-31",
       });
       expect(result.ok).toBe(false);
       expect(result.fieldErrors?.positionIds).toBe("Select each position once");
@@ -876,6 +905,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA, fx.posB],
         employeeId: "t11-wact-emp-mp-mixed",
         name: "T11 Wact Worker MP Mixed",
+        contractEndDate: "2027-01-31",
       });
       expect(result.ok).toBe(false);
       expect(result.fieldErrors?.positionIds).toBe(
@@ -913,6 +943,7 @@ describe("worker actions", () => {
         positionIds: [posA2],
         employeeId: "t11-wact-emp-mp-rep",
         name: "T11 Wact Worker MP Rep",
+        contractEndDate: "2028-01-31",
         isActive: true,
       });
       expect(result.ok).toBe(true);
@@ -946,6 +977,7 @@ describe("worker actions", () => {
         positionIds: [],
         employeeId: "t11-wact-emp-mp-uempty",
         name: "T11 Wact Worker MP UEmpty",
+        contractEndDate: "2028-01-31",
         isActive: true,
       });
       expect(result.ok).toBe(false);
@@ -978,6 +1010,7 @@ describe("worker actions", () => {
         positionIds: [fx.posB],
         employeeId: "t11-wact-emp-mp-xsite",
         name: "T11 Wact Worker MP XSite",
+        contractEndDate: "2028-01-31",
         isActive: true,
       });
       expect(result.ok).toBe(true);
@@ -1012,6 +1045,7 @@ describe("worker actions", () => {
         positionIds: [fx.posB],
         employeeId: "t11-wact-emp-mp-hox",
         name: "T11 Wact Worker MP HOX",
+        contractEndDate: "2028-01-31",
         isActive: true,
       });
       expect(result.ok).toBe(false);
@@ -1086,6 +1120,7 @@ describe("worker actions", () => {
         positionIds: [fx.posA],
         employeeId: "t11-wact-emp-mp-gone",
         name: "T11 Wact Worker MP Gone",
+        contractEndDate: "2028-01-31",
         isActive: true,
       });
       expect(result).toEqual({ ok: false, message: "Worker not found." });
@@ -1130,6 +1165,7 @@ describe("worker actions", () => {
         positionIds: [inactivePos],
         employeeId: "t11-wact-emp-mp-inact",
         name: "T11 Wact Worker MP Inact",
+        contractEndDate: "2028-01-31",
         isActive: true,
       });
       expect(result.ok).toBe(true);
@@ -1140,6 +1176,99 @@ describe("worker actions", () => {
     } finally {
       await dropWorkerById(wid);
       await db.delete(position).where(eq(position.id, inactivePos));
+      await dropSeed(fx);
+    }
+  });
+
+  test("create without contract end: refused with a contractEndDate field error", async () => {
+    const fx = await seedGlobalData();
+
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const { createWorker } = await import("./actions");
+      const result = await createWorker({
+        siteLocationId: fx.locA1,
+        positionIds: [fx.posA],
+        employeeId: "t11-wact-emp-ce-req",
+        name: "T11 Wact Worker CeReq",
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.contractEndDate).toBe(
+        "Contract end is required",
+      );
+
+      // The refusal writes nothing.
+      const rows = await db
+        .select({ id: worker.id })
+        .from(worker)
+        .where(eq(worker.employeeId, "t11-wact-emp-ce-req"));
+      expect(rows).toHaveLength(0);
+    } finally {
+      await dropWorkersByEmployeeId("t11-wact-emp-ce-req");
+      await dropSeed(fx);
+    }
+  });
+
+  test("legacy worker update without contract end: refused, row byte-identical", async () => {
+    const fx = await seedGlobalData();
+    const wid = randomUUID();
+
+    try {
+      // A legacy row: contract_end_date is NULL.
+      await seedLegacyWorker(fx, wid, "t11-wact-emp-ce-legacy", "T11 Wact Worker CeLegacy");
+
+      actor = makeActor("superadmin", null, null);
+
+      const { updateWorker } = await import("./actions");
+      const [before] = await db.select().from(worker).where(eq(worker.id, wid));
+
+      const result = await updateWorker(wid, {
+        siteLocationId: fx.locA1,
+        positionIds: [fx.posA],
+        employeeId: "t11-wact-emp-ce-legacy",
+        name: "T11 Wact Worker CeLegacy",
+        isActive: true,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.contractEndDate).toBe(
+        "Contract end is required",
+      );
+
+      // The refused edit leaves the row byte-identical — no column moves,
+      // not even updated_at.
+      const [after] = await db.select().from(worker).where(eq(worker.id, wid));
+      expect(after).toEqual(before);
+    } finally {
+      await dropWorkerById(wid);
+      await dropSeed(fx);
+    }
+  });
+
+  test("legacy worker toggle: still succeeds without any contract end", async () => {
+    const fx = await seedGlobalData();
+    const wid = randomUUID();
+
+    try {
+      await seedLegacyWorker(fx, wid, "t11-wact-emp-ce-legacy-tgl", "T11 Wact Worker CeLegacyTgl");
+
+      actor = makeActor("superadmin", null, null);
+
+      // toggleWorker never parses the create/update schema: deactivation
+      // works on legacy rows that carry no date.
+      const { toggleWorker } = await import("./actions");
+      const toggled = await toggleWorker(wid);
+      expect(toggled.ok).toBe(true);
+
+      const [row] = await db
+        .select({ isActive: worker.isActive })
+        .from(worker)
+        .where(eq(worker.id, wid));
+      expect(row.isActive).toBe(false);
+    } finally {
+      await dropWorkerById(wid);
       await dropSeed(fx);
     }
   });
