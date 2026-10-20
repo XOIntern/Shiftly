@@ -403,6 +403,7 @@ export function WorkerForm({
                 <label key={option.id} className="flex items-center gap-2">
                   <Checkbox
                     id={`position-${option.id}`}
+                    aria-label={option.name}
                     checked={positionIds.includes(option.id)}
                     onCheckedChange={(checked) =>
                       togglePosition(option.id, checked)

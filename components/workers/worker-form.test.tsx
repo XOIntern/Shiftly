@@ -246,4 +246,25 @@ describe("WorkerForm position checkboxes", () => {
     expect(html.includes('aria-labelledby="worker-positions-label"')).toBeTrue();
     expect(html.includes("No positions for this site yet")).toBeTrue();
   });
+
+  test("each checkbox is named by its position name for assistive tech", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+      worker: {
+        ...editWorker,
+        positions: [
+          { id: POS_A1, name: "Position Alpha One", isActive: true },
+          { id: POS_A2, name: "Position Alpha Two", isActive: false },
+        ],
+      },
+    });
+
+    // Base UI puts role="checkbox" on a span and hides the input; the span
+    // carries no name unless we give it one, and a wrapping <label> cannot
+    // name a span.
+    expect(html.includes('aria-label="Position Alpha One"')).toBeTrue();
+    expect(html.includes('aria-label="Position Alpha Two"')).toBeTrue();
+  });
 });
