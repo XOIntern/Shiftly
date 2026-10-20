@@ -5,7 +5,7 @@ import { resolveRules } from "./resolve";
 import type { RuleConfigRow } from "@/types/domain";
 
 // Task 2 of the config-rules epic (GitHub #49): the pure resolver that turns
-// global / site / location config rows into effective rules C1–C8, each
+// global / site / location config rows into effective rules C1–C7, each
 // carrying the scope it came from. No DB, no Next — plain data in, plain
 // data out.
 const intRow = (ruleKey: RuleConfigRow["ruleKey"], value: number): RuleConfigRow => ({
@@ -84,16 +84,28 @@ describe("resolveRules (issue #49 task 2)", () => {
     expect(rules.c3).toEqual(DEFAULT_RULES.c3);
   });
 
-  test("C8 resolves through the same chain (global row wins, location beats site, default on absence)", () => {
-    expect(resolveRules([boolRow("C8", false)], [], []).c8).toEqual({
+  test("C7 resolves through the same chain (global row wins, location beats site, default on absence)", () => {
+    expect(resolveRules([boolRow("C7", false)], [], []).c7).toEqual({
       value: false,
       source: "global",
     });
-    expect(resolveRules([], [boolRow("C8", true)], [boolRow("C8", false)]).c8).toEqual({
+    expect(resolveRules([], [boolRow("C7", true)], [boolRow("C7", false)]).c7).toEqual({
       value: false,
       source: "location",
     });
-    expect(resolveRules([], [], []).c8).toEqual({ value: true, source: "default" });
+    expect(resolveRules([], [], []).c7).toEqual({ value: true, source: "default" });
+  });
+
+  test("a stale C8 row is ignored — the rule set is C1–C7 now", () => {
+    // The migrated DB enum carries C1–C7 only, so no C8 row can exist; forge
+    // one anyway (pre-migration shape) to prove it leaks into nothing.
+    const staleC8Row = {
+      ruleKey: "C8",
+      intValue: null,
+      boolValue: false,
+    } as unknown as RuleConfigRow;
+
+    expect(resolveRules([staleC8Row], [], [])).toEqual(DEFAULT_RULES);
   });
 
   test("EffectiveRules survives a JSON round-trip unchanged", () => {

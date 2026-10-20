@@ -11,7 +11,7 @@ Shiftly's target architecture stands on four pillars:
 3. **Fully config-driven** rules and salary rates, changed by HO via configuration, with no code changes
 4. **An audit trail** for every sensitive decision (publishes, config changes, attendance corrections, force majeure)
 
-The full target architecture — modules, data model, rules C1–C8, and open decisions — is documented in [`docs/architecture.md`](./docs/architecture.md).
+The full target architecture — modules, data model, rules C1–C7, and open decisions — is documented in [`docs/architecture.md`](./docs/architecture.md).
 
 ## Tech stack
 

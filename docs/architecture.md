@@ -19,9 +19,9 @@
 >
 > **Update (Oct 2026):** rule configuration and the audit trail are now implemented as real tables — `roster_rule_config` and the append-only `audit_log` in `drizzle/schema/rule-config-schema.ts`, managed through a Settings page. Rule config resolves at **three** scope levels (global base → per-site override → per-location override); this supersedes the "per site" wording in §5.2 and §6 wherever it appears.
 >
-> **Revision (Oct 2026, rules):** C7 was split — C7 "Work area match" keeps its behavior; the new C8 "Work qualification match" ships dormant until workers carry qualifications and work areas declare requirements. The rule set is C1–C8.
+> **Revision (2026-10-20, rules):** the work-area-match rule (the old C7) is removed — the enum change is one-way. The qualification rule — formerly C8 — is now **C7**, dormant until workers carry qualifications and work areas declare requirements. The rule set is **C1–C7**. This note supersedes the earlier revision notes above wherever they reference the old C7/C8 numbering.
 >
-> **Revision (Oct 2026, qualifications):** a worker now holds a **set** of positions (1..n) through the new `worker_position` pivot; the single `worker.position_id` column is gone. The pivot carries a denormalized `site_id` welded by two composite foreign keys — `(worker_id, site_id)` → `worker (id, site_id)` and `(position_id, site_id)` → `position (id, site_id)` — so a cross-site pair is impossible at the DB level, and `(worker_id, position_id)` is the primary key, so a duplicate pair is too. Position deletion is blocked only while a live (non-soft-deleted) worker still holds the position. C8 stays dormant: assignment-side qualification requirements are not implemented.
+> **Revision (Oct 2026, qualifications):** a worker now holds a **set** of positions (1..n) through the new `worker_position` pivot; the single `worker.position_id` column is gone. The pivot carries a denormalized `site_id` welded by two composite foreign keys — `(worker_id, site_id)` → `worker (id, site_id)` and `(position_id, site_id)` → `position (id, site_id)` — so a cross-site pair is impossible at the DB level, and `(worker_id, position_id)` is the primary key, so a duplicate pair is too. Position deletion is blocked only while a live (non-soft-deleted) worker still holds the position. The qualification rule (now C7) stays dormant: assignment-side qualification requirements are not implemented.
 
 ---
 
@@ -115,7 +115,7 @@ graph TB
 
 - **Pure domain logic**: the generator, rule validator, and salary estimation calculations are written as pure functions (data in, results out), decoupled from UI and database. This is a prerequisite for the correctness and performance evaluation in section 5.
 - **Scope-based isolation as a data-access layer**: not the "manual filter on every page" pattern, but a single centralized mechanism that forces all domain queries through the session's scope (location for Admin, site for HO, everything for superadmin) (section 7).
-- **Configuration as data**: rules (C1–C8) and salary rates are stored as configuration rows, read by the engine at runtime, not hardcoded constants.
+- **Configuration as data**: rules (C1–C7) and salary rates are stored as configuration rows, read by the engine at runtime, not hardcoded constants.
 
 ---
 
@@ -126,7 +126,7 @@ graph TB
 | 1 | Auth & RBAC | Login sessions, 3 roles (Superadmin, HO, Admin), binding users to sites/locations | All |
 | 2 | Master Data | Site, site_location (location/city), work_area, shift definitions, worker (qualifications, PKWT/PKWTT, active status), user accounts per scope, CSV/Excel import | Superadmin (sites, HO accounts), HO (locations, Admin accounts), Admin (workers) |
 | 3 | Request Management | Weekly & daily MP requirements entered by the admin on behalf of the client, request status | Admin, HO |
-| 4 | Rules & Configuration | Global roster rule parameters (C1–C8) + per-site overrides, change history | HO |
+| 4 | Rules & Configuration | Global roster rule parameters (C1–C7) + per-site overrides, change history | HO |
 | 5 | Roster Engine | Auto-generate drafts, real-time validation, block publishing while violations exist, explicit deficits, publish auditing | Admin |
 | 6 | Attendance | Daily per-shift attendance input (present/leave/sick/absent), bulk input, corrections with a trail, attendance without a roster as an exception | Admin |
 | 7 | Reporting & Dashboard | MP realization vs. requirement, workers approaching limits, attendance recap, export (per-location & cross-site views) | HO, Superadmin |
@@ -149,7 +149,7 @@ graph LR
     W["Worker pool<br/>(qualifications, day accumulation,<br/>shift history)"]
 
     GEN["Generator<br/>(deterministic greedy heuristic)"]
-    VAL["Validator<br/>(evaluates C1-C8)"]
+    VAL["Validator<br/>(evaluates C1-C7)"]
     DRAFT["Draft roster<br/>(always valid)"]
     DEF["Deficit report<br/>(per work area/shift/day)"]
 
@@ -166,7 +166,7 @@ graph LR
 - **Validator**: a pure function that evaluates assignments against all active rules and returns violations **with specific reasons** ("5 work days this week already", "Shift 3 yesterday, mandatory day off", "Mandatory break not yet taken"). Used in two places: the generator (candidate selection) and the roster editor (real-time validation while the admin edits manually).
 - **Publish gate**: a roster cannot be published while violations remain. Publishing writes an audit trail (who, when, roster version).
 
-### 5.2 Configurable rules (C1–C8)
+### 5.2 Configurable rules (C1–C7)
 
 | ID | Rule | Default |
 |---|---|---|
@@ -176,8 +176,7 @@ graph LR
 | C4 | After shift 3, the following day must be a rest day | active |
 | C5 | Mandatory break trigger: accumulated work days since the last break | 60 work days |
 | C6 | Mandatory break duration | 4 consecutive days |
-| C7 | Workers only assigned within their work area | active |
-| C8 | Workers only assigned to work requiring a qualification they hold (dormant until qualification data exists) | active |
+| C7 | Workers only assigned to work requiring a qualification they hold (dormant until qualification data exists) | active |
 
 Global configuration can be overridden per site and per site_location (most specific wins). Only HO (or superadmin) may change it, every change is logged (old value → new value), and changes only apply to rosters created afterward (not retroactive). Implemented: the `roster_rule_config` table with scope-specific partial unique indexes (section 6).
 
@@ -246,7 +245,7 @@ erDiagram
     }
     RULE_CONFIG {
         string scope "global | per site | per location"
-        json parameter "C1-C8, old -> new values in audit"
+        json parameter "C1-C7, old -> new values in audit"
     }
     RATE_CONFIG {
         string scope "location | site | worker"
@@ -259,7 +258,7 @@ erDiagram
 
 Schema design notes:
 
-- **Implemented so far**: `site`, `site_location`, `user`, `work_area`, `position`, `worker`, `worker_position`, `roster_rule_config`, and `audit_log` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`, `drizzle/schema/work-area-schema.ts`, `drizzle/schema/position-schema.ts`, `drizzle/schema/worker-schema.ts`, `drizzle/schema/rule-config-schema.ts`) with FK-restricted parent references, `is_active` flags where applicable, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). `site` and `site_location` carry `(id, site_id)` unique keys so the `work_area`, `position`, and `worker` composite FKs can enforce same-site scoping at the DB level. `roster_rule_config` resolves each rule (C1–C8) at three scopes — global base, per-site, per-location — via scope-specific partial unique indexes, with a CHECK welding every location-level row to its parent site; the append-only `audit_log` is the soft-delete exception (rows are written once and kept, no `updated_at`). Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
+- **Implemented so far**: `site`, `site_location`, `user`, `work_area`, `position`, `worker`, `worker_position`, `roster_rule_config`, and `audit_log` exist as real tables (`drizzle/schema/site-schema.ts`, `drizzle/schema/auth-schema.ts`, `drizzle/schema/work-area-schema.ts`, `drizzle/schema/position-schema.ts`, `drizzle/schema/worker-schema.ts`, `drizzle/schema/rule-config-schema.ts`) with FK-restricted parent references, `is_active` flags where applicable, and **soft delete** (`deleted_at` + partial unique indexes that ignore deleted rows). `site` and `site_location` carry `(id, site_id)` unique keys so the `work_area`, `position`, and `worker` composite FKs can enforce same-site scoping at the DB level. `roster_rule_config` resolves each rule (C1–C7) at three scopes — global base, per-site, per-location — via scope-specific partial unique indexes, with a CHECK welding every location-level row to its parent site; the append-only `audit_log` is the soft-delete exception (rows are written once and kept, no `updated_at`). Better Auth adds its own `session`, `account`, and `verification` tables. All remaining entities below are still design-only.
 - **Deletion guards**: a `site` is refused deletion while live work areas exist under it; existing site_locations, work areas, and users have their own guards (users check work-area bindings first). A `position` is refused deletion only while a live worker still holds it in `worker_position`.
 - **No client entity**: the earlier Client → Site hierarchy was removed (Oct 2026 revision). What used to be "the client" (Nestle Group) is now a **site**; what used to be "a site with a city" is now a **site_location**. Client companies remain external counterparties — they convey MP requirements manually — but are not tables in the system.
 - **Site is framework, location is operations**: a `SITE` carries its name and its HO binding; shift definitions, workers, MP requests, and location rates all live under `SITE_LOCATION`.

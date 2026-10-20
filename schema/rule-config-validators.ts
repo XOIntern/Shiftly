@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // Sanity ranges for the int rules the HO settings form writes (task brief,
 // GitHub #52): C1 1..7 days/week, C2 1..31 days/month, C5 and C6 at least
-// one day; C3, C4, C7 and C8 are toggles.
+// one day; C3, C4 and C7 are toggles.
 const INT_RANGES: Record<"C1" | "C2" | "C5" | "C6", { min: number; max?: number }> = {
   C1: { min: 1, max: 7 },
   C2: { min: 1, max: 31 },
@@ -11,7 +11,7 @@ const INT_RANGES: Record<"C1" | "C2" | "C5" | "C6", { min: number; max?: number 
 };
 
 const INT_RULE_KEYS = new Set<RuleKey>(["C1", "C2", "C5", "C6"]);
-const BOOL_RULE_KEYS = new Set<RuleKey>(["C3", "C4", "C7", "C8"]);
+const BOOL_RULE_KEYS = new Set<RuleKey>(["C3", "C4", "C7"]);
 
 import type { RuleKey } from "@/types/engine";
 
@@ -20,7 +20,7 @@ import type { RuleKey } from "@/types/engine";
 // here; ownership (it belongs to the actor's effective site) is the
 // action's job — a parse-only check cannot see the DB.
 const baseSchema = z.object({
-  ruleKey: z.enum(["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"] satisfies readonly RuleKey[]),
+  ruleKey: z.enum(["C1", "C2", "C3", "C4", "C5", "C6", "C7"] satisfies readonly RuleKey[]),
   scope: z.enum(["global", "site", "location"]),
   siteLocationId: z.uuid().optional(),
   intValue: z.number().int().nullish(),
