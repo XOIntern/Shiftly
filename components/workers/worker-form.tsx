@@ -385,9 +385,10 @@ export function WorkerForm({
         />
 
         <Field
+          aria-labelledby="worker-positions-label"
           data-invalid={fieldErrors?.positionIds ? "true" : undefined}
         >
-          <FieldLabel>Positions</FieldLabel>
+          <FieldLabel id="worker-positions-label">Positions</FieldLabel>
           {positionSiteId === null ? (
             <p className="text-sm text-muted-foreground">
               Select a location first
@@ -401,6 +402,7 @@ export function WorkerForm({
               {renderedPositions.map((option) => (
                 <label key={option.id} className="flex items-center gap-2">
                   <Checkbox
+                    id={`position-${option.id}`}
                     checked={positionIds.includes(option.id)}
                     onCheckedChange={(checked) =>
                       togglePosition(option.id, checked)
