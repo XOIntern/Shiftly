@@ -44,6 +44,5 @@ export function resolveRules(
     c5: resolveRule("C5", readInt, DEFAULT_RULES.c5, global, site, location),
     c6: resolveRule("C6", readInt, DEFAULT_RULES.c6, global, site, location),
     c7: resolveRule("C7", readBool, DEFAULT_RULES.c7, global, site, location),
-    c8: resolveRule("C8", readBool, DEFAULT_RULES.c8, global, site, location),
   };
 }
