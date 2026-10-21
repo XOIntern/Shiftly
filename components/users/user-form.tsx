@@ -267,10 +267,10 @@ function UserForm({
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 aria-invalid={fieldErrors?.password ? true : undefined}
-                minLength={8}
+                minLength={15}
                 required
               />
-              <FieldDescription>At least 8 characters.</FieldDescription>
+              <FieldDescription>At least 15 characters.</FieldDescription>
               {fieldErrors?.password ? (
                 <FieldError errors={[{ message: fieldErrors.password }]} />
               ) : null}
