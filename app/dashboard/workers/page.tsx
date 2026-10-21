@@ -92,12 +92,7 @@ export default async function WorkersPage({
   // scope+search+filters.
   const where = and(
     ...(pattern
-      ? [
-          or(
-            ilike(worker.name, pattern),
-            ilike(worker.employeeId, pattern),
-          ),
-        ]
+      ? [or(ilike(worker.name, pattern), ilike(worker.employeeId, pattern))]
       : []),
     ...(status ? [eq(worker.isActive, status === "active")] : []),
     ...(siteFilter ? [siteFilter] : []),
@@ -204,9 +199,7 @@ export default async function WorkersPage({
                       db
                         .select({ siteId: siteLocation.siteId })
                         .from(siteLocation)
-                        .where(
-                          eq(siteLocation.id, actor.siteLocationId),
-                        ),
+                        .where(eq(siteLocation.id, actor.siteLocationId)),
                     ),
                   ]
                 : [sql`false`]),

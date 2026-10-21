@@ -20,7 +20,7 @@ import {
   upsertRuleRow,
   type RuleScope,
 } from "@/lib/rule-config";
-import { ruleConfigSchema } from "@/schema/rule-config-validators";
+import { ruleConfigSchema } from "@/validation/rule-config-validators";
 
 // Maps a driver error to the action result shape (same convention as the
 // other dashboard actions). The rule-config upsert has no duplicate-key

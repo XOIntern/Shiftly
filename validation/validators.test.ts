@@ -5,8 +5,6 @@ import {
   workAreaUpdateSchema,
   positionCreateSchema,
   positionUpdateSchema,
-  siteCreateSchema,
-  siteUpdateSchema,
   userCreateSchema,
   userPasswordSchema,
   changePasswordSchema,
@@ -111,7 +109,10 @@ describe("workAreaUpdateSchema", () => {
   });
 
   test("rejects a non-uuid id", () => {
-    const result = workAreaUpdateSchema.safeParse({ ...base, id: "not-a-uuid" });
+    const result = workAreaUpdateSchema.safeParse({
+      ...base,
+      id: "not-a-uuid",
+    });
     expect(result.success).toBe(false);
   });
 });
@@ -188,51 +189,9 @@ describe("positionUpdateSchema", () => {
   });
 
   test("rejects a non-uuid id", () => {
-    const result = positionUpdateSchema.safeParse({ ...base, id: "not-a-uuid" });
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("siteCreateSchema", () => {
-  test("accepts a valid name", () => {
-    const result = siteCreateSchema.safeParse({ name: "HQ Plant" });
-    expect(result.success).toBe(true);
-  });
-
-  test("rejects an empty name", () => {
-    const result = siteCreateSchema.safeParse({ name: "" });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects a name over 200 chars", () => {
-    const result = siteCreateSchema.safeParse({ name: "x".repeat(201) });
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("siteUpdateSchema", () => {
-  test("accepts a valid update with isActive", () => {
-    const result = siteUpdateSchema.safeParse({
-      id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      name: "HQ Plant",
-      isActive: false,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("rejects missing isActive", () => {
-    const result = siteUpdateSchema.safeParse({
-      id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
-      name: "HQ Plant",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects a non-uuid id", () => {
-    const result = siteUpdateSchema.safeParse({
+    const result = positionUpdateSchema.safeParse({
+      ...base,
       id: "not-a-uuid",
-      name: "HQ Plant",
-      isActive: true,
     });
     expect(result.success).toBe(false);
   });
@@ -306,7 +265,10 @@ describe("locationUpdateSchema", () => {
   });
 
   test("rejects a non-uuid id", () => {
-    const result = locationUpdateSchema.safeParse({ ...base, id: "not-a-uuid" });
+    const result = locationUpdateSchema.safeParse({
+      ...base,
+      id: "not-a-uuid",
+    });
     expect(result.success).toBe(false);
   });
 });
@@ -602,7 +564,8 @@ describe("userUpdateSchema", () => {
       siteId: "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02",
     });
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.siteId).toBe("6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02");
+    if (result.success)
+      expect(result.data.siteId).toBe("6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02");
   });
 
   test("still rejects ho with a siteLocationId", () => {
@@ -633,7 +596,11 @@ describe("userUpdateSchema", () => {
   });
 
   test("rejects admin without a siteLocationId", () => {
-    const result = userUpdateSchema.safeParse({ id, name: "Site Admin", role: "admin" });
+    const result = userUpdateSchema.safeParse({
+      id,
+      name: "Site Admin",
+      role: "admin",
+    });
     expect(result.success).toBe(false);
   });
 
@@ -672,7 +639,8 @@ describe("parseUserUpdate", () => {
       siteId: "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02",
     });
     expect(parsed.success).toBe(true);
-    if (parsed.success) expect(parsed.data.siteId).toBe("6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02");
+    if (parsed.success)
+      expect(parsed.data.siteId).toBe("6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02");
   });
 
   test("strips siteId and keeps siteLocationId when the role is admin", () => {
@@ -685,7 +653,9 @@ describe("parseUserUpdate", () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.siteId).toBeUndefined();
-      expect(parsed.data.siteLocationId).toBe("7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04");
+      expect(parsed.data.siteLocationId).toBe(
+        "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04",
+      );
     }
   });
 
@@ -738,10 +708,16 @@ describe("parseUserCreate", () => {
   const locUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
 
   test("admin with a null siteLocationId fails per-field on siteLocationId", () => {
-    const parsed = parseUserCreate({ ...base, role: "admin", siteLocationId: null });
+    const parsed = parseUserCreate({
+      ...base,
+      role: "admin",
+      siteLocationId: null,
+    });
     expect(parsed.success).toBe(false);
     if (!parsed.success) {
-      expect(parsed.error.issues.map((issue) => issue.path.join("."))).toContain("siteLocationId");
+      expect(
+        parsed.error.issues.map((issue) => issue.path.join(".")),
+      ).toContain("siteLocationId");
     }
   });
 
@@ -751,7 +727,11 @@ describe("parseUserCreate", () => {
   });
 
   test("admin with a siteLocationId parses with siteId stripped", () => {
-    const parsed = parseUserCreate({ ...base, role: "admin", siteLocationId: locUuid });
+    const parsed = parseUserCreate({
+      ...base,
+      role: "admin",
+      siteLocationId: locUuid,
+    });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.siteLocationId).toBe(locUuid);
@@ -770,7 +750,9 @@ describe("parseUserCreate", () => {
     });
     expect(parsed.success).toBe(false);
     if (!parsed.success) {
-      expect(parsed.error.issues.map((issue) => issue.path.join("."))).toContain("siteId");
+      expect(
+        parsed.error.issues.map((issue) => issue.path.join(".")),
+      ).toContain("siteId");
     }
   });
 
@@ -1103,7 +1085,10 @@ describe("workerCreateSchema contractEndDate", () => {
   });
 
   test("refuses an empty date with 'Contract end is required'", () => {
-    const result = workerCreateSchema.safeParse({ ...base, contractEndDate: "" });
+    const result = workerCreateSchema.safeParse({
+      ...base,
+      contractEndDate: "",
+    });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues[0].path.join(".")).toBe("contractEndDate");

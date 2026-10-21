@@ -10,7 +10,7 @@ import { mapDbError } from "@/lib/db-errors";
 import { requireSuperadmin } from "@/lib/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
-import { siteCreateSchema, siteUpdateSchema } from "@/schema/validators";
+import { siteCreateSchema, siteUpdateSchema } from "@/validation/site";
 import { deleteSiteGuarded } from "@/lib/site-delete";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
@@ -128,8 +128,8 @@ export async function setActiveBulk(
 ): Promise<ActionState> {
   await requireSuperadmin();
 
-  const validIds = [...new Set(ids)].filter((id) =>
-    z.uuid().safeParse(id).success,
+  const validIds = [...new Set(ids)].filter(
+    (id) => z.uuid().safeParse(id).success,
   );
   if (validIds.length === 0) {
     return { ok: false, message: "No sites selected." };
@@ -156,8 +156,8 @@ export async function setActiveBulk(
 export async function deleteBulk(ids: string[]): Promise<ActionState> {
   await requireSuperadmin();
 
-  const validIds = [...new Set(ids)].filter((id) =>
-    z.uuid().safeParse(id).success,
+  const validIds = [...new Set(ids)].filter(
+    (id) => z.uuid().safeParse(id).success,
   );
   if (validIds.length === 0) {
     return { ok: false, message: "No sites selected." };

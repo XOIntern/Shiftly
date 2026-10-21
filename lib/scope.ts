@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import type { Role, Scope } from "@/types/domain";
 
 // The enum stays the single source of truth for what a role string can be:
-// schema/validators.ts and every call site gate role inputs against this list.
+// validation/validators.ts and every call site gate role inputs against this list.
 export const ROLES = ["superadmin", "ho", "admin"] as const satisfies readonly Role[];
 
 // The role alone decides the Scope shape; the role's own binding fills it

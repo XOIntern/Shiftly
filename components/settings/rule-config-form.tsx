@@ -66,7 +66,7 @@ export function splitRuleFieldErrors(fieldErrors: Record<string, string>): {
   return { fieldErrors: split, message };
 }
 
-// Sanity ranges mirrored from schema/rule-config-validators.ts so the inputs
+// Sanity ranges mirrored from validation/rule-config-validators.ts so the inputs
 // nudge before the server roundtrip; the action stays authoritative.
 const INT_BOUNDS: Partial<Record<RuleKey, { min: number; max?: number }>> = {
   C1: { min: 1, max: 7 },

@@ -3,15 +3,6 @@ import { z } from "zod";
 
 const nameField = z.string().trim().min(1).max(200);
 
-export const siteCreateSchema = z.object({
-  name: nameField,
-});
-
-export const siteUpdateSchema = siteCreateSchema.extend({
-  id: z.uuid(),
-  isActive: z.boolean(),
-});
-
 export const locationCreateSchema = z.object({
   siteId: z.uuid().optional(),
   name: nameField,
@@ -210,8 +201,6 @@ export function parseUserUpdate(
   });
 }
 
-export type SiteCreateInput = z.infer<typeof siteCreateSchema>;
-export type SiteUpdateInput = z.infer<typeof siteUpdateSchema>;
 export type LocationCreateInput = z.infer<typeof locationCreateSchema>;
 export type LocationUpdateInput = z.infer<typeof locationUpdateSchema>;
 export type WorkAreaCreateInput = z.infer<typeof workAreaCreateSchema>;
