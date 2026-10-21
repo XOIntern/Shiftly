@@ -220,7 +220,11 @@ export default async function DashboardLayout({
           <NavUser user={displayName} />
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset>
+      {/* min-w-0: main is a row-flex item, so without it min-width:auto
+          sizes main to the table's full min-content width (nowrap cells +
+          min-w columns) and the table's own overflow-x-auto never engages —
+          the page scrolls instead of the table. */}
+      <SidebarInset className="min-w-0">
         <SiteHeader />
         {children}
       </SidebarInset>
