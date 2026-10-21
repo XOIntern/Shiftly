@@ -106,7 +106,7 @@ const bindingMessage =
 const userBaseSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.email(),
-  password: z.string().min(8),
+  password: z.string().min(15, "Password must be at least 15 characters").max(200),
   role: z.enum(ROLES),
   siteId: z.uuid().optional(),
   siteLocationId: z.uuid().optional(),
@@ -155,11 +155,11 @@ export function parseUserCreate(input: {
 }
 
 export const userPasswordSchema = z.object({
-  newPassword: z.string().min(8),
+  newPassword: z.string().min(15, "Password must be at least 15 characters").max(200),
 });
 
 // Self-service change-password (/settings): any non-empty current password
-// (its correctness is the action's job), plus the same 8-char minimum the
+// (its correctness is the action's job), plus the same 15-char minimum the
 // admin-facing schemas enforce. Comparing the two inputs (not against the
 // stored hash) is sound here: the action only calls the API after verifying
 // currentPassword, so a matching currentPassword string IS the stored
@@ -168,7 +168,7 @@ export const userPasswordSchema = z.object({
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(8),
+    newPassword: z.string().min(15, "Password must be at least 15 characters").max(200),
   })
   .refine((v) => v.newPassword !== v.currentPassword, {
     path: ["newPassword"],
