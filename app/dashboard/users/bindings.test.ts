@@ -107,7 +107,7 @@ describe("users bindings (the user work-area binding is removed)", () => {
     const payload = {
       name: "T9 Admin No WA",
       email: `t9-admin-${key}@shiftly.test`,
-      password: "password123",
+      password: "password-1234567",
       role: "admin",
       siteLocationId: locA,
       // The removed binding key must be inert: stripped before validation,

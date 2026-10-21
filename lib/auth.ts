@@ -51,7 +51,19 @@ export const auth = betterAuth({
     // dist/api/routes/sign-up.mjs: `emailAndPassword?.disableSignUp`);
     // users are provisioned by HO instead of self sign-up.
     disableSignUp: true,
+    // Backstop for any direct Better Auth API path; OWASP no-MFA minimum
+    // (Better Auth 1.7.7 create-context.mjs:186 defaults it to 8 otherwise).
+    minPasswordLength: 15,
   },
+  // Explicit, not default-dependent: window 10s, max 100, memory storage.
+  // Better Auth's built-in special rules already throttle /sign-in and
+  // /change-password to 3 req / 10s (dist/api/rate-limiter/index.mjs
+  // getDefaultSpecialRules). Enabled in dev too, so dev and prod behave
+  // identically. Memory storage is per-instance — revisit when scaling
+  // horizontally. Behind a reverse proxy the limiter keys on the client IP
+  // from x-forwarded-for/x-real-ip — the proxy must set those or every
+  // client shares one bucket.
+  rateLimit: { enabled: true },
   user: {
     additionalFields: {
       // All additional fields are guarded with `input: false`: provisioning

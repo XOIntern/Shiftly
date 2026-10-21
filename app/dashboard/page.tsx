@@ -1,17 +1,24 @@
-import { ChartAreaInteractive } from "@/components/chart-area-interactive";
-import { RecentRosters } from "@/components/recent-rosters";
+import { requireUser } from "@/lib/session";
+import { dashboardCounts } from "@/lib/dashboard-counts";
 import { SectionCards } from "@/components/section-cards";
 
-export default function Page() {
+// Deliberate block: the cards read the actor's scoped counts behind the
+// session check, so there is no static shell worth shipping first. See:
+// https://nextjs.org/docs/messages/blocking-prerender-dynamic
+export const instant = false;
+
+export default async function Page() {
+  const user = await requireUser();
+  const counts = await dashboardCounts(user);
+
   return (
     <div className="flex flex-1 flex-col">
       <div className="@container/main flex flex-1 flex-col gap-2">
         <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
-          <SectionCards />
-          <div className="px-4 lg:px-6">
-            <ChartAreaInteractive />
-          </div>
-          <RecentRosters />
+          <SectionCards
+            counts={counts}
+            showLocations={user.role !== "admin"}
+          />
         </div>
       </div>
     </div>

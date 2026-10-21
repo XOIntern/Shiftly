@@ -18,7 +18,7 @@ export async function seedAdmin(env: {
   password: string;
 }): Promise<SeedResult> {
   if (!env.email || !env.password) return "error-missing-env";
-  if (env.password.length < 8) return "error-weak-password";
+  if (env.password.length < 15) return "error-weak-password";
 
   // Normalize to lowercase so the unique email matches what Better Auth's
   // sign-in compares against (`email.toLowerCase()` in sign-in.mjs) even

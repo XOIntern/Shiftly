@@ -25,6 +25,14 @@ describe("seedAdmin", () => {
     expect(result).toBe("error-weak-password");
   });
 
+  test("rejects a 14-character password at the 15-char minimum boundary", async () => {
+    const result = await seedAdmin({
+      email: TEST_ENV.email,
+      password: "1234567890abcd", // 14 chars
+    });
+    expect(result).toBe("error-weak-password");
+  });
+
   test("creates admin user on first run, verifies login, marks verified", async () => {
     await cleanup();
     const result = await seedAdmin(TEST_ENV);

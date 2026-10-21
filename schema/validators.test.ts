@@ -16,6 +16,12 @@ import {
   locationCreateSchema,
   locationUpdateSchema,
 } from "./validators";
+import { fieldErrorsFrom } from "../lib/action-state";
+
+// Same message string as the validators' z.string().min(15, ...) below
+// (GitHub #121): assert it through fieldErrorsFrom so the action-facing
+// fieldErrors shape carries the exact text.
+const PASSWORD_MIN_MESSAGE = "Password must be at least 15 characters";
 
 describe("workAreaCreateSchema", () => {
   test("accepts valid input with a siteId and no departmentId", () => {
@@ -310,7 +316,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "Root",
       email: "root@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "superadmin",
     });
     expect(result.success).toBe(true);
@@ -320,7 +326,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "HO",
       email: "ho@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "ho",
       siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
     });
@@ -331,7 +337,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "admin",
       siteLocationId: "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02",
     });
@@ -348,11 +354,59 @@ describe("userCreateSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("accepts a password of exactly 15 characters", () => {
+    const result = userCreateSchema.safeParse({
+      name: "Root",
+      email: "root@shiftly.test",
+      password: "123456789012345",
+      role: "superadmin",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a 14-char password with the minimum message", () => {
+    const result = userCreateSchema.safeParse({
+      name: "Root",
+      email: "root@shiftly.test",
+      password: "12345678901234",
+      role: "superadmin",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(fieldErrorsFrom(result.error).password).toBe(PASSWORD_MIN_MESSAGE);
+    }
+  });
+
+  test("rejects a 201-char password (max 200)", () => {
+    const result = userCreateSchema.safeParse({
+      name: "Root",
+      email: "root@shiftly.test",
+      password: "x".repeat(201),
+      role: "superadmin",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(fieldErrorsFrom(result.error).password).toBe(
+        "Too big: expected string to have <=200 characters",
+      );
+    }
+  });
+
+  test("accepts a password of exactly 200 characters (max boundary)", () => {
+    const result = userCreateSchema.safeParse({
+      name: "Root",
+      email: "root@shiftly.test",
+      password: "x".repeat(200),
+      role: "superadmin",
+    });
+    expect(result.success).toBe(true);
+  });
+
   test("rejects an invalid email", () => {
     const result = userCreateSchema.safeParse({
       name: "HO",
       email: "not-an-email",
-      password: "longenough1",
+      password: "longenough-password",
       role: "ho",
     });
     expect(result.success).toBe(false);
@@ -362,7 +416,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "HO",
       email: "ho@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "worker",
     });
     expect(result.success).toBe(false);
@@ -372,7 +426,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "Root",
       email: "root@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "superadmin",
       siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
     });
@@ -383,7 +437,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "Root",
       email: "root@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "superadmin",
       siteLocationId: "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02",
     });
@@ -394,7 +448,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "HO",
       email: "ho@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "ho",
     });
     expect(result.success).toBe(false);
@@ -404,7 +458,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "HO",
       email: "ho@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "ho",
       siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
       siteLocationId: "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02",
@@ -416,7 +470,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "admin",
     });
     expect(result.success).toBe(false);
@@ -426,7 +480,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "admin",
       siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
       siteLocationId: "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02",
@@ -438,7 +492,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "admin",
       siteLocationId: "",
     });
@@ -447,20 +501,30 @@ describe("userCreateSchema", () => {
 });
 
 describe("userPasswordSchema", () => {
-  test("accepts a password of 8 chars or more", () => {
-    expect(userPasswordSchema.safeParse({ newPassword: "12345678" }).success).toBe(true);
+  test("accepts an exactly-15-char newPassword", () => {
+    const result = userPasswordSchema.safeParse({ newPassword: "123456789012345" });
+    expect(result.success).toBe(true);
   });
 
-  test("rejects a short password", () => {
-    expect(userPasswordSchema.safeParse({ newPassword: "1234567" }).success).toBe(false);
+  test("rejects a 14-char newPassword with the minimum message", () => {
+    const result = userPasswordSchema.safeParse({ newPassword: "12345678901234" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(fieldErrorsFrom(result.error).newPassword).toBe(PASSWORD_MIN_MESSAGE);
+    }
+  });
+
+  test("rejects a 201-char newPassword (max 200)", () => {
+    const result = userPasswordSchema.safeParse({ newPassword: "x".repeat(201) });
+    expect(result.success).toBe(false);
   });
 });
 
 describe("changePasswordSchema", () => {
-  test("accepts a current and an 8-char new password", () => {
+  test("accepts a current and an exactly-15-char new password", () => {
     const result = changePasswordSchema.safeParse({
       currentPassword: "old-pass",
-      newPassword: "12345678",
+      newPassword: "123456789012345",
     });
     expect(result.success).toBe(true);
   });
@@ -468,23 +532,34 @@ describe("changePasswordSchema", () => {
   test("accepts a new password different from the current one", () => {
     const result = changePasswordSchema.safeParse({
       currentPassword: "old-pass",
-      newPassword: "different-pass",
+      newPassword: "different-pass-15",
     });
     expect(result.success).toBe(true);
   });
 
-  test("rejects a 7-char newPassword", () => {
+  test("rejects a 14-char newPassword with the minimum message", () => {
     const result = changePasswordSchema.safeParse({
       currentPassword: "old-pass",
-      newPassword: "1234567",
+      newPassword: "12345678901234",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(fieldErrorsFrom(result.error).newPassword).toBe(PASSWORD_MIN_MESSAGE);
+    }
+  });
+
+  test("rejects a 201-char newPassword (max 200)", () => {
+    const result = changePasswordSchema.safeParse({
+      currentPassword: "old-pass",
+      newPassword: "x".repeat(201),
     });
     expect(result.success).toBe(false);
   });
 
   test("rejects an unchanged-password change", () => {
     const result = changePasswordSchema.safeParse({
-      currentPassword: "same-pass",
-      newPassword: "same-pass",
+      currentPassword: "same-password-1500",
+      newPassword: "same-password-1500",
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -500,7 +575,7 @@ describe("changePasswordSchema", () => {
   test("rejects an empty currentPassword", () => {
     const result = changePasswordSchema.safeParse({
       currentPassword: "",
-      newPassword: "12345678",
+      newPassword: "123456789012345",
     });
     expect(result.success).toBe(false);
   });
@@ -657,7 +732,7 @@ describe("parseUserCreate", () => {
   const base = {
     name: "Site Admin",
     email: "site@shiftly.test",
-    password: "longenough1",
+    password: "longenough-password",
   };
   const siteUuid = "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02";
   const locUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
@@ -688,7 +763,7 @@ describe("parseUserCreate", () => {
     const parsed = parseUserCreate({
       name: "HO",
       email: "ho@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "ho",
       siteId: null,
       siteLocationId: null,
@@ -703,7 +778,7 @@ describe("parseUserCreate", () => {
     const parsed = parseUserCreate({
       name: "HO",
       email: "ho@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "ho",
       siteId: siteUuid,
       siteLocationId: locUuid,
@@ -719,7 +794,7 @@ describe("parseUserCreate", () => {
     const parsed = parseUserCreate({
       name: "Root",
       email: "root@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "superadmin",
       siteId: siteUuid,
       siteLocationId: locUuid,
@@ -735,7 +810,7 @@ describe("parseUserCreate", () => {
     const result = userCreateSchema.safeParse({
       name: "HO",
       email: "ho@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "ho",
     });
     expect(result.success).toBe(false);
@@ -745,7 +820,7 @@ describe("parseUserCreate", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "admin",
       siteId: siteUuid,
       siteLocationId: locUuid,
@@ -763,7 +838,7 @@ describe("userCreateSchema with the work-area binding removed", () => {
     const result = userCreateSchema.safeParse({
       name: "HO",
       email: "ho@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "ho",
       siteId: siteUuid,
       workAreaId: waUuid,
@@ -778,7 +853,7 @@ describe("userCreateSchema with the work-area binding removed", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "admin",
       siteLocationId: locUuid,
       workAreaId: waUuid,
@@ -793,7 +868,7 @@ describe("userCreateSchema with the work-area binding removed", () => {
     const result = userCreateSchema.safeParse({
       name: "Site Admin",
       email: "site@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "admin",
       workAreaId: waUuid,
     });
@@ -804,7 +879,7 @@ describe("userCreateSchema with the work-area binding removed", () => {
     const result = userCreateSchema.safeParse({
       name: "Root",
       email: "root@shiftly.test",
-      password: "longenough1",
+      password: "longenough-password",
       role: "superadmin",
       workAreaId: waUuid,
     });
@@ -856,7 +931,7 @@ describe("parseUserCreate work-area stripping", () => {
   const base = {
     name: "Site Admin",
     email: "site@shiftly.test",
-    password: "longenough1",
+    password: "longenough-password",
   };
   const siteUuid = "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02";
   const locUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
