@@ -249,7 +249,7 @@ export default async function RosterPage({
         version: chosen.version,
         canEdit: canGenerate && chosen.status === "draft",
         readOnlyReason: canGenerate
-          ? "Published plans are locked — generate a fresh draft to revise."
+          ? "Published — locked; revise to open the next draft."
           : "Read-only — rosters are managed by admins.",
         workAreas: areaRows,
         workAreaId,

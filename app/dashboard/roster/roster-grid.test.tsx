@@ -8,11 +8,22 @@ import { describe, expect, mock, test } from "bun:test";
 type ScriptedResult = unknown;
 const setCalls: unknown[] = [];
 let nextSetResult: ScriptedResult = { ok: true, data: { violations: [] } };
+const reviseCalls: unknown[] = [];
+let nextRevise: string | Error = "99999999-9999-4999-8999-999999999999";
 mock.module("@/app/dashboard/roster/actions", () => ({
   setAssignment: async (input: unknown) => {
     setCalls.push(input);
     return nextSetResult;
   },
+  generateRoster: async () => ({ ok: true }),
+  publishRoster: async () => ({ ok: true }),
+  ensureDraftVersion: async (planId: string) => {
+    reviseCalls.push(planId);
+    if (nextRevise instanceof Error) throw nextRevise;
+    return nextRevise;
+  },
+  suggestReplacementsAction: async () => ({ ok: true, data: [] }),
+  fillDailyRequest: async () => ({ ok: true }),
 }));
 
 const {
@@ -23,6 +34,9 @@ const {
   violationSummary,
   violationsByWorker,
 } = await import("./roster-grid");
+// The revise affordance lives in the week view (the grid stays draft-edit
+// only); its pure wiring is tested here with the same mocks.
+const { buildReviseHref, commitRevise } = await import("./roster-week-view");
 
 const PLAN = "11111111-1111-4111-8111-111111111111";
 const AREA = "22222222-2222-4222-9222-222222222222";
@@ -148,5 +162,43 @@ describe("generateGateText (the disabled generate explanation)", () => {
 
   test("a covered week gates nothing", () => {
     expect(generateGateText(3)).toBeNull();
+  });
+});
+
+const PUBLISHED = "55555555-5555-4555-8555-555555555555";
+const NEXT_DRAFT = "99999999-9999-4999-8999-999999999999";
+
+describe("commitRevise (the Revise plan wiring into ensureDraftVersion)", () => {
+  test("sends the published plan's id and resolves to the new draft id", async () => {
+    reviseCalls.length = 0;
+    nextRevise = NEXT_DRAFT;
+    const outcome = await commitRevise(PUBLISHED);
+    expect(reviseCalls).toEqual([PUBLISHED]);
+    expect(outcome).toEqual({ ok: true, draftPlanId: NEXT_DRAFT });
+  });
+
+  test("a thrown refusal becomes an error outcome (toast path)", async () => {
+    reviseCalls.length = 0;
+    nextRevise = new Error("Roster not found.");
+    const outcome = await commitRevise(PUBLISHED);
+    expect(reviseCalls).toEqual([PUBLISHED]);
+    expect(outcome.ok).toBeFalse();
+    expect((outcome as { message: string }).message.length).toBeGreaterThan(0);
+    nextRevise = NEXT_DRAFT;
+  });
+});
+
+describe("buildReviseHref (the navigation to the returned draft)", () => {
+  test("switches planId to the returned draft, preserving week and workAreaId", () => {
+    const href = buildReviseHref(
+      `week=2026-01-05&planId=${PUBLISHED}&workAreaId=22222222-2222-4222-9222-222222222222`,
+      NEXT_DRAFT,
+    );
+    const params = new URLSearchParams(href);
+    expect(params.get("planId")).toBe(NEXT_DRAFT);
+    expect(params.get("week")).toBe("2026-01-05");
+    expect(params.get("workAreaId")).toBe(
+      "22222222-2222-4222-9222-222222222222",
+    );
   });
 });

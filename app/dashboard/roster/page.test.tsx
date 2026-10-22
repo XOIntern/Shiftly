@@ -78,6 +78,7 @@ async function seedRosterFixtures() {
   const reqDaily = randomUUID();
   const draftL1 = randomUUID();
   const draftL2 = randomUUID();
+  const publishedL1 = randomUUID();
   const creator = `t-roster-creator-${randomUUID().slice(0, 8)}`;
   const MONDAY = "2026-01-05"; // a Monday
   const EMPTY_MONDAY = "2026-01-12"; // the following week
@@ -228,6 +229,27 @@ async function seedRosterFixtures() {
       },
       generatedBy: creator,
     },
+    {
+      id: publishedL1,
+      siteId: siteS,
+      siteLocationId: locL1,
+      kind: "weekly",
+      weekStart: MONDAY,
+      status: "published",
+      version: 1,
+      rulesSnapshot: {
+        c1: { value: 6, source: "default" },
+        c2: { value: 20, source: "default" },
+        c3: { value: false, source: "default" },
+        c4: { value: false, source: "default" },
+        c5: { value: 6, source: "default" },
+        c6: { value: 1, source: "default" },
+        c7: { value: false, source: "default" },
+      },
+      publishedAt: new Date(),
+      publishedBy: creator,
+      generatedBy: creator,
+    },
   ]);
   await db.insert(rosterAssignment).values({
     planId: draftL1,
@@ -240,7 +262,7 @@ async function seedRosterFixtures() {
   });
 
   return {
-    ids: { siteS, locL1, locL2, waOne, waTwo, shEarly, draftL1, draftL2 },
+    ids: { siteS, locL1, locL2, waOne, waTwo, shEarly, draftL1, draftL2, publishedL1 },
     labels: {
       areaOne: `t-roster-wa-one-${suffix}`,
       areaTwo: `t-roster-wa-two-${suffix}`,
@@ -253,7 +275,7 @@ async function seedRosterFixtures() {
     EMPTY_MONDAY,
     async cleanup() {
       await db.delete(rosterAssignment).where(eq(rosterAssignment.planId, draftL1));
-      for (const id of [draftL1, draftL2]) {
+      for (const id of [draftL1, draftL2, publishedL1]) {
         await db.delete(rosterPlan).where(eq(rosterPlan.id, id));
       }
       for (const id of [reqWeekly, reqDaily]) {
@@ -389,6 +411,44 @@ describe("roster page SSR (roster-engine Task 7)", () => {
         planId: fx.ids.draftL2,
       });
       expect(html.includes(fx.labels.loc2)).toBeTrue();
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("a published plan offers Revise plan to an admin (copy-on-edit entry)", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("admin", null, fx.ids.locL1);
+
+      // Deep-link the published plan: the page prefers drafts otherwise.
+      const html = await renderRoster({
+        week: fx.MONDAY,
+        planId: fx.ids.publishedL1,
+      });
+
+      expect(html.includes("Revise plan")).toBeTrue();
+      expect(
+        html.includes("Published — locked; revise to open the next draft."),
+      ).toBeTrue();
+      expect(html.includes("Open shift picker")).toBeFalse();
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("an ho's published plan shows no Revise plan entry", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("ho", fx.ids.siteS, null);
+
+      const html = await renderRoster({
+        week: fx.MONDAY,
+        planId: fx.ids.publishedL1,
+      });
+
+      expect(html.includes("Revise plan")).toBeFalse();
+      expect(html.includes("Read-only")).toBeTrue();
     } finally {
       await fx.cleanup();
     }

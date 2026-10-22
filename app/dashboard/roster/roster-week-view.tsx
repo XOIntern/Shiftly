@@ -10,6 +10,7 @@ import { GENERIC_ERROR } from "@/lib/action-state";
 import { dayFromNumber, dayNumber } from "@/lib/engine/dates";
 import { mondayOf } from "@/lib/week";
 import {
+  ensureDraftVersion,
   generateRoster,
   publishRoster,
 } from "@/app/dashboard/roster/actions";
@@ -83,6 +84,69 @@ export type GridPlanView = {
   violationHead: string[];
   deficitCount: number;
 };
+
+// Spec §6.4 copy-on-edit: editing a published plan happens through the NEXT
+// draft version — ensureDraftVersion copies the published row into a draft
+// and the UI navigates to it, leaving the published version untouched for
+// attendance.
+export type ReviseOutcome =
+  | { ok: true; draftPlanId: string }
+  | { ok: false; message: string };
+
+export async function commitRevise(
+  planId: string,
+  run: (id: string) => Promise<string> = ensureDraftVersion,
+): Promise<ReviseOutcome> {
+  try {
+    return { ok: true, draftPlanId: await run(planId) };
+  } catch {
+    return { ok: false, message: GENERIC_ERROR };
+  }
+}
+
+export function buildReviseHref(
+  currentQuery: string,
+  draftPlanId: string,
+): string {
+  const params = new URLSearchParams(currentQuery);
+  params.set("planId", draftPlanId);
+  return params.toString();
+}
+
+function RevisePlanButton({ planId }: { planId: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [pending, startTransition] = useTransition();
+
+  function revise() {
+    if (pending) return;
+    startTransition(async () => {
+      const outcome = await commitRevise(planId);
+      if (!outcome.ok) {
+        toast.error(outcome.message);
+        return;
+      }
+      toast.success("Revision draft created.");
+      router.push(
+        `${pathname}?${buildReviseHref(searchParams.toString(), outcome.draftPlanId)}`,
+        { scroll: false },
+      );
+    });
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={revise}
+      disabled={pending}
+    >
+      {pending ? "Revising…" : "Revise plan"}
+    </Button>
+  );
+}
 
 export function RosterWeekView({
   week,
@@ -277,6 +341,9 @@ export function RosterWeekView({
                   violationHead={plan.violationHead}
                   deficitCount={plan.deficitCount}
                 />
+              ) : null}
+              {plan && plan.status === "published" && canGenerate ? (
+                <RevisePlanButton planId={plan.id} />
               ) : null}
               {plan && plan.status === "published" && !canGenerate ? (
                 <Badge variant="secondary">
