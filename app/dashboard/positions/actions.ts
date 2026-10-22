@@ -7,6 +7,8 @@ import { z } from "zod";
 import {
   position,
   siteLocation,
+  workArea,
+  workAreaPosition,
   worker,
   workerPosition,
 } from "@/drizzle/schema";
@@ -219,6 +221,21 @@ export async function deletePosition(id: string): Promise<ActionState> {
     return { ok: false, message: "Some workers still reference this position" };
   }
 
+  // Same guard for the work-area side of the roster: a live work area that
+  // still requires the position holds the schedule's qualification data.
+  // Soft-deleted areas never block (their pivot rows stay but the join
+  // skips them), mirroring the worker guard above.
+  const [{ count: areaRequirements }] = await db
+    .select({ count: count() })
+    .from(workAreaPosition)
+    .innerJoin(workArea, eq(workArea.id, workAreaPosition.workAreaId))
+    .where(
+      and(eq(workAreaPosition.positionId, id), isNull(workArea.deletedAt)),
+    );
+  if (areaRequirements > 0) {
+    return { ok: false, message: "Position is still required by a work area" };
+  }
+
   try {
     await db
       .update(position)
@@ -297,9 +314,26 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
         ),
       )
       .groupBy(workerPosition.positionId);
-    // Positions with live workers stay visible; the rest of the in-scope
-    // batch is free to hide. Out-of-scope ids never reach this point.
-    const blockedIds = new Set(referenced.map((row) => row.positionId));
+    // The work-area side counts the same way: a live area still requiring
+    // the position keeps it visible.
+    const areaReferenced = await db
+      .select({ positionId: workAreaPosition.positionId })
+      .from(workAreaPosition)
+      .innerJoin(workArea, eq(workArea.id, workAreaPosition.workAreaId))
+      .where(
+        and(
+          inArray(workAreaPosition.positionId, batchIds),
+          isNull(workArea.deletedAt),
+        ),
+      )
+      .groupBy(workAreaPosition.positionId);
+    // Positions with live workers (or live work-area requirements) stay
+    // visible; the rest of the in-scope batch is free to hide.
+    // Out-of-scope ids never reach this point.
+    const blockedIds = new Set([
+      ...referenced.map((row) => row.positionId),
+      ...areaReferenced.map((row) => row.positionId),
+    ]);
     const freeIds = batchIds.filter((id) => !blockedIds.has(id));
 
     let applied = 0;

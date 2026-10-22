@@ -25,9 +25,21 @@ export const workAreaCreateSchema = z.object({
   name: nameField,
 });
 
+// requiredPositionIds (roster spec §3.1, C7 activation) is update-only:
+// absent = leave the work area's required-position set unchanged; an array
+// (even empty) replaces the set wholesale. Max 20 keeps a dialog from
+// shipping an unbounded batch; duplicates answer the same per-field error
+// the worker qualification set uses.
 export const workAreaUpdateSchema = workAreaCreateSchema.extend({
   id: z.uuid(),
   isActive: z.boolean(),
+  requiredPositionIds: z
+    .array(z.uuid())
+    .max(20)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "Select each position once",
+    })
+    .optional(),
 });
 
 // Positions (per-site catalog): mirrors locationCreateSchema — the position

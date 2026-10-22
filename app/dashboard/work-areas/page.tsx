@@ -1,7 +1,7 @@
-import { and, asc, count, eq, ilike, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
-import { site, siteLocation, workArea } from "@/drizzle/schema";
+import { position, site, siteLocation, workArea, workAreaPosition } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { buildOrder } from "@/lib/table-order";
 import {
@@ -12,7 +12,12 @@ import {
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWorkAreaButton } from "@/components/work-areas/work-area-form";
-import type { SiteLocationOption, SiteOption } from "@/types/forms";
+import type {
+  PositionRow,
+  SiteLocationOption,
+  SiteOption,
+  WorkAreaRow,
+} from "@/types/forms";
 import { WorkAreasTable } from "@/components/work-areas/work-areas-table";
 
 // Deliberate block: the page queries master data behind the session check,
@@ -90,7 +95,10 @@ export default async function WorkAreasPage({
   // Dialog options: the site_locations the actor's scope allows for the
   // location select — filtered to the actor's scope. Site locations shrink
   // to the actor's own bindings, and an unbound actor gets nothing.
-  const [siteLocations, sites, workAreas] = await Promise.all([
+  // Positions ride along for the edit dialog's required-positions picker,
+  // scoped per role exactly like the workers page's catalog (live rows
+  // only; inactive included so an attached requirement stays visible).
+  const [siteLocations, sites, positions, workAreas] = await Promise.all([
     db
       .select({
         id: siteLocation.id,
@@ -146,6 +154,40 @@ export default async function WorkAreasPage({
           : Promise.resolve([]),
     db
       .select({
+        id: position.id,
+        name: position.name,
+        isActive: position.isActive,
+        siteId: position.siteId,
+        siteName: site.name,
+      })
+      .from(position)
+      .innerJoin(site, eq(position.siteId, site.id))
+      .where(
+        and(
+          isNull(position.deletedAt),
+          isNull(site.deletedAt),
+          ...(isSuperadmin
+            ? []
+            : isHo
+              ? actor.siteId
+                ? [eq(position.siteId, actor.siteId)]
+                : [sql`false`]
+              : actor.siteLocationId
+                ? [
+                    eq(
+                      position.siteId,
+                      db
+                        .select({ siteId: siteLocation.siteId })
+                        .from(siteLocation)
+                        .where(eq(siteLocation.id, actor.siteLocationId)),
+                    ),
+                  ]
+                : [sql`false`]),
+        ),
+      )
+      .orderBy(asc(position.name)),
+    db
+      .select({
         id: workArea.id,
         name: workArea.name,
         isActive: workArea.isActive,
@@ -162,6 +204,37 @@ export default async function WorkAreasPage({
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),
   ]);
+
+  // The page's required-position sets, in one grouped follow-up query
+  // (workers-page pattern): the edit dialog pre-fills its multi-select
+  // from them, alphabetical by name.
+  const workAreaIds = workAreas.map((row) => row.id);
+  const pivotRows =
+    workAreaIds.length === 0
+      ? []
+      : await db
+          .select({
+            workAreaId: workAreaPosition.workAreaId,
+            id: position.id,
+            name: position.name,
+            isActive: position.isActive,
+          })
+          .from(workAreaPosition)
+          .innerJoin(position, eq(workAreaPosition.positionId, position.id))
+          .where(inArray(workAreaPosition.workAreaId, workAreaIds))
+          .orderBy(asc(position.name));
+
+  const positionsByWorkArea = new Map<string, WorkAreaRow["positions"]>();
+  for (const row of pivotRows) {
+    const set = positionsByWorkArea.get(row.workAreaId) ?? [];
+    set.push({ id: row.id, name: row.name, isActive: row.isActive });
+    positionsByWorkArea.set(row.workAreaId, set);
+  }
+
+  const workAreaRows: WorkAreaRow[] = workAreas.map((row) => ({
+    ...row,
+    positions: positionsByWorkArea.get(row.id) ?? [],
+  }));
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
@@ -184,13 +257,14 @@ export default async function WorkAreasPage({
       <Card>
         <CardContent>
           <WorkAreasTable
-            workAreas={workAreas}
+            workAreas={workAreaRows}
             siteLocations={siteLocations satisfies SiteLocationOption[]}
             pinnedLocationName={
               actor.role === "admin" ? siteLocations[0]?.name : undefined
             }
             showSiteFilter={isSuperadmin}
             sites={sites satisfies SiteOption[]}
+            positions={positions satisfies PositionRow[]}
             pageCount={pageCount}
             total={rowCount}
           />

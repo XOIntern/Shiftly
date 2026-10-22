@@ -68,6 +68,7 @@ describe("WorkAreaForm site select", () => {
         siteLocationId: LOC_A1,
         siteId: SITE_A,
         siteName: "Site Alpha",
+        positions: [],
       },
     });
 

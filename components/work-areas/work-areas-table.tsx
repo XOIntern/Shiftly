@@ -14,7 +14,11 @@ import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { WorkAreaRowActions } from "@/components/work-areas/work-area-form";
-import type { SiteLocationOption, WorkAreaRow } from "@/types/forms";
+import type {
+  PositionRow,
+  SiteLocationOption,
+  WorkAreaRow,
+} from "@/types/forms";
 
 const helper = createColumnHelper<typeof dataTableFeatures, WorkAreaRow>();
 
@@ -24,6 +28,7 @@ export function WorkAreasTable({
   pinnedLocationName,
   showSiteFilter,
   sites,
+  positions,
   pageCount,
   total,
 }: {
@@ -34,6 +39,7 @@ export function WorkAreasTable({
   pinnedLocationName?: string;
   showSiteFilter: boolean;
   sites: Array<{ id: string; name: string }>;
+  positions: PositionRow[];
   pageCount: number;
   total: number;
 }) {
@@ -70,12 +76,13 @@ export function WorkAreasTable({
               workArea={info.row.original}
               siteLocations={siteLocations}
               sites={sites}
+              positions={positions}
               pinnedLocationName={pinnedLocationName}
             />
           ),
         }),
       ]),
-    [siteLocations, sites, pinnedLocationName],
+    [siteLocations, sites, positions, pinnedLocationName],
   );
 
   return (

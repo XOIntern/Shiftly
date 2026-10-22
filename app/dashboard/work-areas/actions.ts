@@ -1,12 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { siteLocation, workArea } from "@/drizzle/schema";
+import {
+  position,
+  siteLocation,
+  workArea,
+  workAreaPosition,
+} from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { mapDbError, pgErrorCode } from "@/error/db-errors";
+import { mapDbError, pgErrorConstraint, pgErrorCode } from "@/error/db-errors";
 import { requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
@@ -85,6 +90,35 @@ function locationInScope(actor: SessionUser, locationSiteId: string | null) {
   return actor.role !== "ho" || locationSiteId === actor.siteId;
 }
 
+// Thrown inside updateWorkArea's transaction so the pivot delete that ran
+// before the welded update is rolled back, not committed. A returned value
+// would commit the transaction; a throw is the only rollback.
+class WorkAreaNotFoundError extends Error {}
+
+// Every position of the required set must be live and parent to the SAME
+// site as the work area (mirrors the worker update's check): the client
+// only picks by id — the weld is re-checked server-side. Inactive positions
+// are tolerated: an edit that never touches the set must not fail because
+// one was deactivated since the picker snapshot.
+type RequiredPositionsCheck =
+  | { ok: true }
+  | { fieldError: "Position must be in the same site as the location" };
+
+async function checkRequiredPositions(
+  ids: readonly string[],
+  siteId: string,
+): Promise<RequiredPositionsCheck> {
+  const rows = await db
+    .select({ id: position.id, siteId: position.siteId })
+    .from(position)
+    .where(and(inArray(position.id, [...ids]), isNull(position.deletedAt)));
+  const allLiveAndSameSite =
+    rows.length === ids.length && rows.every((row) => row.siteId === siteId);
+  return allLiveAndSameSite
+    ? { ok: true }
+    : { fieldError: "Position must be in the same site as the location" };
+}
+
 export async function createWorkArea(input: {
   siteId?: string;
   siteLocationId?: string;
@@ -136,6 +170,7 @@ export async function updateWorkArea(
     siteLocationId?: string;
     name: string;
     isActive: boolean;
+    requiredPositionIds?: readonly string[];
   },
 ): Promise<ActionState> {
   const actor = await requireUser();
@@ -146,6 +181,7 @@ export async function updateWorkArea(
     siteLocationId: effectiveSiteLocationId(actor, input.siteLocationId),
     name: input.name,
     isActive: input.isActive,
+    requiredPositionIds: input.requiredPositionIds,
   });
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
@@ -176,26 +212,122 @@ export async function updateWorkArea(
     nextSiteId = derivedSiteId;
   }
 
+  // The set replacement welds every pivot row to the area's FINAL pairing
+  // (site_location + site), which is the new pairing when the location
+  // moves in this same write and the current one when it does not.
+  const requiredPositionIds = parsed.data.requiredPositionIds;
+
   try {
-    const updated = await db
-      .update(workArea)
-      .set({
-        siteId: nextSiteId,
-        siteLocationId: parsed.data.siteLocationId,
-        name: parsed.data.name,
-        isActive: parsed.data.isActive,
-      })
-      // Weld: the ownership predicate rides inside the mutating WHERE.
-      .where(workAreaMutationWhere(actor, parsed.data.id))
-      .returning({ id: workArea.id });
-    if (updated.length === 0) {
-      return { ok: false, message: "Work area not found." };
+    if (requiredPositionIds === undefined) {
+      const updated = await db
+        .update(workArea)
+        .set({
+          siteId: nextSiteId,
+          siteLocationId: parsed.data.siteLocationId,
+          name: parsed.data.name,
+          isActive: parsed.data.isActive,
+        })
+        // Weld: the ownership predicate rides inside the mutating WHERE.
+        .where(workAreaMutationWhere(actor, parsed.data.id))
+        .returning({ id: workArea.id });
+      if (updated.length === 0) {
+        return { ok: false, message: "Work area not found." };
+      }
+    } else {
+      // Freeze the final pairing for the transaction closure: mutable
+      // let-narrowing does not survive into an async callback.
+      let siteId = nextSiteId;
+      let locationId = parsed.data.siteLocationId;
+      if (!siteId || !locationId) {
+        const [current] = await db
+          .select({
+            siteLocationId: workArea.siteLocationId,
+            siteId: workArea.siteId,
+          })
+          .from(workArea)
+          .where(eq(workArea.id, parsed.data.id))
+          .limit(1);
+        if (!current) {
+          return { ok: false, message: "Work area not found." };
+        }
+        siteId = current.siteId;
+        locationId = current.siteLocationId;
+      }
+      const pivotSiteId = siteId;
+      const pivotLocationId = locationId;
+
+      // Every position of the set must be live and parent to the same site
+      // as the work area (worker update pattern): the client only picks by
+      // id, so the weld is re-checked server-side before any write.
+      const positionCheck = await checkRequiredPositions(
+        requiredPositionIds,
+        pivotSiteId,
+      );
+      if ("fieldError" in positionCheck) {
+        return {
+          ok: false,
+          fieldErrors: { requiredPositionIds: positionCheck.fieldError },
+        };
+      }
+
+      // The row update and the whole required-position set commit or roll
+      // back together (worker update pattern): fixed order — pivot rows
+      // delete first, then the welded update, then the new set is inserted
+      // against the final pairing. Zero rows from the welded update must
+      // ROLL BACK, not return: a returned value commits, which would
+      // persist the delete above. The throw is the rollback.
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(workAreaPosition)
+          .where(eq(workAreaPosition.workAreaId, parsed.data.id));
+
+        const updated = await tx
+          .update(workArea)
+          .set({
+            siteId: nextSiteId,
+            siteLocationId: parsed.data.siteLocationId,
+            name: parsed.data.name,
+            isActive: parsed.data.isActive,
+          })
+          .where(workAreaMutationWhere(actor, parsed.data.id))
+          .returning({ id: workArea.id });
+        if (updated.length === 0) throw new WorkAreaNotFoundError();
+
+        if (requiredPositionIds.length > 0) {
+          await tx.insert(workAreaPosition).values(
+            requiredPositionIds.map((positionId) => ({
+              workAreaId: parsed.data.id,
+              positionId,
+              siteId: pivotSiteId,
+              siteLocationId: pivotLocationId,
+            })),
+          );
+        }
+      });
     }
   } catch (err) {
+    if (err instanceof WorkAreaNotFoundError) {
+      return { ok: false, message: "Work area not found." };
+    }
+    // A 23503 fired while the set was in play belongs to the pivot's
+    // position FK (the server-side check leaves only a race): the field
+    // error rides on the set that carried it, not on a global message.
+    if (
+      requiredPositionIds !== undefined &&
+      pgErrorConstraint(err) === "work_area_position_position_site_fk"
+    ) {
+      return {
+        ok: false,
+        fieldErrors: {
+          requiredPositionIds: "Selected position no longer exists",
+        },
+      };
+    }
     return fkResult(err);
   }
 
   revalidatePath("/dashboard/work-areas");
+  revalidatePath("/dashboard/roster");
   return { ok: true };
 }
 
