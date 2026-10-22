@@ -5,6 +5,12 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation, shiftDefinition } from "@/drizzle/schema";
+import {
+  mpRequest,
+  mpRequestLine,
+  user,
+  workArea,
+} from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 import type {
   ShiftCreateInput,
@@ -543,6 +549,7 @@ describe("shift actions: delete", () => {
     }
   });
 
+
   test("delete on a foreign shift and on a missing shift: not found", async () => {
     const fx = await seedGlobalData();
     const shiftId = await seedShift({
@@ -572,6 +579,76 @@ describe("shift actions: delete", () => {
         .where(eq(shiftDefinition.id, shiftId));
       expect(row.deletedAt).toBeNull();
     } finally {
+      await db.delete(shiftDefinition).where(eq(shiftDefinition.id, shiftId));
+      await dropSeed(fx);
+    }
+  });
+
+  test("delete refuses while a request line references the shift", async () => {
+    const fx = await seedGlobalData();
+    const shiftId = await seedShift({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      orderIndex: 7,
+      label: "T-Shift Guard Target",
+    });
+
+    // mp_request_line has no deleted_at: "live" is its mere existence, and
+    // its request chain needs an admin user row (text PK per auth.js).
+    const userId = randomUUID();
+    const requestId = randomUUID();
+    const lineId = randomUUID();
+    const waId = randomUUID();
+
+    try {
+      await db.insert(user).values({
+        id: userId,
+        name: "t-shift-guard-admin",
+        email: `t-shift-guard-${userId}@shiftly.test`,
+      });
+      await db.insert(workArea).values({
+        id: waId,
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
+        name: `t-shift-guard-wa-${waId}`,
+      });
+      await db.insert(mpRequest).values({
+        id: requestId,
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
+        type: "daily",
+        requestDate: "2026-01-06",
+        createdBy: userId,
+      });
+      await db.insert(mpRequestLine).values({
+        id: lineId,
+        requestId,
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
+        workAreaId: waId,
+        shiftDefinitionId: shiftId,
+        date: "2026-01-06",
+        headcount: 2,
+      });
+
+      actor = makeActor("superadmin", null, null);
+      const { deleteShift } = await import("./actions");
+      expect(await deleteShift(shiftId)).toEqual({
+        ok: false,
+        message: "Shift is still referenced by a request",
+      });
+
+      // The refusal leaves the shift live.
+      const [row] = await db
+        .select()
+        .from(shiftDefinition)
+        .where(eq(shiftDefinition.id, shiftId));
+      expect(row.deletedAt).toBeNull();
+    } finally {
+      await db.delete(mpRequestLine).where(eq(mpRequestLine.id, lineId));
+      await db.delete(mpRequest).where(eq(mpRequest.id, requestId));
+      await db.delete(workArea).where(eq(workArea.id, waId));
+      await db.delete(user).where(eq(user.id, userId));
       await db.delete(shiftDefinition).where(eq(shiftDefinition.id, shiftId));
       await dropSeed(fx);
     }

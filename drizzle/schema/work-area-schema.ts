@@ -5,6 +5,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -33,6 +34,13 @@ export const workArea = pgTable(
     deletedAt: timestamp("deleted_at"),
   },
   (table) => [
+    // Resolves dependent weld FKs against (id, site_location_id, site_id)
+    // — mp_request_line welds here; the roster spec reuses it.
+    unique("work_area_id_site_location_id_site_id_unique").on(
+      table.id,
+      table.siteLocationId,
+      table.siteId,
+    ),
     uniqueIndex("work_area_site_location_id_name_unique")
       .on(table.siteLocationId, table.name)
       .where(sql`deleted_at is null`),

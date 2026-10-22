@@ -6,3 +6,4 @@ export * from "./shift-schema";
 export * from "./rule-config-schema";
 export * from "./worker-schema";
 export * from "./audit-schema";
+export * from "./mp-request-schema";

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { siteLocation, shiftDefinition } from "@/drizzle/schema";
+import { siteLocation, shiftDefinition, mpRequestLine } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { pgErrorCode } from "@/error/db-errors";
 import { requireUser } from "@/lib/session";
@@ -203,12 +203,12 @@ export async function updateShift(
 }
 
 // Soft-delete only (mp-requests Task 3): the partial unique exempts
-// deleted_at rows, so the order_index slot is freed immediately. The
-// mp_request_line referenced-by guard is Task 5's step: mp_request_line
-// does not exist yet, and importing it here would fail to compile until
-// Task 5's schema lands. Task 5 must wrap this delete with the live
-// mp_request_line count check and return
-// "Shift is still referenced by a request" while one references it.
+// deleted_at rows, so the order_index slot is freed immediately. A shift a
+// request line still welds onto cannot retire: mp_request_line has no
+// deleted_at, so "live" is the line's mere existence — its request may even
+// be fulfilled, and the historical lines must keep resolving.
+const REQUEST_REFERENCED = "Shift is still referenced by a request";
+
 export async function deleteShift(id: string): Promise<ActionState> {
   const actor = await requireUser();
 
@@ -219,6 +219,17 @@ export async function deleteShift(id: string): Promise<ActionState> {
   // Foreign shifts answer "not found." — never anything scope-leaking.
   if (!(await shiftOwnedByActor(actor, id))) {
     return { ok: false, message: "Shift not found." };
+  }
+
+  // Referenced-shift guard (the Task 3 deferred step, landed with the
+  // mp_request_line schema in Task 5).
+  const [referencing] = await db
+    .select({ id: mpRequestLine.id })
+    .from(mpRequestLine)
+    .where(eq(mpRequestLine.shiftDefinitionId, id))
+    .limit(1);
+  if (referencing) {
+    return { ok: false, message: REQUEST_REFERENCED };
   }
 
   try {
