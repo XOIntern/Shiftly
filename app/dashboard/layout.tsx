@@ -23,6 +23,7 @@ import {
   BriefcaseIcon,
   Building2Icon,
   BuildingIcon,
+  CalendarClockIcon,
   CalendarRangeIcon,
   ClockIcon,
   LayoutDashboardIcon,
@@ -56,6 +57,11 @@ const superadminNavMain = [
     icon: <BuildingIcon />,
   },
   {
+    title: "Shifts",
+    url: "/dashboard/shifts",
+    icon: <CalendarClockIcon />,
+  },
+  {
     title: "Positions",
     url: "/dashboard/positions",
     icon: <BriefcaseIcon />,
@@ -87,6 +93,11 @@ const hoNavMain = [
     title: "Work areas",
     url: "/dashboard/work-areas",
     icon: <Building2Icon />,
+  },
+  {
+    title: "Shifts",
+    url: "/dashboard/shifts",
+    icon: <CalendarClockIcon />,
   },
   {
     title: "Positions",
@@ -125,6 +136,11 @@ const adminNavMain = [
     title: "Work areas",
     url: "/dashboard/work-areas",
     icon: <Building2Icon />,
+  },
+  {
+    title: "Shifts",
+    url: "/dashboard/shifts",
+    icon: <CalendarClockIcon />,
   },
   {
     title: "Positions",
