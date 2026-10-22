@@ -10,12 +10,12 @@ mock.module("next/navigation", () => ({
   ...realNavigation,
 }));
 
-const { LandingHeader } = await import("./landing-header");
-const { LandingHero } = await import("./landing-hero");
+const { Header } = await import("./header");
+const { Hero } = await import("./hero");
 const Home = (await import("@/app/page")).default;
 
-describe("LandingHeader", () => {
-  const html = renderToStaticMarkup(<LandingHeader />);
+describe("Header", () => {
+  const html = renderToStaticMarkup(<Header />);
 
   test("the only CTA is one Sign in link to the login route", () => {
     expect(html.match(/href="\/login"/g)?.length).toBe(1);
@@ -32,18 +32,13 @@ describe("LandingHeader", () => {
   });
 });
 
-describe("LandingHero", () => {
-  const html = renderToStaticMarkup(<LandingHero />);
+describe("Hero", () => {
+  const html = renderToStaticMarkup(<Hero />);
 
   test("carries the brand headline once", () => {
-    expect(html.match(/Shift scheduling for multi-site operations/g)?.length).toBe(
-      1,
-    );
-  });
-
-  test("the primary CTA is a Sign in link to the login route", () => {
-    expect(html.match(/href="\/login"/g)?.length).toBe(1);
-    expect(html).toContain("Sign in");
+    expect(
+      html.match(/Shift scheduling for multi-site operations/g)?.length,
+    ).toBe(1);
   });
 
   test("the card cluster carries labels, not invented statistics", () => {

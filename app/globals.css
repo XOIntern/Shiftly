@@ -208,7 +208,12 @@
   --duration-slow: 320ms;
 
   /* The one sanctioned gradient — hero/empty states only (§2.8) */
-  --gradient-hero: linear-gradient(110deg, #e6e9f8 0%, #ffffff 55%, #e4f7f6 100%);
+  --gradient-hero: linear-gradient(
+    110deg,
+    #e6e9f8 0%,
+    #ffffff 55%,
+    #e4f7f6 100%
+  );
 }
 
 /*
@@ -261,12 +266,13 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring;
+    @apply border-border outline-ring scroll-smooth;
   }
   body {
     @apply bg-background text-foreground;
   }
-  button:not(:disabled), [role="button"]:not(:disabled) {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
     cursor: pointer;
   }
   html {
@@ -390,5 +396,27 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@utility container {
+  max-width: 72rem;
+  padding-inline: 1rem;
+  margin-inline: auto;
+
+  @variant sm {
+    padding-inline: 1.5rem;
+  }
+
+  @variant lg {
+    padding-inline: 4rem;
+  }
+
+  @variant xl {
+    padding-inline: 5rem;
+  }
+
+  @variant 2xl {
+    padding-inline: 6rem;
   }
 }
