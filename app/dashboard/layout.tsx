@@ -25,6 +25,7 @@ import {
   BuildingIcon,
   CalendarClockIcon,
   CalendarRangeIcon,
+  ClipboardListIcon,
   ClockIcon,
   LayoutDashboardIcon,
   SettingsIcon,
@@ -60,6 +61,11 @@ const superadminNavMain = [
     title: "Shifts",
     url: "/dashboard/shifts",
     icon: <CalendarClockIcon />,
+  },
+  {
+    title: "Requests",
+    url: "/dashboard/requests",
+    icon: <ClipboardListIcon />,
   },
   {
     title: "Positions",
@@ -98,6 +104,11 @@ const hoNavMain = [
     title: "Shifts",
     url: "/dashboard/shifts",
     icon: <CalendarClockIcon />,
+  },
+  {
+    title: "Requests",
+    url: "/dashboard/requests",
+    icon: <ClipboardListIcon />,
   },
   {
     title: "Positions",
@@ -141,6 +152,11 @@ const adminNavMain = [
     title: "Shifts",
     url: "/dashboard/shifts",
     icon: <CalendarClockIcon />,
+  },
+  {
+    title: "Requests",
+    url: "/dashboard/requests",
+    icon: <ClipboardListIcon />,
   },
   {
     title: "Positions",

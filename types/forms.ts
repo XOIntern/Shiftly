@@ -91,6 +91,52 @@ export type WorkerRow = {
   positions: { id: string; name: string; isActive: boolean }[];
 };
 
+// One line of an MP request as the table/detail/edit views see it: names
+// ride along from the server's joins so the client never re-looks them up.
+export type MpRequestLineView = {
+  workAreaId: string;
+  workAreaName: string;
+  shiftDefinitionId: string;
+  shiftLabel: string;
+  date: string;
+  headcount: number;
+};
+
+// One row of the requests table — server-selectable fields only. siteName /
+// locationName come from the required inner joins; lines is the request's
+// whole line set (the detail and edit dialogs compose from it in place).
+export type MpRequestRow = {
+  id: string;
+  type: "weekly" | "daily";
+  status: "submitted" | "received" | "processing" | "fulfilled" | "rejected";
+  weekStart: string | null;
+  requestDate: string | null;
+  notes: string | null;
+  siteLocationId: string;
+  siteName: string;
+  locationName: string;
+  lines: MpRequestLineView[];
+  updatedAt: string;
+};
+
+// Active masters for the request grid (create + edit dialogs): the rows of
+// the grid are the work areas × shifts of ONE location, so both carry the
+// siteLocationId they were scoped to.
+export type MpRequestGridWorkArea = {
+  id: string;
+  name: string;
+  siteLocationId: string;
+};
+
+export type MpRequestGridShift = {
+  id: string;
+  label: string;
+  siteLocationId: string;
+  orderIndex: number;
+  startTime: string;
+  endTime: string;
+};
+
 // One row of the users table — server-selectable fields only.
 export type UserRow = {
   id: string;
