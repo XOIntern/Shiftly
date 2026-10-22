@@ -4,3 +4,4 @@ export * from "./position-schema";
 export * from "./work-area-schema";
 export * from "./rule-config-schema";
 export * from "./worker-schema";
+export * from "./audit-schema";
