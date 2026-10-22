@@ -6,12 +6,15 @@ import { z } from "zod";
 
 import { siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { mapDbError } from "@/lib/db-errors";
+import { mapDbError } from "@/error/db-errors";
 import { requireHO } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
-import { locationCreateSchema, locationUpdateSchema } from "@/validation/validators";
+import {
+  locationCreateSchema,
+  locationUpdateSchema,
+} from "@/validation/validators";
 import {
   locationMutationWhere,
   locationOwnedByActor,

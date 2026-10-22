@@ -11,7 +11,7 @@ import {
   workerPosition,
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { mapDbError, pgErrorCode } from "@/lib/db-errors";
+import { mapDbError, pgErrorCode } from "@/error/db-errors";
 import { requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
@@ -214,9 +214,7 @@ export async function deletePosition(id: string): Promise<ActionState> {
     .select({ count: count() })
     .from(workerPosition)
     .innerJoin(worker, eq(worker.id, workerPosition.workerId))
-    .where(
-      and(eq(workerPosition.positionId, id), isNull(worker.deletedAt)),
-    );
+    .where(and(eq(workerPosition.positionId, id), isNull(worker.deletedAt)));
   if (liveWorkers > 0) {
     return { ok: false, message: "Some workers still reference this position" };
   }

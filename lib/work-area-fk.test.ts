@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "./db";
-import { pgErrorCode } from "./db-errors";
+import { pgErrorCode } from "../error/db-errors";
 import { site, siteLocation, workArea } from "../drizzle/schema";
 
 // Pinning test (GitHub #59, carried past the drop-department epic): the
@@ -72,7 +72,9 @@ describe("work_area composite-FK cross-site guard (GitHub #59)", () => {
     const workAreaId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `${run}-wa-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `${run}-wa-site-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,

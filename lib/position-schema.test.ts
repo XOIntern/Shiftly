@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "./db";
-import { pgErrorCode } from "./db-errors";
+import { pgErrorCode } from "../error/db-errors";
 import { position, site } from "../drizzle/schema";
 
 // position (per-site catalog): a position belongs to exactly one site —
@@ -85,7 +85,9 @@ describe("position schema guards", () => {
     const name = `pos-uniq-${randomUUID()}`;
 
     try {
-      await db.insert(site).values({ id: siteId, name: `pos-uniq-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `pos-uniq-site-${siteId}` });
       await db.insert(position).values({ id: originalId, siteId, name });
 
       // A live duplicate of the (site_id, name) pair is refused.

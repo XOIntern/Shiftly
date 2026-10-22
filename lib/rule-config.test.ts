@@ -4,8 +4,14 @@ import { describe, expect, test } from "bun:test";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { db } from "./db";
-import { pgErrorCode } from "./db-errors";
-import { auditLog, rosterRuleConfig, site, siteLocation, user } from "../drizzle/schema";
+import { pgErrorCode } from "../error/db-errors";
+import {
+  auditLog,
+  rosterRuleConfig,
+  site,
+  siteLocation,
+  user,
+} from "../drizzle/schema";
 import {
   loadEffectiveRules,
   loadGlobalRows,
@@ -30,7 +36,9 @@ describe("rule-config loaders (issue #51 task 4)", () => {
     const locationLevelId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `rule-loader-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `rule-loader-site-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -60,10 +68,14 @@ describe("rule-config loaders (issue #51 task 4)", () => {
       });
 
       const siteRows = await loadSiteRows(siteId);
-      expect(siteRows).toEqual([{ ruleKey: "C1", intValue: 6, boolValue: null }]);
+      expect(siteRows).toEqual([
+        { ruleKey: "C1", intValue: 6, boolValue: null },
+      ]);
 
       const locationRows = await loadLocationRows(siteId, locationId);
-      expect(locationRows).toEqual([{ ruleKey: "C1", intValue: 7, boolValue: null }]);
+      expect(locationRows).toEqual([
+        { ruleKey: "C1", intValue: 7, boolValue: null },
+      ]);
 
       // Removing the location override lets the site row win.
       await db
@@ -83,8 +95,12 @@ describe("rule-config loaders (issue #51 task 4)", () => {
     } finally {
       // Child-first: config rows reference the locations, the locations
       // reference the site. The global row has no site — delete it by id.
-      await db.delete(rosterRuleConfig).where(eq(rosterRuleConfig.id, globalId));
-      await db.delete(rosterRuleConfig).where(eq(rosterRuleConfig.siteId, siteId));
+      await db
+        .delete(rosterRuleConfig)
+        .where(eq(rosterRuleConfig.id, globalId));
+      await db
+        .delete(rosterRuleConfig)
+        .where(eq(rosterRuleConfig.siteId, siteId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
     }
@@ -97,7 +113,9 @@ describe("rule-config loaders (issue #51 task 4)", () => {
     const siteLevelId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `rule-soft-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `rule-soft-site-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -136,7 +154,9 @@ describe("rule-config loaders (issue #51 task 4)", () => {
     } finally {
       // Audits reference the site too, so they go before it (child-first).
       await db.delete(auditLog).where(eq(auditLog.actorId, actorId));
-      await db.delete(rosterRuleConfig).where(eq(rosterRuleConfig.siteId, siteId));
+      await db
+        .delete(rosterRuleConfig)
+        .where(eq(rosterRuleConfig.siteId, siteId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
       await db.delete(user).where(eq(user.id, actorId));
@@ -151,7 +171,9 @@ describe("upsertRuleRow (issue #51 task 4)", () => {
     const seededRowId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `rule-upsert-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `rule-upsert-site-${siteId}` });
       await db.insert(rosterRuleConfig).values({
         id: seededRowId,
         ruleKey: "C1",
@@ -193,7 +215,9 @@ describe("upsertRuleRow (issue #51 task 4)", () => {
       });
     } finally {
       await db.delete(auditLog).where(eq(auditLog.actorId, actorId));
-      await db.delete(rosterRuleConfig).where(eq(rosterRuleConfig.siteId, siteId));
+      await db
+        .delete(rosterRuleConfig)
+        .where(eq(rosterRuleConfig.siteId, siteId));
       await db.delete(site).where(eq(site.id, siteId));
       await db.delete(user).where(eq(user.id, actorId));
     }
@@ -205,7 +229,9 @@ describe("upsertRuleRow (issue #51 task 4)", () => {
     const locationId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `rule-fresh-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `rule-fresh-site-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -280,7 +306,9 @@ describe("upsertRuleRow (issue #51 task 4)", () => {
       // The global row has a null site_id: it must go by its own id, or it
       // leaks into the next run's oldValue.
       await db.delete(auditLog).where(eq(auditLog.actorId, actorId));
-      await db.delete(rosterRuleConfig).where(eq(rosterRuleConfig.siteId, siteId));
+      await db
+        .delete(rosterRuleConfig)
+        .where(eq(rosterRuleConfig.siteId, siteId));
       await db
         .delete(rosterRuleConfig)
         .where(

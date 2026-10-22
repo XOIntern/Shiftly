@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "./db";
-import { pgErrorCode } from "./db-errors";
+import { pgErrorCode } from "../error/db-errors";
 import { locationMutationWhere, locationOwnedByActor } from "./location-scope";
 import { deleteSiteGuarded } from "./site-delete";
 import { site, siteLocation, user, workArea } from "../drizzle/schema";
@@ -125,7 +125,9 @@ describe("location ownership guard (review Critical: by-id scoping)", () => {
     const locationId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `guard-site-own-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `guard-site-own-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -149,7 +151,10 @@ describe("location ownership guard (review Critical: by-id scoping)", () => {
     // superadmin keeps full capability even for a nonexistent id (the
     // actions' own zero-row handling still reports "not found").
     expect(
-      await locationOwnedByActor({ role: "superadmin", siteId: null }, locationId),
+      await locationOwnedByActor(
+        { role: "superadmin", siteId: null },
+        locationId,
+      ),
     ).toBe(true);
     // site_location.site_id is NOT NULL, so an unbound ho (siteId null)
     // can never match — fail closed.
@@ -246,7 +251,9 @@ describe("ho ownership weld in the mutating WHERE (issue #17 Task 2)", () => {
     const locationId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `weld-unbound-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `weld-unbound-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -321,7 +328,10 @@ describe("ho ownership weld in the mutating WHERE (issue #17 Task 2)", () => {
         .update(siteLocation)
         .set({ isActive: sql`not ${siteLocation.isActive}` })
         .where(
-          locationMutationWhere({ role: "superadmin", siteId: null }, locationId),
+          locationMutationWhere(
+            { role: "superadmin", siteId: null },
+            locationId,
+          ),
         )
         .returning({ id: siteLocation.id });
       expect(toggled).toHaveLength(1);
@@ -536,7 +546,9 @@ describe("deleteSite transactional guards (issue #17 Task 2)", () => {
     const siteId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `del-site-active-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `del-site-active-${siteId}` });
 
       const result = await db.transaction((tx) =>
         deleteSiteGuarded(tx, siteId),

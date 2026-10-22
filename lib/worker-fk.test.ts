@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "./db";
-import { pgErrorCode } from "./db-errors";
+import { pgErrorCode } from "../error/db-errors";
 import {
   position,
   site,
@@ -199,7 +199,7 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
           siteId,
           employeeId: `${run}-emp-dup`,
           name: `${run}-Worker Two`,
-          });
+        });
       } catch (err) {
         code = pgErrorCode(err);
       }
@@ -259,9 +259,7 @@ describe("worker composite-FK & unique guards (worker table spec, 2026-10-20)", 
 
       let code: string | undefined;
       try {
-        await db
-          .delete(siteLocation)
-          .where(eq(siteLocation.id, locationId));
+        await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       } catch (err) {
         code = pgErrorCode(err);
       }
@@ -338,15 +336,9 @@ async function dropPivotFixture(fixture: PivotFixture) {
     .delete(workerPosition)
     .where(eq(workerPosition.workerId, fixture.workerId));
   await db.delete(worker).where(eq(worker.id, fixture.workerId));
-  await db
-    .delete(position)
-    .where(eq(position.id, fixture.positionA));
-  await db
-    .delete(position)
-    .where(eq(position.id, fixture.positionB));
-  await db
-    .delete(siteLocation)
-    .where(eq(siteLocation.id, fixture.locationA));
+  await db.delete(position).where(eq(position.id, fixture.positionA));
+  await db.delete(position).where(eq(position.id, fixture.positionB));
+  await db.delete(siteLocation).where(eq(siteLocation.id, fixture.locationA));
   await db.delete(site).where(eq(site.id, fixture.siteA));
   await db.delete(site).where(eq(site.id, fixture.siteB));
 }

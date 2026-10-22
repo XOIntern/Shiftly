@@ -6,12 +6,15 @@ import { z } from "zod";
 
 import { siteLocation, workArea } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { mapDbError, pgErrorCode } from "@/lib/db-errors";
+import { mapDbError, pgErrorCode } from "@/error/db-errors";
 import { requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
-import { workAreaCreateSchema, workAreaUpdateSchema } from "@/validation/validators";
+import {
+  workAreaCreateSchema,
+  workAreaUpdateSchema,
+} from "@/validation/validators";
 import {
   workAreaMutationWhere,
   workAreaOwnedByActor,
@@ -103,7 +106,10 @@ export async function createWorkArea(input: {
   // required siteLocationId rejects the undefined effective value).
   const derivedSiteId = await deriveSiteId(parsed.data.siteLocationId);
   if (!derivedSiteId) {
-    return { ok: false, fieldErrors: { siteLocationId: "Location not found." } };
+    return {
+      ok: false,
+      fieldErrors: { siteLocationId: "Location not found." },
+    };
   }
   if (!locationInScope(actor, derivedSiteId)) {
     return { ok: false, fieldErrors: LOCATION_SCOPE_FIELD_ERRORS };

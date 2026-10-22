@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { site } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { mapDbError } from "@/lib/db-errors";
+import { mapDbError } from "@/error/db-errors";
 import { requireSuperadmin } from "@/lib/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";

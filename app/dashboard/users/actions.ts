@@ -7,16 +7,13 @@ import { hashPassword } from "better-auth/crypto";
 
 import { account, siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import { mapDbError, pgErrorCode } from "@/lib/db-errors";
+import { mapDbError, pgErrorCode } from "@/error/db-errors";
 import { canManageActorTarget } from "@/lib/scope";
 import type { Role } from "@/types/domain";
 import { requireHO } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
-import {
-  fieldErrorsFrom,
-  GENERIC_ERROR,
-} from "@/lib/action-state";
+import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import {
   deleteUserSessions,
   setCredentialPassword,
@@ -247,7 +244,9 @@ export async function updateUser(
       return fkFieldErrors(err, role);
     }
     const mapped = mapDbError(err, { kind: "email" });
-    return mapped ? { ok: false, message: mapped } : { ok: false, message: GENERIC_ERROR };
+    return mapped
+      ? { ok: false, message: mapped }
+      : { ok: false, message: GENERIC_ERROR };
   }
 
   revalidatePath("/dashboard/users");
@@ -362,7 +361,8 @@ export async function setActiveBulk(
       canManageActorTarget(current, {
         role: target.role,
         locationSiteId: target.locationSiteId,
-      }) && (isActive || target.id !== current.id),
+      }) &&
+      (isActive || target.id !== current.id),
   );
   if (managed.length === 0) {
     revalidatePath("/dashboard/users");

@@ -4,7 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { db } from "./db";
-import { pgErrorCode } from "./db-errors";
+import { pgErrorCode } from "../error/db-errors";
 import { deleteSiteGuarded } from "./site-delete";
 import { userScopeFilter } from "./scope";
 import { session, site, siteLocation, user } from "../drizzle/schema";
@@ -69,7 +69,9 @@ describe("soft delete partial unique indexes (issue #37 task 1)", () => {
     const name = `soft-del-loc-${randomUUID()}`;
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-loc-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `soft-del-loc-site-${siteId}` });
       await db.insert(siteLocation).values({
         id: originalId,
         siteId,
@@ -191,7 +193,9 @@ describe("soft delete partial unique indexes (issue #37 task 1)", () => {
     const userId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-null-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `soft-del-null-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -265,7 +269,9 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
         .where(eq(siteLocation.id, locationId));
 
       // The soft-deleted location no longer blocks.
-      const result = await db.transaction((tx) => deleteSiteGuarded(tx, siteId));
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
       expect(result).toEqual({ ok: true });
 
       // The site row survives as a soft delete, not a hard one.
@@ -296,9 +302,14 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
         role: "ho",
         siteId,
       });
-      await db.update(user).set({ deletedAt: sql`now()` }).where(eq(user.id, deletedUserId));
+      await db
+        .update(user)
+        .set({ deletedAt: sql`now()` })
+        .where(eq(user.id, deletedUserId));
 
-      const result = await db.transaction((tx) => deleteSiteGuarded(tx, siteId));
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
       expect(result).toEqual({ ok: true });
 
       const [siteRow] = await db.select().from(site).where(eq(site.id, siteId));
@@ -325,7 +336,9 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
         name: "Still Live Location",
       });
 
-      const result = await db.transaction((tx) => deleteSiteGuarded(tx, siteId));
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
       expect(result).toEqual({
         ok: false,
         message: "Locations still exist under this site",
@@ -346,7 +359,9 @@ describe("deleteSiteGuarded ignores deleted rows (issue #39 task 3)", () => {
         deletedAt: sql`now()`,
       });
 
-      const result = await db.transaction((tx) => deleteSiteGuarded(tx, siteId));
+      const result = await db.transaction((tx) =>
+        deleteSiteGuarded(tx, siteId),
+      );
       expect(result).toEqual({ ok: false, message: "Site not found." });
     } finally {
       await db.delete(site).where(eq(site.id, siteId));
@@ -393,7 +408,9 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
     const locationId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-act-a-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `soft-del-act-a-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -401,9 +418,8 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
       });
       actor = hoActorFor(siteId);
 
-      const { deleteLocation } = await import(
-        "../app/dashboard/locations/actions"
-      );
+      const { deleteLocation } =
+        await import("../app/dashboard/locations/actions");
       const result = await deleteLocation(locationId);
       expect(result).toEqual({ ok: true });
 
@@ -426,7 +442,9 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
     const deletedAdminId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-act-b-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `soft-del-act-b-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -446,9 +464,8 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
         .where(eq(user.id, deletedAdminId));
       actor = hoActorFor(siteId);
 
-      const { deleteLocation } = await import(
-        "../app/dashboard/locations/actions"
-      );
+      const { deleteLocation } =
+        await import("../app/dashboard/locations/actions");
       const result = await deleteLocation(locationId);
       expect(result).toEqual({ ok: true });
 
@@ -470,7 +487,9 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
     const liveAdminId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-act-c-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `soft-del-act-c-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -486,9 +505,8 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
       });
       actor = hoActorFor(siteId);
 
-      const { deleteLocation } = await import(
-        "../app/dashboard/locations/actions"
-      );
+      const { deleteLocation } =
+        await import("../app/dashboard/locations/actions");
       const result = await deleteLocation(locationId);
       expect(result).toEqual({
         ok: false,
@@ -513,7 +531,9 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
     const locationId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `soft-del-act-d-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `soft-del-act-d-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
@@ -522,9 +542,8 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
       });
       actor = hoActorFor(siteId);
 
-      const { deleteLocation } = await import(
-        "../app/dashboard/locations/actions"
-      );
+      const { deleteLocation } =
+        await import("../app/dashboard/locations/actions");
       const result = await deleteLocation(locationId);
       expect(result).toEqual({ ok: false, message: "Location not found." });
     } finally {
@@ -542,13 +561,20 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
     const stuckAdminId = randomUUID();
 
     try {
-      await db.insert(site).values([{ id: siteId, name: `soft-del-act-e-${siteId}` }]);
+      await db
+        .insert(site)
+        .values([{ id: siteId, name: `soft-del-act-e-${siteId}` }]);
       await db.insert(siteLocation).values([
         { id: free, siteId, name: "Bulk Free" },
         { id: liveBound, siteId, name: "Bulk Live Bound" },
         // Soft-deleted earlier, its admin binding left behind: the bulk
         // write must not resurrect it, and it must not count as blocked.
-        { id: deletedBound, siteId, name: "Bulk Already Deleted", deletedAt: sql`now()` },
+        {
+          id: deletedBound,
+          siteId,
+          name: "Bulk Already Deleted",
+          deletedAt: sql`now()`,
+        },
       ]);
       await db.insert(user).values([
         {
@@ -570,9 +596,7 @@ describe("location delete actions soft-delete (issue #41 task 5)", () => {
       ]);
       actor = hoActorFor(siteId);
 
-      const { deleteBulk } = await import(
-        "../app/dashboard/locations/actions"
-      );
+      const { deleteBulk } = await import("../app/dashboard/locations/actions");
       const result = await deleteBulk([free, liveBound, deletedBound]);
 
       // "Do what you can": the free row applies, the live-bound one is
@@ -621,10 +645,17 @@ describe("userScopeFilter excludes soft-deleted rows (issue #42 task 6)", () => 
     const deadLocAdminId = randomUUID();
 
     try {
-      await db.insert(site).values([{ id: siteId, name: `scope-del-site-${siteId}` }]);
+      await db
+        .insert(site)
+        .values([{ id: siteId, name: `scope-del-site-${siteId}` }]);
       await db.insert(siteLocation).values([
         { id: liveLocId, siteId, name: "Scope Del Live Loc" },
-        { id: deletedLocId, siteId, name: "Scope Del Dead Loc", deletedAt: sql`now()` },
+        {
+          id: deletedLocId,
+          siteId,
+          name: "Scope Del Dead Loc",
+          deletedAt: sql`now()`,
+        },
       ]);
       await db.insert(user).values([
         {
@@ -660,10 +691,7 @@ describe("userScopeFilter excludes soft-deleted rows (issue #42 task 6)", () => 
         .where(eq(user.id, deletedAdminId));
 
       const filter = userScopeFilter({ role: "ho", siteId });
-      const visible = await db
-        .select({ id: user.id })
-        .from(user)
-        .where(filter);
+      const visible = await db.select({ id: user.id }).from(user).where(filter);
       // Only the live admin of the live location survives: the soft-deleted
       // admin drops on the and-wrapped user branch, the dead-location admin
       // on the subquery branch.
@@ -684,10 +712,12 @@ describe("userScopeFilter excludes soft-deleted rows (issue #42 task 6)", () => 
     const adminId = randomUUID();
 
     try {
-      await db.insert(site).values([{ id: siteId, name: `scope-rev-site-${siteId}` }]);
-      await db.insert(siteLocation).values([
-        { id: locId, siteId, name: "Scope Revive Loc" },
-      ]);
+      await db
+        .insert(site)
+        .values([{ id: siteId, name: `scope-rev-site-${siteId}` }]);
+      await db
+        .insert(siteLocation)
+        .values([{ id: locId, siteId, name: "Scope Revive Loc" }]);
       await db.insert(user).values([
         {
           id: adminId,
@@ -699,7 +729,10 @@ describe("userScopeFilter excludes soft-deleted rows (issue #42 task 6)", () => 
           siteLocationId: locId,
         },
       ]);
-      await db.update(user).set({ deletedAt: sql`now()` }).where(eq(user.id, adminId));
+      await db
+        .update(user)
+        .set({ deletedAt: sql`now()` })
+        .where(eq(user.id, adminId));
 
       const filter = userScopeFilter({ role: "ho", siteId });
       const whileDeleted = await db
@@ -708,8 +741,14 @@ describe("userScopeFilter excludes soft-deleted rows (issue #42 task 6)", () => 
         .where(filter);
       expect(whileDeleted).toEqual([]);
 
-      await db.update(user).set({ deletedAt: null }).where(eq(user.id, adminId));
-      const whileLive = await db.select({ id: user.id }).from(user).where(filter);
+      await db
+        .update(user)
+        .set({ deletedAt: null })
+        .where(eq(user.id, adminId));
+      const whileLive = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(filter);
       expect(whileLive).toEqual([{ id: adminId }]);
     } finally {
       await db.delete(user).where(eq(user.id, adminId));
@@ -728,7 +767,8 @@ describe("deleteUser soft-deletes (issue #43 task 7)", () => {
     const saActorId = "superAcctAaBbCcDdEeFfGgHhIiJjKkLlMm07";
     const hoTargetId = "hoTargetAaBbCcDdEeFfGgHhIiJjKkLlMm08";
 
-    const mkEmail = (id: string) => `soft-del-user-${id.slice(0, 8)}@shiftly.test`;
+    const mkEmail = (id: string) =>
+      `soft-del-user-${id.slice(0, 8)}@shiftly.test`;
     try {
       await db.insert(user).values([
         {
@@ -840,9 +880,9 @@ describe("deleteUser soft-deletes (issue #43 task 7)", () => {
         { id: siteA, name: `soft-del-user-site-a-${siteA}` },
         { id: siteB, name: `soft-del-user-site-b-${siteB}` },
       ]);
-      await db.insert(siteLocation).values([
-        { id: locB, siteId: siteB, name: "Soft Del User Loc B" },
-      ]);
+      await db
+        .insert(siteLocation)
+        .values([{ id: locB, siteId: siteB, name: "Soft Del User Loc B" }]);
       await db.insert(user).values([
         {
           id: hoActorId,
@@ -897,7 +937,8 @@ describe("deleteUser soft-deletes (issue #43 task 7)", () => {
     const saActorId = "superAcctAaBbCcDdEeFfGgHhIiJjKkLlMm0a";
     const goneUserId = "goneUserAaBbCcDdEeFfGgHhIiJjKkLlMm0b";
 
-    const mkEmail = (id: string) => `soft-del-user-${id.slice(0, 8)}@shiftly.test`;
+    const mkEmail = (id: string) =>
+      `soft-del-user-${id.slice(0, 8)}@shiftly.test`;
     try {
       await db.insert(user).values([
         {

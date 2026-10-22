@@ -4,8 +4,14 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "./db";
-import { pgErrorCode } from "./db-errors";
-import { auditLog, rosterRuleConfig, site, siteLocation, user } from "../drizzle/schema";
+import { pgErrorCode } from "../error/db-errors";
+import {
+  auditLog,
+  rosterRuleConfig,
+  site,
+  siteLocation,
+  user,
+} from "../drizzle/schema";
 
 // Task 1 of the config-rules epic (GitHub #48): roster_rule_config and
 // audit_log. These tests run against the real dev DB (docker
@@ -50,7 +56,9 @@ describe("roster_rule_config scoping (issue #48 task 1)", () => {
     const secondLocationLevelId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `rule-cfg-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `rule-cfg-site-${siteId}` });
       await db.insert(siteLocation).values([
         { id: locationId, siteId, name: "Rule Cfg Location" },
         { id: secondLocationId, siteId, name: "Rule Cfg Location Two" },
@@ -80,22 +88,23 @@ describe("roster_rule_config scoping (issue #48 task 1)", () => {
         .from(rosterRuleConfig)
         .where(eq(rosterRuleConfig.ruleKey, "C3"));
       expect(new Set(rows.map((r) => r.id))).toEqual(
-        new Set([globalId, siteLevelId, locationLevelId, secondLocationLevelId]),
+        new Set([
+          globalId,
+          siteLevelId,
+          locationLevelId,
+          secondLocationLevelId,
+        ]),
       );
     } finally {
       // Child-first: config rows reference the locations, the locations
       // reference the site.
       await db
         .delete(rosterRuleConfig)
-        .where(
-          eq(rosterRuleConfig.id, globalId),
-        );
+        .where(eq(rosterRuleConfig.id, globalId));
       await db
         .delete(rosterRuleConfig)
         .where(eq(rosterRuleConfig.siteId, siteId));
-      await db
-        .delete(siteLocation)
-        .where(eq(siteLocation.siteId, siteId));
+      await db.delete(siteLocation).where(eq(siteLocation.siteId, siteId));
       await db.delete(site).where(eq(site.id, siteId));
     }
   });
@@ -125,7 +134,9 @@ describe("roster_rule_config scoping (issue #48 task 1)", () => {
     const locationLevelId = randomUUID();
 
     try {
-      await db.insert(site).values({ id: siteId, name: `rule-fk-site-${siteId}` });
+      await db
+        .insert(site)
+        .values({ id: siteId, name: `rule-fk-site-${siteId}` });
       await db.insert(siteLocation).values({
         id: locationId,
         siteId,
