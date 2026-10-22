@@ -135,10 +135,10 @@ function makeActor(
   };
 }
 
-// The shifts page is view-only for an ho (this module's locked decision):
-// their site's rows render, but no create button (nor row actions) do.
+// Spec §3.1: an ho manages their own site's shifts — the manage UI renders
+// for them too; only the row scope differs by role.
 describe("shifts page SSR (mp-requests Task 4)", () => {
-  test("renders the Shifts heading and an ho's own-site rows only, with no create button", async () => {
+  test("renders the Shifts heading and an ho's own-site rows with the manage UI", async () => {
     const fx = await seedShiftFixtures();
     try {
       actor = makeActor("ho", fx.ids.siteA, null);
@@ -148,7 +148,8 @@ describe("shifts page SSR (mp-requests Task 4)", () => {
       expect(html.includes(fx.labels.shA1)).toBeTrue();
       expect(html.includes(fx.labels.shA2)).toBeTrue();
       expect(html.includes(fx.labels.shB1)).toBeFalse();
-      expect(html.includes("Add shift")).toBeFalse();
+      expect(html.includes("Add shift")).toBeTrue();
+      expect(html.includes(`Actions for ${fx.labels.shA1}`)).toBeTrue();
     } finally {
       await fx.cleanup();
     }

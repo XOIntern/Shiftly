@@ -185,15 +185,11 @@ export default async function ShiftsPage({
             MP-request lines are built from these definitions.
           </p>
         </div>
-        {/* View-only for an ho: their site's rows render, but the create
-        entry (and row actions below) do not. */}
-        {isHo ? null : (
-          <CreateShiftButton
-            siteLocations={siteLocations satisfies SiteLocationOption[]}
-            sites={sites satisfies SiteOption[]}
-            pinnedLocationName={pinnedLocationName}
-          />
-        )}
+        <CreateShiftButton
+          siteLocations={siteLocations satisfies SiteLocationOption[]}
+          sites={sites satisfies SiteOption[]}
+          pinnedLocationName={pinnedLocationName}
+        />
       </div>
       <Card>
         <CardContent>
@@ -202,7 +198,7 @@ export default async function ShiftsPage({
             siteLocations={siteLocations satisfies SiteLocationOption[]}
             sites={sites satisfies SiteOption[]}
             pinnedLocationName={pinnedLocationName}
-            canManage={!isHo}
+            canManage
             showSite={isSuperadmin}
             showLocation={actor.role !== "admin"}
             pageCount={pageCount}

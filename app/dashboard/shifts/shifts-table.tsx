@@ -33,8 +33,8 @@ export function ShiftsTable({
   // An admin actor's pinned location name (their binding) — threaded into
   // the row dialogs; undefined for ho/superadmin.
   pinnedLocationName?: string;
-  // An ho is view-only on shifts (this module's locked decision): rows of
-  // their own site render, but no create button nor row actions do.
+  // All three roles manage shifts within their scope (spec §3.1); false
+  // renders rows only, with no create entry and no row actions.
   canManage: boolean;
   // Site/location columns only carry information where the actor's scope
   // spans more than one of them: the location column for ho/superadmin,
