@@ -75,6 +75,31 @@ export const workerUpdateSchema = workerCreateSchema.extend({
   isActive: z.boolean(),
 });
 
+// Shifts (mp-requests epic, Module 3): mirrors workAreaCreateSchema —
+// siteLocationId is required (the shift belongs to one location) and siteId
+// stays optional at the schema level (the actions derive it from the
+// site_location, so the dialog does not send one). orderIndex is the
+// per-location display slot (1..20) behind the partial unique on
+// (site_location_id, order_index) WHERE deleted_at IS NULL; startTime /
+// endTime are wall-clock HH:MM strings, not timestamps.
+const hhmm = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must be a valid HH:MM");
+
+export const shiftCreateSchema = z.object({
+  siteId: z.uuid().optional(),
+  siteLocationId: z.uuid(),
+  label: nameField,
+  orderIndex: z.number().int().min(1).max(20),
+  startTime: hhmm,
+  endTime: hhmm,
+});
+
+export const shiftUpdateSchema = shiftCreateSchema.extend({
+  id: z.uuid(),
+  isActive: z.boolean(),
+});
+
 // Role/binding invariants (docs/architecture.md v0.2 §6): superadmin is
 // global (no site/location binding, and — since the dropped-department
 // epic — no department binding either), ho binds exactly one site and
@@ -209,6 +234,8 @@ export type PositionCreateInput = z.infer<typeof positionCreateSchema>;
 export type PositionUpdateInput = z.infer<typeof positionUpdateSchema>;
 export type WorkerCreateInput = z.infer<typeof workerCreateSchema>;
 export type WorkerUpdateInput = z.infer<typeof workerUpdateSchema>;
+export type ShiftCreateInput = z.infer<typeof shiftCreateSchema>;
+export type ShiftUpdateInput = z.infer<typeof shiftUpdateSchema>;
 export type UserCreateInput = z.infer<typeof userCreateSchema>;
 export type UserUpdateInput = z.infer<typeof userUpdateSchema>;
 export type UserPasswordInput = z.infer<typeof userPasswordSchema>;

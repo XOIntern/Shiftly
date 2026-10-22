@@ -13,6 +13,8 @@ import {
   userUpdateSchema,
   locationCreateSchema,
   locationUpdateSchema,
+  shiftCreateSchema,
+  shiftUpdateSchema,
 } from "./validators";
 import { fieldErrorsFrom } from "../lib/action-state";
 
@@ -1116,5 +1118,141 @@ describe("workerCreateSchema contractEndDate", () => {
       contractEndDate: "2027-12-31",
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("shiftCreateSchema", () => {
+  const locationUuid = "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04";
+  const siteUuid = "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01";
+  const base = {
+    siteLocationId: locationUuid,
+    label: "Shift 1",
+    orderIndex: 1,
+    startTime: "06:00",
+    endTime: "14:00",
+  };
+
+  test("accepts valid input with a siteId", () => {
+    const result = shiftCreateSchema.safeParse({ ...base, siteId: siteUuid });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts input without a siteId (ho/admin paths derive it server-side)", () => {
+    const result = shiftCreateSchema.safeParse(base);
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts the orderIndex boundary values 1 and 20", () => {
+    for (const orderIndex of [1, 20]) {
+      const result = shiftCreateSchema.safeParse({ ...base, orderIndex });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  test("accepts midnight and end-of-day time bounds", () => {
+    const result = shiftCreateSchema.safeParse({
+      ...base,
+      startTime: "00:00",
+      endTime: "23:59",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a bad time string with the HH:MM message", () => {
+    const result = shiftCreateSchema.safeParse({ ...base, startTime: "6:00" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("startTime");
+      expect(result.error.issues[0].message).toBe(
+        "Time must be a valid HH:MM",
+      );
+    }
+  });
+
+  test("rejects an out-of-range hour on endTime", () => {
+    const result = shiftCreateSchema.safeParse({ ...base, endTime: "24:00" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("endTime");
+      expect(result.error.issues[0].message).toBe(
+        "Time must be a valid HH:MM",
+      );
+    }
+  });
+
+  test("rejects orderIndex 0", () => {
+    const result = shiftCreateSchema.safeParse({ ...base, orderIndex: 0 });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("orderIndex");
+    }
+  });
+
+  test("rejects orderIndex 21", () => {
+    const result = shiftCreateSchema.safeParse({ ...base, orderIndex: 21 });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("orderIndex");
+    }
+  });
+
+  test("rejects a fractional orderIndex", () => {
+    const result = shiftCreateSchema.safeParse({ ...base, orderIndex: 1.5 });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a missing siteLocationId", () => {
+    const result = shiftCreateSchema.safeParse({
+      label: "Shift 1",
+      orderIndex: 1,
+      startTime: "06:00",
+      endTime: "14:00",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-integer string orderIndex (numbers only)", () => {
+    const result = shiftCreateSchema.safeParse({
+      ...base,
+      orderIndex: "1",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("shiftUpdateSchema", () => {
+  const base = {
+    id: "8e4c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b05",
+    siteLocationId: "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04",
+    label: "Shift 1",
+    orderIndex: 3,
+    startTime: "06:00",
+    endTime: "14:00",
+    isActive: true,
+  };
+
+  test("accepts a valid update", () => {
+    const result = shiftUpdateSchema.safeParse(base);
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a missing isActive", () => {
+    const result = shiftUpdateSchema.safeParse({
+      id: base.id,
+      siteLocationId: base.siteLocationId,
+      label: base.label,
+      orderIndex: base.orderIndex,
+      startTime: base.startTime,
+      endTime: base.endTime,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-uuid id", () => {
+    const result = shiftUpdateSchema.safeParse({
+      ...base,
+      id: "not-a-uuid",
+    });
+    expect(result.success).toBe(false);
   });
 });
