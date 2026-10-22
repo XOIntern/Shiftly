@@ -471,13 +471,42 @@ export async function setAssignment(
   try {
     const planId = await ensureDraftVersion(input.planId, actor.id);
 
-    const result = await db.transaction(async (tx): Promise<SetAssignmentResult> => {
+    const result = await applyAssignmentEdit(planId, input);
+
+    if (result.ok) revalidatePath("/dashboard/roster");
+    return result;
+  } catch (err) {
+    if (err instanceof ActionAbort) return err.state;
+    return { ok: false, message: GENERIC_ERROR };
+  }
+}
+
+// The write half of setAssignment, its own transaction. Exported for tests
+// (pattern: ensureDraftVersion) so the copy-on-edit guard can be driven
+// directly with a plan id that turned published mid-edit — a window no
+// sequential test can hit through setAssignment alone.
+export async function applyAssignmentEdit(
+  planId: string,
+  input: SetAssignmentInput,
+): Promise<SetAssignmentResult> {
+  try {
+    return await db.transaction(async (tx): Promise<SetAssignmentResult> => {
+      // Re-read under a row lock and re-assert the draft status: a publish
+      // wedged between ensureDraftVersion and this write must NOT let the
+      // edit land in place on a now-published plan.
       const [plan] = await tx
         .select()
         .from(rosterPlan)
         .where(eq(rosterPlan.id, planId))
-        .limit(1);
+        .limit(1)
+        .for("update");
       if (!plan) throw new ActionAbort({ ok: false, message: NOT_FOUND });
+      if (plan.status !== "draft") {
+        throw new ActionAbort({
+          ok: false,
+          message: "Plan was published while editing, retry",
+        });
+      }
 
       if (input.shiftDefId === null) {
         // Delete: clear the worker's shift for that day.
@@ -547,12 +576,9 @@ export async function setAssignment(
 
       return { ok: true, data: { violations } };
     });
-
-    revalidatePath("/dashboard/roster");
-    return result;
   } catch (err) {
     if (err instanceof ActionAbort) return err.state;
-    return { ok: false, message: GENERIC_ERROR };
+    throw err; // unexpected driver errors surface to the caller's net
   }
 }
 
@@ -697,6 +723,17 @@ export async function suggestReplacementsAction(
     !isDate(input.date)
   ) {
     return { ok: false, message: "Invalid suggestion target" };
+  }
+
+  // The candidates leak worker identities, so an ho's read grant stays
+  // within their OWN SITE (spec §5): derive the pick's site and fail closed
+  // on anything outside it. Superadmin is unbounded; an admin is pinned
+  // above (their own location).
+  if (actor.role === "ho") {
+    const siteId = await deriveSiteId(siteLocationId);
+    if (!siteId || siteId !== actor.siteId) {
+      return { ok: false, message: "Suggestions are limited to your own site" };
+    }
   }
 
   const weekStart = mondayOf(input.date);

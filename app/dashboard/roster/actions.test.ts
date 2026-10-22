@@ -671,6 +671,53 @@ describe("roster actions: setAssignment + ensureDraftVersion", () => {
       void fx;
     }
   });
+
+  test("copy-on-edit guard: the write path refuses a plan that turned published mid-edit", async () => {
+    const fx = await createBase(`t6-sr1-${randomUUID()}`, "set-guard");
+    const area = await createWorkArea(fx, "a");
+    const shift1 = await createShift(fx, 1);
+    const w = await createWorker(fx, "w");
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 1 },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    try {
+      const { generateRoster, applyAssignmentEdit } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+
+      const [plan] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+      const rowsBefore = await readPlanRows(plan.id);
+      await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
+
+      // Unit-drive the WRITE half with the now-published plan id — the
+      // state a publish wedged between ensureDraftVersion and the write
+      // would present.
+      const result = await applyAssignmentEdit(plan.id, {
+        planId: plan.id,
+        workerId: w,
+        date: MON,
+        workAreaId: area,
+        shiftDefId: shift1,
+      });
+      expect(result).toEqual({
+        ok: false,
+        message: "Plan was published while editing, retry",
+      });
+
+      // Nothing landed: rows byte-identical, status untouched.
+      expect(await readPlanRows(plan.id)).toEqual(rowsBefore);
+      const [planAfter] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, plan.id));
+      expect(planAfter.status).toBe("published");
+      expect(planAfter.version).toBe(1);
+    } finally {
+      void fx;
+    }
+  });
 });
 
 describe("roster actions: fillDailyRequest", () => {
@@ -897,6 +944,67 @@ describe("roster actions: session scope", () => {
       expect(plans.length).toBe(0);
     } finally {
       void fx;
+    }
+  });
+
+  test("ho suggestions are limited to their own site: a foreign location's pick is refused with no worker identities", async () => {
+    // Own site the ho is bound to, plus a foreign site's location whose
+    // published roster WOULD leak worker identities through suggestions.
+    const own = await createBase(`t6-hos-${randomUUID()}`, "ho-suggest-own");
+    const foreign = await createBase(`t6-hof-${randomUUID()}`, "ho-suggest-foreign");
+    const foreignArea = await createWorkArea(foreign, "fa");
+    const foreignShift = await createShift(foreign, 1);
+    await seedWeeklyDemand(foreign, [
+      {
+        workAreaId: foreignArea,
+        shiftDefinitionId: foreignShift,
+        date: MON,
+        headcount: 1,
+      },
+    ]);
+    actor = makeActor("admin", null, foreign.locationId);
+    await seedUser(actor);
+
+    try {
+      const { generateRoster, suggestReplacementsAction } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: foreign.locationId })).ok).toBe(true);
+      const [plan] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, foreign.locationId));
+      await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
+
+      // The call runs as an ho bound to the OTHER site, reaching across.
+      actor = makeActor("ho", own.siteId, null);
+      await seedUser(actor);
+
+      const refused = await suggestReplacementsAction({
+        workAreaId: foreignArea,
+        shiftDefId: foreignShift,
+        date: TUE,
+        siteLocationId: foreign.locationId,
+      });
+      expect(refused).toEqual({
+        ok: false,
+        message: "Suggestions are limited to your own site",
+      });
+
+      // Positive control: the ho's own-site location answers normally
+      // (the read grant is site-scoped, not a blanket refusal).
+      const ownShift = await createShift(own, 1);
+      const ownWorker = await createWorker(own, "ow");
+      const ownArea = await createWorkArea(own, "oa");
+      const allowed = (await suggestReplacementsAction({
+        workAreaId: ownArea,
+        shiftDefId: ownShift,
+        date: TUE,
+        siteLocationId: own.locationId,
+      })) as { ok: true; data: { workerId: string }[] };
+      expect(allowed.ok).toBe(true);
+      expect(allowed.data.map((c) => c.workerId)).toEqual([ownWorker]);
+    } finally {
+      void own;
+      void foreign;
     }
   });
 });
