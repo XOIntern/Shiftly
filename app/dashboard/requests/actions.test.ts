@@ -612,6 +612,7 @@ describe("request actions: advanceStatus", () => {
         newValue: "received",
       });
     } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 
@@ -639,6 +640,7 @@ describe("request actions: advanceStatus", () => {
         .where(eq(mpRequest.id, requestId));
       expect(row.status).toBe("submitted");
     } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 
@@ -671,6 +673,7 @@ describe("request actions: advanceStatus", () => {
         .where(eq(mpRequest.id, requestId));
       expect(row.status).toBe("received");
     } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 
@@ -701,6 +704,7 @@ describe("request actions: advanceStatus", () => {
         .where(eq(mpRequest.id, requestId));
       expect(row.status).toBe("received");
     } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 });
