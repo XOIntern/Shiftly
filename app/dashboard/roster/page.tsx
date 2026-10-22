@@ -25,7 +25,7 @@ import {
   loadRequirementsForWeek,
   loadWorkerProfiles,
 } from "@/lib/roster-data";
-import { planViolations } from "@/app/dashboard/roster/actions";
+import { planViolations } from "@/lib/roster-plan-mutations";
 import { RosterWeekView } from "@/app/dashboard/roster/roster-week-view";
 import type {
   GridPlanView,

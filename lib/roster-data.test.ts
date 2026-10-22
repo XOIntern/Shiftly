@@ -5,6 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 
 import { db } from "./db";
 import {
+  latestPublishedWeeklyPlan,
   loadAreaRequirements,
   loadPlanWithRows,
   loadPriorAssignments,
@@ -217,6 +218,7 @@ interface PlanArgs {
   weekStart?: string | null;
   requestDate?: string | null;
   status?: "draft" | "published";
+  version?: number;
 }
 
 async function createPlan(
@@ -231,6 +233,7 @@ async function createPlan(
     siteId: fx.siteId,
     siteLocationId: fx.locationId,
     kind,
+    version: args.version ?? 1,
     ...(kind === "weekly"
       ? { weekStart: args.weekStart ?? MON, requestDate: null }
       : { requestDate: args.requestDate ?? TUE, weekStart: null }),
@@ -504,6 +507,58 @@ describe("loadPriorAssignments", () => {
     expect(await loadPriorAssignments(fx.locationId, NEXT_MON)).toEqual([
       { workerId, date: MON, shiftDefId: shift, workAreaId: area },
     ]);
+  });
+
+  test("two published versions of the same week collapse to the LATEST version's rows only", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "prior-versions");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const w1 = await createWorker(fx, "w1");
+    const w2 = await createWorker(fx, "w2");
+
+    // v1 published (two worker-days), then a revise republishes v2 with one
+    // row — v1 STAYS published (copy-on-edit keeps every version).
+    const v1 = await createPlan(fx, { status: "published", weekStart: MON, version: 1 });
+    await addPlanAssignment(fx, v1, { workerId: w1, workAreaId: area, shiftDefinitionId: shift, date: MON });
+    await addPlanAssignment(fx, v1, { workerId: w2, workAreaId: area, shiftDefinitionId: shift, date: MON });
+    const v2 = await createPlan(fx, { status: "published", weekStart: MON, version: 2 });
+    await addPlanAssignment(fx, v2, { workerId: w1, workAreaId: area, shiftDefinitionId: shift, date: MON });
+
+    // Only v2's single worker-day — a doubled worker-day would kick the
+    // count rules and deadlock the generator's admission.
+    expect(await loadPriorAssignments(fx.locationId, NEXT_MON)).toEqual([
+      { workerId: w1, date: MON, shiftDefId: shift, workAreaId: area },
+    ]);
+  });
+
+  test("daily plans of the same location never dedupe against each other (unique per date)", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "prior-daily");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const workerId = await createWorker(fx, "w");
+    const daily = await createPlan(fx, { kind: "daily", status: "published", requestDate: TUE });
+    await addPlanAssignment(fx, daily, { workerId, workAreaId: area, shiftDefinitionId: shift, date: TUE });
+
+    expect(await loadPriorAssignments(fx.locationId, NEXT_MON)).toEqual([
+      { workerId, date: TUE, shiftDefId: shift, workAreaId: area },
+    ]);
+  });
+});
+
+describe("latestPublishedWeeklyPlan", () => {
+  test("picks the highest published version of the week; draft plans and other weeks do not count; null when none", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "latest-plan");
+    const v1 = await createPlan(fx, { status: "published", weekStart: MON, version: 1 });
+    const draft = await createPlan(fx, { status: "draft", weekStart: MON });
+    const v2 = await createPlan(fx, { status: "published", weekStart: MON, version: 2 });
+    await createPlan(fx, { status: "published", weekStart: NEXT_MON });
+
+    const latest = await latestPublishedWeeklyPlan(fx.locationId, MON);
+    expect(latest!.id).toBe(v2);
+    expect(latest!.id).not.toBe(v1);
+    expect(latest!.id).not.toBe(draft);
+
+    expect(await latestPublishedWeeklyPlan(fx.locationId, "2026-01-19")).toBeNull();
   });
 });
 

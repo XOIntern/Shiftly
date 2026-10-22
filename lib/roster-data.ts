@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 
 import { db } from "./db";
 import {
@@ -162,7 +162,12 @@ export async function loadRequirementsForWeek(
 }
 
 // Prior history for C1/C2/C5/C6: assignment rows of PUBLISHED plans of the
-// location with date < beforeDate, in the engine shape.
+// location with date < beforeDate, in the engine shape. After a revise the
+// old version stays published alongside the new one — only the LATEST
+// published version per week enters history, or the same worker-day loads
+// twice (kicking count-based rules over the line and deadlocking the
+// generator's admission). Daily plans are already unique per date
+// (roster_plan_daily_unique); weekly plans dedupe on (week_start, version).
 export async function loadPriorAssignments(
   siteLocationId: string,
   beforeDate: string,
@@ -173,6 +178,10 @@ export async function loadPriorAssignments(
       date: rosterAssignment.date,
       shiftDefId: rosterAssignment.shiftDefinitionId,
       workAreaId: rosterAssignment.workAreaId,
+      planId: rosterPlan.id,
+      planKind: rosterPlan.kind,
+      planWeekStart: rosterPlan.weekStart,
+      planVersion: rosterPlan.version,
     })
     .from(rosterAssignment)
     .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
@@ -184,7 +193,55 @@ export async function loadPriorAssignments(
       ),
     )
     .orderBy(asc(rosterAssignment.date), asc(rosterAssignment.workerId));
-  return rows;
+
+  const latestByWeek = new Map<string, { planId: string; version: number }>();
+  for (const row of rows) {
+    if (row.planKind !== "weekly" || row.planWeekStart === null) continue;
+    const current = latestByWeek.get(row.planWeekStart);
+    if (!current || row.planVersion > current.version) {
+      latestByWeek.set(row.planWeekStart, {
+        planId: row.planId,
+        version: row.planVersion,
+      });
+    }
+  }
+
+  return rows
+    .filter((row) => {
+      if (row.planKind !== "weekly" || row.planWeekStart === null) return true;
+      return latestByWeek.get(row.planWeekStart)?.planId === row.planId;
+    })
+    .map(({ workerId, date, shiftDefId, workAreaId }) => ({
+      workerId,
+      date,
+      shiftDefId,
+      workAreaId,
+    }));
+}
+
+// The LATEST published weekly plan of one Monday-anchored week (a revised
+// week republishes at a higher version; only the newest rows are the
+// operative ones). Null when no published weekly plan covers the week.
+// fillDailyRequest and suggestReplacementsAction share this pick so the two
+// can never disagree about which plan's rows are operative.
+export async function latestPublishedWeeklyPlan(
+  siteLocationId: string,
+  weekStart: string,
+): Promise<typeof rosterPlan.$inferSelect | null> {
+  const [plan] = await db
+    .select()
+    .from(rosterPlan)
+    .where(
+      and(
+        eq(rosterPlan.siteLocationId, siteLocationId),
+        eq(rosterPlan.kind, "weekly"),
+        eq(rosterPlan.status, "published"),
+        eq(rosterPlan.weekStart, weekStart),
+      ),
+    )
+    .orderBy(desc(rosterPlan.version))
+    .limit(1);
+  return plan ?? null;
 }
 
 export interface RosterPlanBundle {

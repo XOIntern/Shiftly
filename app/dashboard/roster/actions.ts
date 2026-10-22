@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -25,10 +25,10 @@ import { generateDraft } from "@/lib/engine/generate";
 import type { RequirementLine, SuggestedCandidate } from "@/lib/engine/generate";
 import { suggestReplacements } from "@/lib/engine/suggest";
 import { buildWorkersRecord, validateRoster } from "@/lib/engine/validate";
-import type { EffectiveRules } from "@/types/engine";
 import type { RosterAssignment, Violation } from "@/lib/engine/validate";
 import { loadEffectiveRules } from "@/lib/rule-config";
 import {
+  latestPublishedWeeklyPlan,
   loadAreaRequirements,
   loadPlanWithRows,
   loadPriorAssignments,
@@ -41,6 +41,13 @@ import {
   rosterPlanOwnedByActor,
 } from "@/lib/roster-scope";
 import { recordRosterAudit } from "@/lib/roster-audit";
+import {
+  ActionAbort,
+  applyAssignmentEdit,
+  ensureDraftVersion,
+  type SetAssignmentInput,
+  type SetAssignmentResult,
+} from "@/lib/roster-plan-mutations";
 
 // Roster actions (roster-engine task 6): the persistence + state machine
 // layer over roster_plan/roster_assignment. Every action re-checks the
@@ -49,14 +56,11 @@ import { recordRosterAudit } from "@/lib/roster-audit";
 // writes its audit row in the SAME transaction as the data (pattern:
 // app/dashboard/requests/actions.ts). Dates are "YYYY-MM-DD" strings.
 
-// Thrown to abort one of the actions' transactions with an already-built
-// ActionState: a returned value would commit the half-done write — a throw
-// is the only rollback (pattern: the request actions' ActionAbort).
-class ActionAbort extends Error {
-  constructor(readonly state: ActionState) {
-    super("action aborted");
-  }
-}
+// The revise flow's outcome, typed so the client shell's ReviseOutcome
+// stays assignable.
+export type RevisePlanResult =
+  | { ok: true; draftPlanId: string }
+  | { ok: false; message: string };
 
 export interface GenerateRosterInput {
   weekStart: string;
@@ -66,14 +70,7 @@ export interface GenerateRosterInput {
   siteLocationId?: string;
 }
 
-export interface SetAssignmentInput {
-  planId: string;
-  workerId: string;
-  date: string;
-  shiftDefId: string | null;
-  // Required for an upsert (the row is area-welded); a delete needs none.
-  workAreaId?: string;
-}
+export type { SetAssignmentInput, SetAssignmentResult };
 
 export interface FillDailyRequestInput {
   requestId: string;
@@ -91,17 +88,12 @@ export interface SuggestInput {
   siteLocationId?: string;
 }
 
-// The editor's inline-violations envelope: a saved edit is always ok — the
-// rules Rodgers the inline warning, they do not refuse the write.
-export type SetAssignmentResult = ActionState & {
-  data?: { violations: Violation[] };
-};
-
 // Messages pinned by the plan — the tests assert them verbatim.
 const HO_GENERATE_MESSAGE = "Only admins generate rosters";
 const HO_EDIT_MESSAGE = "Only admins edit rosters";
 const HO_PUBLISH_MESSAGE = "Only admins publish rosters";
 const HO_FILL_MESSAGE = "Only admins fill daily requests";
+const HO_REVISE_MESSAGE = "Only admins revise rosters";
 const NO_REQUIREMENTS = "No received requests cover this week";
 const DRAFT_EXISTS = "Draft already exists";
 const NOT_FOUND = "Roster not found.";
@@ -349,108 +341,31 @@ export async function generateRoster(
   return { ok: true };
 }
 
-// Copy-on-edit gate: a published plan is never edited in place — editing
-// clones it (version+1, draft, published fields NULL) with its rows and
-// returns the new plan id; a draft returns unchanged. One transaction, one
-// audit entry (roster.revise).
-export async function ensureDraftVersion(
+// Guarded revise entry for the UI flow (a thin, session-checked wrapper —
+// the raw ensureDraftVersion primitive stays in the plain mutations module,
+// never network-reachable): the actor is resolved server-side and names the
+// audit entry AND the clone's generated_by — the clicking admin.
+export async function revisePlan(
   planId: string,
-  actorId?: string,
-): Promise<string> {
-  return db.transaction(async (tx) => {
-    const [plan] = await tx
-      .select()
-      .from(rosterPlan)
-      .where(eq(rosterPlan.id, planId))
-      .limit(1)
-      .for("update");
-    if (!plan) throw new ActionAbort({ ok: false, message: NOT_FOUND });
+): Promise<RevisePlanResult> {
+  const actor = await requireUser();
 
-    if (plan.status === "draft") return plan.id;
+  if (actor.role === "ho") {
+    return { ok: false, message: HO_REVISE_MESSAGE };
+  }
+  if (!areIds(planId)) return { ok: false, message: NOT_FOUND };
 
-    const auditor = actorId ?? plan.generatedBy;
-    if (!auditor) {
-      throw new Error("ensureDraftVersion needs an actor for the audit trail");
+  const owned = await rosterPlanOwnedByActor(actor, planId);
+  if (!owned) return { ok: false, message: NOT_FOUND };
+
+  try {
+    return { ok: true, draftPlanId: await ensureDraftVersion(planId, actor.id) };
+  } catch (err) {
+    if (err instanceof ActionAbort) {
+      return { ok: false, message: err.state.message ?? GENERIC_ERROR };
     }
-
-    const [clone] = await tx
-      .insert(rosterPlan)
-      .values({
-        siteId: plan.siteId,
-        siteLocationId: plan.siteLocationId,
-        kind: plan.kind,
-        weekStart: plan.weekStart,
-        requestDate: plan.requestDate,
-        status: "draft",
-        version: plan.version + 1,
-        rulesSnapshot: plan.rulesSnapshot,
-        sourceRequestId: plan.sourceRequestId,
-        generatedBy: auditor,
-      })
-      .returning({ id: rosterPlan.id, version: rosterPlan.version });
-
-    const rows = await tx
-      .select({
-        workerId: rosterAssignment.workerId,
-        workAreaId: rosterAssignment.workAreaId,
-        shiftDefinitionId: rosterAssignment.shiftDefinitionId,
-        date: rosterAssignment.date,
-        siteId: rosterAssignment.siteId,
-        siteLocationId: rosterAssignment.siteLocationId,
-      })
-      .from(rosterAssignment)
-      .where(eq(rosterAssignment.planId, plan.id));
-    if (rows.length > 0) {
-      await tx.insert(rosterAssignment).values(
-        rows.map((r) => ({
-          planId: clone.id,
-          siteId: r.siteId,
-          siteLocationId: r.siteLocationId,
-          workerId: r.workerId,
-          workAreaId: r.workAreaId,
-          shiftDefinitionId: r.shiftDefinitionId,
-          date: r.date,
-        })),
-      );
-    }
-
-    await recordRosterAudit(tx, {
-      actorId: auditor,
-      action: "roster.revise",
-      siteId: plan.siteId,
-      siteLocationId: plan.siteLocationId,
-      details: { planId: plan.id, newPlanId: clone.id, version: clone.version },
-    });
-
-    return clone.id;
-  });
-}
-
-// The plan's rows validated over the merged context: plan rows (the current
-// side) + prior published history strictly before the plan's horizon, rules
-// from the plan's own snapshot (the editor judges by the rules the draft
-// was generated with; publish re-checks against the RESOLVED ones).
-// Exported for the /dashboard/roster page's publish-gate summary — the SAME
-// semantics the edit envelope rides on, never a divergent reimplementation.
-export async function planViolations(
-  siteLocationId: string,
-  rules: EffectiveRules,
-  rows: RosterAssignment[],
-): Promise<Violation[]> {
-  const weekStart = mondayOf(rows[0]?.date ?? "1970-01-05");
-  const [shiftOrder, areaRequirements, profiles, prior] = await Promise.all([
-    loadShiftOrder(siteLocationId),
-    loadAreaRequirements(siteLocationId),
-    loadWorkerProfiles(siteLocationId),
-    loadPriorAssignments(siteLocationId, weekDates(weekStart)[0]),
-  ]);
-  return validateRoster(
-    [...rows, ...prior],
-    buildWorkersRecord(profiles),
-    rules,
-    shiftOrder,
-    areaRequirements,
-  );
+    return { ok: false, message: GENERIC_ERROR };
+  }
 }
 
 export async function setAssignment(
@@ -483,106 +398,9 @@ export async function setAssignment(
   }
 }
 
-// The write half of setAssignment, its own transaction. Exported for tests
-// (pattern: ensureDraftVersion) so the copy-on-edit guard can be driven
-// directly with a plan id that turned published mid-edit — a window no
-// sequential test can hit through setAssignment alone.
-export async function applyAssignmentEdit(
-  planId: string,
-  input: SetAssignmentInput,
-): Promise<SetAssignmentResult> {
-  try {
-    return await db.transaction(async (tx): Promise<SetAssignmentResult> => {
-      // Re-read under a row lock and re-assert the draft status: a publish
-      // wedged between ensureDraftVersion and this write must NOT let the
-      // edit land in place on a now-published plan.
-      const [plan] = await tx
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.id, planId))
-        .limit(1)
-        .for("update");
-      if (!plan) throw new ActionAbort({ ok: false, message: NOT_FOUND });
-      if (plan.status !== "draft") {
-        throw new ActionAbort({
-          ok: false,
-          message: "Plan was published while editing, retry",
-        });
-      }
-
-      if (input.shiftDefId === null) {
-        // Delete: clear the worker's shift for that day.
-        await tx
-          .delete(rosterAssignment)
-          .where(
-            and(
-              eq(rosterAssignment.planId, planId),
-              eq(rosterAssignment.workerId, input.workerId),
-              eq(rosterAssignment.date, input.date),
-            ),
-          );
-      } else {
-        if (!input.workAreaId) {
-          throw new ActionAbort({
-            ok: false,
-            fieldErrors: { workAreaId: "Work area is required" },
-          });
-        }
-        // Upsert: the (plan, worker, date) unique makes a same-slot edit a
-        // place-shift-on-conflict write.
-        await tx
-          .insert(rosterAssignment)
-          .values({
-            planId,
-            siteId: plan.siteId,
-            siteLocationId: plan.siteLocationId,
-            workerId: input.workerId,
-            workAreaId: input.workAreaId,
-            shiftDefinitionId: input.shiftDefId,
-            date: input.date,
-          })
-          .onConflictDoUpdate({
-            target: [
-              rosterAssignment.planId,
-              rosterAssignment.workerId,
-              rosterAssignment.date,
-            ],
-            set: {
-              shiftDefinitionId: input.shiftDefId,
-              workAreaId: input.workAreaId,
-            },
-          });
-      }
-
-      const rows: RosterAssignment[] = (
-        await tx
-          .select({
-            workerId: rosterAssignment.workerId,
-            date: rosterAssignment.date,
-            shiftDefinitionId: rosterAssignment.shiftDefinitionId,
-            workAreaId: rosterAssignment.workAreaId,
-          })
-          .from(rosterAssignment)
-          .where(eq(rosterAssignment.planId, planId))
-      ).map((r) => ({
-        workerId: r.workerId,
-        date: r.date,
-        shiftDefId: r.shiftDefinitionId,
-        workAreaId: r.workAreaId,
-      }));
-      const violations = await planViolations(
-        plan.siteLocationId,
-        plan.rulesSnapshot as EffectiveRules,
-        rows,
-      );
-
-      return { ok: true, data: { violations } };
-    });
-  } catch (err) {
-    if (err instanceof ActionAbort) return err.state;
-    throw err; // unexpected driver errors surface to the caller's net
-  }
-}
+// The write half of setAssignment lives in lib/roster-plan-mutations.ts
+// (applyAssignmentEdit); tests drive it from there directly — in this
+// "use server" module it would be a network-reachable endpoint.
 
 export async function publishRoster(planId: string): Promise<ActionState> {
   const actor = await requireUser();
@@ -659,8 +477,27 @@ export async function publishRoster(planId: string): Promise<ActionState> {
     }
   }
 
-  if (violations.length > 0) {
-    return { ok: false, message: violationMessage(violations) };
+  // Retroactive rule tightening must not deadlock future publishes: the
+  // merged evaluation keeps the prior history, but only violations dated
+  // INSIDE the plan's own horizon refuse the publish — the rows a publish
+  // can actually change. Violations on prior (immutable, published) dates
+  // surface as warnings in the result message but do not block.
+  const horizon = new Set(
+    weekDates(
+      plan.kind === "weekly"
+        ? (plan.weekStart as string)
+        : mondayOf(plan.requestDate as string),
+    ),
+  );
+  const blocking = violations.filter(
+    (v) => v.date === undefined || horizon.has(v.date),
+  );
+  const historical = violations.filter(
+    (v) => v.date !== undefined && !horizon.has(v.date),
+  );
+
+  if (blocking.length > 0) {
+    return { ok: false, message: violationMessage(blocking) };
   }
 
   // Deficits are shown, not blocking (spec §6.3): the count rides the audit.
@@ -708,6 +545,14 @@ export async function publishRoster(planId: string): Promise<ActionState> {
   }
 
   revalidatePath("/dashboard/roster");
+  // Historical (prior-plan) warnings ride a successful result so the
+  // tightening that does not block is still never silent.
+  if (historical.length > 0) {
+    return {
+      ok: true,
+      message: `Prior-plan warnings (not blocking): ${violationMessage(historical)}`,
+    };
+  }
   return { ok: true };
 }
 
@@ -742,20 +587,9 @@ export async function suggestReplacementsAction(
 
   // Context = the LATEST published weekly plan of the date's week (a
   // revised plan republishes at a higher version; only its rows count) +
-  // the location's prior history.
-  const [weeklyPlan] = await db
-    .select({ id: rosterPlan.id })
-    .from(rosterPlan)
-    .where(
-      and(
-        eq(rosterPlan.siteLocationId, siteLocationId),
-        eq(rosterPlan.kind, "weekly"),
-        eq(rosterPlan.status, "published"),
-        eq(rosterPlan.weekStart, weekStart),
-      ),
-    )
-    .orderBy(desc(rosterPlan.version))
-    .limit(1);
+  // the location's prior history. The SAME helper fillDailyRequest uses —
+  // the two picks cannot drift.
+  const weeklyPlan = await latestPublishedWeeklyPlan(siteLocationId, weekStart);
 
   const weeklyRows: RosterAssignment[] = weeklyPlan
     ? (
@@ -826,19 +660,10 @@ export async function fillDailyRequest(
   const weekStart = mondayOf(input.date);
 
   // A published weekly plan must cover the date's week — the daily fill is
-  // an exception to a plan, not a standalone roster.
-  const [weekly] = await db
-    .select()
-    .from(rosterPlan)
-    .where(
-      and(
-        eq(rosterPlan.siteLocationId, siteLocationId),
-        eq(rosterPlan.kind, "weekly"),
-        eq(rosterPlan.status, "published"),
-        eq(rosterPlan.weekStart, weekStart),
-      ),
-    )
-    .limit(1);
+  // an exception to a plan, not a standalone roster. The shared helper
+  // picks the LATEST published version (same one suggestReplacementsAction
+  // reads — the two cannot disagree about which week's rows are operative).
+  const weekly = await latestPublishedWeeklyPlan(siteLocationId, weekStart);
   if (!weekly) return { ok: false, message: PUBLISH_FIRST };
 
   const [request] = await db

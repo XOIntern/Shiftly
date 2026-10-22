@@ -17,10 +17,10 @@ mock.module("@/app/dashboard/roster/actions", () => ({
   },
   generateRoster: async () => ({ ok: true }),
   publishRoster: async () => ({ ok: true }),
-  ensureDraftVersion: async (planId: string) => {
+  revisePlan: async (planId: string) => {
     reviseCalls.push(planId);
     if (nextRevise instanceof Error) throw nextRevise;
-    return nextRevise;
+    return { ok: true, draftPlanId: nextRevise };
   },
   suggestReplacementsAction: async () => ({ ok: true, data: [] }),
   fillDailyRequest: async () => ({ ok: true }),
@@ -168,7 +168,7 @@ describe("generateGateText (the disabled generate explanation)", () => {
 const PUBLISHED = "55555555-5555-4555-8555-555555555555";
 const NEXT_DRAFT = "99999999-9999-4999-8999-999999999999";
 
-describe("commitRevise (the Revise plan wiring into ensureDraftVersion)", () => {
+describe("commitRevise (the Revise plan wiring into the guarded revisePlan action)", () => {
   test("sends the published plan's id and resolves to the new draft id", async () => {
     reviseCalls.length = 0;
     nextRevise = NEXT_DRAFT;

@@ -11,6 +11,7 @@ import {
   position,
   rosterAssignment,
   rosterPlan,
+  rosterRuleConfig,
   shiftDefinition,
   site,
   siteLocation,
@@ -21,6 +22,7 @@ import {
   workAreaPosition,
 } from "@/drizzle/schema";
 import { loadEffectiveRules } from "@/lib/rule-config";
+import { loadPriorAssignments } from "@/lib/roster-data";
 import type { SessionUser } from "@/types/session";
 
 // Roster action pins (roster-engine task 6): the generate/revise/publish
@@ -48,6 +50,7 @@ mock.module("next/cache", () => ({
 // A known Monday and the days after it.
 const MON = "2026-01-05";
 const TUE = "2026-01-06";
+const NEXT_MON = "2026-01-12";
 
 function makeActor(
   role: SessionUser["role"],
@@ -238,6 +241,11 @@ afterAll(async () => {
   if (createdUserIds.length > 0) {
     await db.delete(auditLog).where(inArray(auditLog.actorId, createdUserIds));
   }
+  if (createdRuleConfigIds.length > 0) {
+    await db
+      .delete(rosterRuleConfig)
+      .where(inArray(rosterRuleConfig.id, createdRuleConfigIds));
+  }
   for (const locId of createdLocationIds) {
     await db.delete(rosterAssignment).where(eq(rosterAssignment.siteLocationId, locId));
     await db.delete(rosterPlan).where(eq(rosterPlan.siteLocationId, locId));
@@ -285,6 +293,25 @@ const createdWorkAreaIds: string[] = [];
 const createdShiftIds: string[] = [];
 const createdWorkerIds: string[] = [];
 const createdRequestIds: string[] = [];
+const createdRuleConfigIds: string[] = [];
+
+// Location-scoped rule override (retroactive-tightening tests); cleaned
+// with the other fixtures.
+async function tightenRule(
+  fx: BaseFixture,
+  ruleKey: "C1",
+  intValue: number,
+): Promise<void> {
+  const id = randomUUID();
+  createdRuleConfigIds.push(id);
+  await db.insert(rosterRuleConfig).values({
+    id,
+    ruleKey,
+    siteId: fx.siteId,
+    siteLocationId: fx.locationId,
+    intValue,
+  });
+}
 
 describe("roster actions: generateRoster", () => {
   test("admin generate happy: plan + rows + audit present, rulesSnapshot matches the resolved rules", async () => {
@@ -615,7 +642,8 @@ describe("roster actions: setAssignment + ensureDraftVersion", () => {
     await seedUser(actor);
 
     try {
-      const { generateRoster, setAssignment, ensureDraftVersion } = await import("./actions");
+      const { generateRoster, setAssignment } = await import("./actions");
+      const { ensureDraftVersion } = await import("@/lib/roster-plan-mutations");
       expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
       const [v1] = await db
@@ -684,7 +712,8 @@ describe("roster actions: setAssignment + ensureDraftVersion", () => {
     await seedUser(actor);
 
     try {
-      const { generateRoster, applyAssignmentEdit } = await import("./actions");
+      const { generateRoster } = await import("./actions");
+      const { applyAssignmentEdit } = await import("@/lib/roster-plan-mutations");
       expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
       const [plan] = await db
@@ -1005,6 +1034,328 @@ describe("roster actions: session scope", () => {
     } finally {
       void own;
       void foreign;
+    }
+  });
+});
+
+describe("roster actions: revisePlan (guarded revise entry)", () => {
+  test("audit actor + clone generated_by name the clicking admin, not the original generator", async () => {
+    const fx = await createBase(`t6-rv-${randomUUID()}`, "revise-actor");
+    const area = await createWorkArea(fx, "a");
+    const shift1 = await createShift(fx, 1);
+    await createShift(fx, 2);
+    await createWorker(fx, "w");
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 1 },
+    ]);
+    const adminA = makeActor("admin", null, fx.locationId);
+    await seedUser(adminA);
+    actor = adminA;
+
+    try {
+      const { generateRoster, publishRoster, revisePlan } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+      const [v1] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+      expect((await publishRoster(v1.id)).ok).toBe(true);
+
+      // A DIFFERENT admin of the same location clicks "Revise plan".
+      const adminB = makeActor("admin", null, fx.locationId);
+      await seedUser(adminB);
+      actor = adminB;
+
+      const result = await revisePlan(v1.id);
+      expect(result.ok).toBe(true);
+
+      const [clone] = await db
+        .select()
+        .from(rosterPlan)
+        .where(
+          and(
+            eq(rosterPlan.siteLocationId, fx.locationId),
+            eq(rosterPlan.status, "draft"),
+          ),
+        );
+      expect(clone.id).toBe((result as { draftPlanId: string }).draftPlanId);
+      expect(clone.version).toBe(2);
+      expect(clone.generatedBy).toBe(adminB.id);
+
+      const [audit] = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.action, "roster.revise"),
+            eq(auditLog.actorId, adminB.id),
+          ),
+        );
+      expect(audit).toBeDefined();
+      expect(audit.details).toEqual({
+        planId: v1.id,
+        newPlanId: clone.id,
+        version: 2,
+      });
+    } finally {
+      void fx;
+    }
+  });
+
+  test("ho revise: refused outright, nothing cloned", async () => {
+    const fx = await createBase(`t6-rh-${randomUUID()}`, "revise-ho");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    await createWorker(fx, "w");
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1 },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    try {
+      const { generateRoster, revisePlan } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+      const [plan] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+
+      actor = makeActor("ho", fx.siteId, null);
+      await seedUser(actor);
+
+      const result = await revisePlan(plan.id);
+      expect(result).toEqual({ ok: false, message: "Only admins revise rosters" });
+
+      const plans = await db
+        .select({ id: rosterPlan.id })
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+      expect(plans.length).toBe(1);
+    } finally {
+      void fx;
+    }
+  });
+});
+
+describe("roster actions: revise guard (decision-7, daily fills)", () => {
+  test("ensureDraftVersion refuses while a daily plan covers the week; revisePlan surfaces the refusal", async () => {
+    const fx = await createBase(`t6-rg-${randomUUID()}`, "revise-daily");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    await createWorker(fx, "w");
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1 },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    try {
+      const { generateRoster, revisePlan } = await import("./actions");
+      const { ensureDraftVersion, ActionAbort } = await import(
+        "@/lib/roster-plan-mutations"
+      );
+      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+      const [weekly] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+
+      // A daily fill exists on the same week (TUE of the weekly plan's week).
+      await db.insert(rosterPlan).values({
+        siteId: fx.siteId,
+        siteLocationId: fx.locationId,
+        kind: "daily",
+        requestDate: TUE,
+        rulesSnapshot: {},
+      });
+
+      let aborted: unknown;
+      try {
+        await ensureDraftVersion(weekly.id, actor.id);
+      } catch (err) {
+        aborted = err;
+      }
+      expect(aborted).toBeInstanceOf(ActionAbort);
+      expect((aborted as InstanceType<typeof ActionAbort>).state).toEqual({
+        ok: false,
+        message: "Daily fills exist for this week — clear them before revising",
+      });
+
+      // The guarded action surfaces the same refusal as an envelope.
+      expect(await revisePlan(weekly.id)).toEqual({
+        ok: false,
+        message: "Daily fills exist for this week — clear them before revising",
+      });
+
+      // No clone was written.
+      const plans = await db
+        .select({ id: rosterPlan.id })
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+      expect(plans.length).toBe(2); // the weekly draft + the daily plan only
+    } finally {
+      void fx;
+    }
+  });
+});
+
+describe("roster actions: versioned prior history (revise-republish dedupe)", () => {
+  test("after revise-publish v2, prior history holds one row per worker-day and the next week still generates", async () => {
+    const fx = await createBase(`t6-pd-${randomUUID()}`, "prior-dedupe");
+    const area = await createWorkArea(fx, "a");
+    const shift1 = await createShift(fx, 1);
+    await createShift(fx, 2); // keeps C4 (rest after the LAST shift) neutral
+    const w1 = await createWorker(fx, "w1");
+    const w2 = await createWorker(fx, "w2");
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 2 },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    try {
+      const { generateRoster, publishRoster } = await import("./actions");
+      const { ensureDraftVersion } = await import("@/lib/roster-plan-mutations");
+
+      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+      const [v1] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+      expect((await publishRoster(v1.id)).ok).toBe(true);
+
+      // v2: copy-on-edit revise, then drop one row so v2 ≠ v1.
+      const v2Id = await ensureDraftVersion(v1.id, actor.id);
+      await db
+        .delete(rosterAssignment)
+        .where(and(eq(rosterAssignment.planId, v2Id), eq(rosterAssignment.workerId, w2)));
+      expect((await publishRoster(v2Id)).ok).toBe(true);
+
+      // Both v1 and v2 of the SAME week are published now — prior history
+      // must collapse to v2 only (one row per worker-day).
+      const prior = await loadPriorAssignments(fx.locationId, NEXT_MON);
+      expect(prior).toEqual([
+        { workerId: w1, date: MON, shiftDefId: shift1, workAreaId: area },
+      ]);
+
+      // And the further week still fills (tightened C1 makes any doubled
+      // history reject every candidate — the bricked-generation symptom).
+      await tightenRule(fx, "C1", 1);
+      const requestId = await createRequest(fx, {
+        type: "weekly",
+        weekStart: NEXT_MON,
+      });
+      await addRequestLine(fx, requestId, {
+        workAreaId: area,
+        shiftDefinitionId: shift1,
+        date: NEXT_MON,
+        headcount: 1,
+      });
+      expect((await generateRoster({ weekStart: NEXT_MON, siteLocationId: fx.locationId })).ok).toBe(true);
+      const [nextPlan] = await db
+        .select()
+        .from(rosterPlan)
+        .where(
+          and(
+            eq(rosterPlan.siteLocationId, fx.locationId),
+            eq(rosterPlan.weekStart, NEXT_MON),
+          ),
+        );
+      expect(nextPlan).toBeDefined();
+      const nextRows = await readPlanRows(nextPlan.id);
+      expect(nextRows.length).toBe(1);
+      expect(nextRows[0].date).toBe(NEXT_MON);
+      expect(nextRows[0].workAreaId).toBe(area);
+    } finally {
+      void fx;
+    }
+  });
+});
+
+describe("roster actions: publish gate horizon (retroactive tightening)", () => {
+  test("prior-dated violations from a tightened rule warn but do not block the publish", async () => {
+    const fx = await createBase(`t6-ph-${randomUUID()}`, "prior-horizon");
+    const area = await createWorkArea(fx, "a");
+    const shift1 = await createShift(fx, 1);
+    await createShift(fx, 2); // keeps C4 neutral
+    const w1 = await createWorker(fx, "w1");
+    const w2 = await createWorker(fx, "w2");
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 1 },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    try {
+      const { generateRoster, publishRoster } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+      const [v1] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+
+      // The published week holds three worked days for w1 (legal under the
+      // default C1 = 5 at publish time).
+      for (const date of [TUE, "2026-01-07"]) {
+        await db.insert(rosterAssignment).values({
+          planId: v1.id,
+          siteId: fx.siteId,
+          siteLocationId: fx.locationId,
+          workerId: w1,
+          workAreaId: area,
+          shiftDefinitionId: shift1,
+          date,
+        });
+      }
+      expect((await publishRoster(v1.id)).ok).toBe(true);
+
+      // Retroactive tightening: C1 drops to 2 — the PUBLISHED history now
+      // violates, the plan's own world is done with it.
+      await tightenRule(fx, "C1", 2);
+
+      // A next-week plan whose own rows are clean under C1 = 2.
+      const requestId = await createRequest(fx, {
+        type: "weekly",
+        weekStart: NEXT_MON,
+      });
+      await addRequestLine(fx, requestId, {
+        workAreaId: area,
+        shiftDefinitionId: shift1,
+        date: NEXT_MON,
+        headcount: 1,
+      });
+      expect((await generateRoster({ weekStart: NEXT_MON, siteLocationId: fx.locationId })).ok).toBe(true);
+      const [nextPlan] = await db
+        .select()
+        .from(rosterPlan)
+        .where(
+          and(
+            eq(rosterPlan.siteLocationId, fx.locationId),
+            eq(rosterPlan.weekStart, NEXT_MON),
+          ),
+        );
+      // The generator admits w2 (only the candidate worker's own horizon
+      // gates admission); w1's prior-week excess is why the plan's own
+      // world can still be clean while the history violates the tightened
+      // rule.
+      const nextRows = await readPlanRows(nextPlan.id);
+      expect(nextRows).toEqual([
+        { workerId: w2, workAreaId: area, shiftDefinitionId: shift1, date: NEXT_MON },
+      ]);
+
+      const result = await publishRoster(nextPlan.id);
+      // Only the plan's own horizon can refuse; the prior-week excess of
+      // the tightened rule is surfaced as a warning, not a refusal.
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain("Prior-plan warnings (not blocking)");
+      expect(result.message).toContain("2026-01-07");
+
+      const [after] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, nextPlan.id));
+      expect(after.status).toBe("published");
+      expect(after.publishedAt).not.toBeNull();
+    } finally {
+      void fx;
     }
   });
 });

@@ -10,9 +10,9 @@ import { GENERIC_ERROR } from "@/lib/action-state";
 import { dayFromNumber, dayNumber } from "@/lib/engine/dates";
 import { mondayOf } from "@/lib/week";
 import {
-  ensureDraftVersion,
   generateRoster,
   publishRoster,
+  revisePlan,
 } from "@/app/dashboard/roster/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,19 +86,20 @@ export type GridPlanView = {
 };
 
 // Spec §6.4 copy-on-edit: editing a published plan happens through the NEXT
-// draft version — ensureDraftVersion copies the published row into a draft
-// and the UI navigates to it, leaving the published version untouched for
-// attendance.
+// draft version — the guarded `revisePlan` action resolves the actor
+// server-side (the clicking admin names the audit entry and the clone) and
+// copies the published row into a draft; the UI navigates to it, leaving
+// the published version untouched for attendance.
 export type ReviseOutcome =
   | { ok: true; draftPlanId: string }
   | { ok: false; message: string };
 
 export async function commitRevise(
   planId: string,
-  run: (id: string) => Promise<string> = ensureDraftVersion,
+  run: (id: string) => Promise<ReviseOutcome> = revisePlan,
 ): Promise<ReviseOutcome> {
   try {
-    return { ok: true, draftPlanId: await run(planId) };
+    return await run(planId);
   } catch {
     return { ok: false, message: GENERIC_ERROR };
   }
