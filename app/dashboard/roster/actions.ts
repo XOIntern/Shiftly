@@ -430,7 +430,9 @@ export async function ensureDraftVersion(
 // side) + prior published history strictly before the plan's horizon, rules
 // from the plan's own snapshot (the editor judges by the rules the draft
 // was generated with; publish re-checks against the RESOLVED ones).
-async function planViolations(
+// Exported for the /dashboard/roster page's publish-gate summary — the SAME
+// semantics the edit envelope rides on, never a divergent reimplementation.
+export async function planViolations(
   siteLocationId: string,
   rules: EffectiveRules,
   rows: RosterAssignment[],
