@@ -127,6 +127,13 @@
       "when": 1792478172749,
       "tag": "0017_rename_c7_qualification",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792688803380,
+      "tag": "0018_lowly_sprite",
+      "breakpoints": true
     }
   ]
 }
