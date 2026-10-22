@@ -1,3 +1,4 @@
+/// <reference types="bun" />
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
