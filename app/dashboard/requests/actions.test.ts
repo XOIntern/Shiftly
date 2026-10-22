@@ -608,6 +608,7 @@ describe("request actions: advanceStatus", () => {
       expect(audit.actorId).toBe(actor.id);
       expect(audit.details).toEqual({
         requestId,
+        type: "daily",
         oldValue: "submitted",
         newValue: "received",
       });

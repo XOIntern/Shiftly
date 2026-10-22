@@ -13,7 +13,7 @@ import type {
   SiteOption,
 } from "@/types/forms";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import { weekDates } from "@/lib/week";
+import { mondayOf, weekDates } from "@/lib/week";
 import {
   createRequest,
   updateRequestLines,
@@ -60,7 +60,7 @@ export type GridValues = Record<string, string>;
 // date. An empty anchor renders no grid at all.
 export function gridDates(type: "weekly" | "daily", anchor: string | null) {
   if (!anchor) return [];
-  return type === "weekly" ? weekDates(anchor) : [anchor];
+  return type === "weekly" ? weekDates(mondayOf(anchor)) : [anchor];
 }
 
 export type GridRow = {
@@ -163,7 +163,7 @@ export function buildCreateInput(state: {
     notes: state.notes.trim() ? state.notes.trim() : undefined,
     lines,
   };
-  if (state.type === "weekly") input.weekStart = state.weekStart!;
+  if (state.type === "weekly") input.weekStart = mondayOf(state.weekStart!);
   else input.requestDate = state.requestDate!;
   return { ok: true, input };
 }
@@ -793,19 +793,17 @@ export function RequestForm({
                         </td>
                       );
                     })}
-                    {type_ === "weekly" ? (
-                      <td className="px-2 py-1.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel}`}
-                          onClick={() => removePair(pair)}
-                        >
-                          <EraserIcon />
-                        </Button>
-                      </td>
-                    ) : null}
+                    <td className="px-2 py-1.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel}`}
+                        onClick={() => removePair(pair)}
+                      >
+                        <EraserIcon />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

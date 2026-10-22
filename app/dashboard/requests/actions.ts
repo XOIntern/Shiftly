@@ -406,6 +406,7 @@ export async function advanceStatus(
       const [row] = await tx
         .select({
           status: mpRequest.status,
+          type: mpRequest.type,
           siteId: mpRequest.siteId,
           siteLocationId: mpRequest.siteLocationId,
         })
@@ -443,6 +444,7 @@ export async function advanceStatus(
         siteLocationId: row.siteLocationId,
         details: {
           requestId: parsed.data.id,
+          type: row.type,
           oldValue: row.status,
           newValue: parsed.data.status,
         },

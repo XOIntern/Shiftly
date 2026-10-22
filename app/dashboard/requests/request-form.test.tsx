@@ -97,6 +97,19 @@ describe("gridDates", () => {
     ]);
   });
 
+  test("weekly snaps a mid-week pick to that week's Mon–Sun", () => {
+    // 2026-01-08 is a Thursday; the grid must render its Monday-start week.
+    expect(gridDates("weekly", "2026-01-08")).toEqual([
+      "2026-01-05",
+      "2026-01-06",
+      "2026-01-07",
+      "2026-01-08",
+      "2026-01-09",
+      "2026-01-10",
+      "2026-01-11",
+    ]);
+  });
+
   test("daily collapses to the single request date", () => {
     expect(gridDates("daily", "2026-01-07")).toEqual(["2026-01-07"]);
   });
@@ -186,6 +199,21 @@ describe("collectLines / buildCreateInput (the submit payload)", () => {
     const parsed = mpRequestCreateSchema.safeParse(built.input);
     expect(parsed.success).toBeTrue();
     expect(built.input.lines).toHaveLength(3);
+    expect(built.input.weekStart).toBe(MONDAY);
+  });
+
+  test("the submitted weekStart is the snapped Monday of the typed anchor", () => {
+    const built = buildCreateInput({
+      type: "weekly",
+      weekStart: "2026-01-08", // Thursday
+      requestDate: null,
+      notes: "",
+      siteLocationId: LOC_A1,
+      values: filled,
+    });
+
+    expect(built.ok).toBeTrue();
+    if (!built.ok) return;
     expect(built.input.weekStart).toBe(MONDAY);
   });
 
@@ -469,8 +497,7 @@ describe("RequestForm markup", () => {
     expect(html.includes("disabled")).toBeTrue(); // anchor input frozen
   });
 
-  test("inactive-referencing lines render as read-only rows with a hint", () => {
-    const html = renderToStaticMarkup(
+  test("inactive-referencing lines render as read-only rows with a hint", () => {    const html = renderToStaticMarkup(
       <RequestForm
         siteLocations={siteLocations}
         sites={sites}
@@ -503,6 +530,68 @@ describe("RequestForm markup", () => {
     expect(html.includes("Inactive — keep unchanged or remove")).toBeTrue();
     expect(html.includes(">7</td>")).toBeTrue();
     expect(html.includes("Remove inactive line")).toBeTrue();
+  });
+
+  test("daily edit grid shows the remove control for an inactive-referencing row", () => {
+    const html = renderToStaticMarkup(
+      <RequestForm
+        siteLocations={siteLocations}
+        sites={sites}
+        activeWorkAreas={activeWorkAreas}
+        activeShifts={activeShifts}
+        type="daily"
+        siteLocationId={LOC_A1}
+        request={{
+          id: "99999999-3333-3333-3333-333333333333",
+          type: "daily",
+          weekStart: null,
+          requestDate: "2026-01-07",
+          status: "submitted",
+          lines: [
+            {
+              workAreaId: "eeeeeeee-1111-1111-1111-111111111111",
+              workAreaName: "Old Zone",
+              shiftDefinitionId: "ffffffff-1111-1111-1111-111111111111",
+              shiftLabel: "Night",
+              date: "2026-01-07",
+              headcount: 5,
+            },
+          ],
+        }}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html.includes("Old Zone / Night")).toBeTrue();
+    expect(html.includes("Inactive — keep unchanged or remove")).toBeTrue();
+    expect(html.includes("Remove inactive line")).toBeTrue();
+  });
+
+  test("a removed inactive pair's headcounts drop out of the daily submit", () => {
+    // removePair deletes the pair's date keys from the values map; the
+    // submit payload built from the post-removal map carries no such line.
+    const built = buildCreateInput({
+      type: "daily",
+      weekStart: null,
+      requestDate: "2026-01-07",
+      notes: "",
+      siteLocationId: LOC_A1,
+      values: {
+        // Only an active pair's cell remains — the inactive pair was removed.
+        [`${WA_A1}|${SH_A1}|2026-01-07`]: "3",
+      },
+    });
+
+    expect(built.ok).toBeTrue();
+    if (!built.ok) return;
+    expect(built.input.lines).toEqual([
+      {
+        workAreaId: WA_A1,
+        shiftDefinitionId: SH_A1,
+        date: "2026-01-07",
+        headcount: 3,
+      },
+    ]);
   });
 
   test("superadmin picks site → location; an admin's location is pinned", () => {
