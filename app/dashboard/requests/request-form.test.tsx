@@ -37,7 +37,10 @@ const {
   gridDates,
   gridRows,
   inactiveLinePairs,
+  normalizeHeadcount,
   quickFillCells,
+  fieldErrorsSummary,
+  refusalToast,
 } = await import("./request-form");
 
 const SITE_A = "11111111-1111-4111-8111-111111111111";
@@ -229,6 +232,121 @@ describe("collectLines / buildCreateInput (the submit payload)", () => {
     expect(built.ok).toBeFalse();
     if (built.ok) return;
     expect(built.fieldErrors.lines).toBe("Fill at least one headcount");
+  });
+
+  test("a typed '0' headcount never becomes a line (schema min is 1)", () => {
+    const week = gridDates("weekly", MONDAY);
+    const lines = collectLines(
+      { [`${WA_A1}|${SH_A1}|${week[0]}`]: "0", [`${WA_A1}|${SH_A1}|${week[1]}`]: "2" },
+      week,
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.headcount).toBe(2);
+    expect(normalizeHeadcount("0")).toBe("");
+    expect(normalizeHeadcount("10")).toBe("10");
+  });
+});
+
+describe("refusal surfacing (toasts + grid errors)", () => {
+  test("a fieldErrors-only refusal toasts a summary containing the lines error", () => {
+    const text = refusalToast({
+      ok: false,
+      fieldErrors: {
+        lines: "Duplicate work area, shift and date combination",
+      },
+    });
+    expect(text).toContain("lines: Duplicate work area, shift and date combination");
+  });
+
+  test("sub-field refusals keep their keyed context in the summary", () => {
+    const text = refusalToast({
+      ok: false,
+      fieldErrors: {
+        "lines.2.date": "Line date must fall within the request week",
+      },
+    });
+    expect(text).toContain(
+      "lines.2.date: Line date must fall within the request week",
+    );
+  });
+
+  test("a message refusal toasts the message itself (unchanged behavior)", () => {
+    expect(
+      refusalToast({ ok: false, message: "Request state changed, reload" }),
+    ).toBe("Request state changed, reload");
+  });
+
+  test("an ok result toasts nothing", () => {
+    expect(refusalToast({ ok: true })).toBeNull();
+  });
+
+  test("the client-side empty-grid guard produces the toasted text", () => {
+    const built = buildCreateInput({
+      type: "weekly",
+      weekStart: MONDAY,
+      requestDate: null,
+      notes: "",
+      siteLocationId: LOC_A1,
+      values: {},
+    });
+    expect(built.ok).toBeFalse();
+    if (built.ok) return;
+    // handleSubmit toasts fieldErrorsSummary(built.fieldErrors) — the same
+    // string asserted here.
+    expect(fieldErrorsSummary(built.fieldErrors)).toContain(
+      "Fill at least one headcount",
+    );
+  });
+
+  test("more than three field errors collapse into a count", () => {
+    const text = fieldErrorsSummary({
+      a: "1",
+      b: "2",
+      c: "3",
+      d: "4",
+    });
+    expect(text).toContain("a: 1");
+    expect(text).toContain("(+1 more)");
+  });
+
+  test("fieldErrors.lines renders next to the grid", () => {
+    const html = renderToStaticMarkup(
+      <RequestForm
+        siteLocations={siteLocations}
+        sites={sites}
+        activeWorkAreas={activeWorkAreas}
+        activeShifts={activeShifts}
+        type="weekly"
+        siteLocationId={LOC_A1}
+        defaultWeekStart={MONDAY}
+        initialFieldErrors={{ lines: "Duplicate work area, shift and date combination" }}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html.includes("Duplicate work area, shift and date combination")).toBeTrue();
+  });
+
+  test("a lines.<i> refusal renders under the matching grid row", () => {
+    const html = renderToStaticMarkup(
+      <RequestForm
+        siteLocations={siteLocations}
+        sites={sites}
+        activeWorkAreas={activeWorkAreas}
+        activeShifts={activeShifts}
+        type="weekly"
+        siteLocationId={LOC_A1}
+        defaultWeekStart={MONDAY}
+        initialFieldErrors={{
+          "lines.0.date": "Line date must fall within the request week",
+        }}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(
+      html.includes("Line date must fall within the request week"),
+    ).toBeTrue();
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { EraserIcon, SparklesIcon, CalendarPlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,6 +12,7 @@ import type {
   SiteLocationOption,
   SiteOption,
 } from "@/types/forms";
+import { GENERIC_ERROR } from "@/lib/action-state";
 import { weekDates } from "@/lib/week";
 import {
   createRequest,
@@ -115,7 +116,7 @@ export function collectLines(values: GridValues, dates: string[]) {
       const [workAreaId, shiftDefinitionId, date] = key.split("|");
       return { workAreaId, shiftDefinitionId, date, headcount: Number(headcount) };
     })
-    .filter((line) => allowed.has(line.date))
+    .filter((line) => allowed.has(line.date) && line.headcount > 0)
     .sort(
       (a, b) =>
         `${a.workAreaId}${a.shiftDefinitionId}${a.date}`.localeCompare(
@@ -299,8 +300,35 @@ function SelectField({
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // Headcounts are typed as digits-only strings capped at the schema's 999.
-const normalizeHeadcount = (raw: string) =>
-  raw.replace(/\D/g, "").slice(0, 3);
+// A bare "0" normalizes to empty — the line schema's min is 1, so a typed
+// zero can only ever produce a doomed submission.
+export const normalizeHeadcount = (raw: string) => {
+  const digits = raw.replace(/\D/g, "").slice(0, 3);
+  return digits === "0" ? "" : digits;
+};
+
+// Compact toast text for a fieldErrors-only refusal (no `message`): the
+// first few "key: message" pairs, then a count of the rest.
+export function fieldErrorsSummary(fieldErrors: Record<string, string>) {
+  const entries = Object.entries(fieldErrors);
+  if (entries.length === 0) return GENERIC_ERROR;
+  const head = entries
+    .slice(0, 3)
+    .map(([key, error]) => `${key}: ${error}`);
+  return entries.length > 3
+    ? `${head.join(" · ")} (+${entries.length - 3} more)`
+    : head.join(" · ");
+}
+
+// The toast text a failed action result must produce: its `message` when
+// one exists, else a summary of its fieldErrors (never silent).
+export function refusalToast(
+  result: ActionState,
+): string | null {
+  if (result.ok) return null;
+  if (result.message) return result.message;
+  return fieldErrorsSummary(result.fieldErrors ?? {});
+}
 
 export function RequestForm({
   siteLocations,
@@ -470,6 +498,9 @@ export function RequestForm({
     });
     if (!built.ok) {
       setFieldErrors(built.fieldErrors);
+      // The guard must never no-op silently — the same summary text the
+      // server refusals get.
+      toast.error(fieldErrorsSummary(built.fieldErrors));
       return;
     }
 
@@ -483,10 +514,9 @@ export function RequestForm({
         return;
       }
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
-      if (result.message) {
-        setMessage(result.message);
-        toast.error(result.message);
-      }
+      if (result.message) setMessage(result.message);
+      const toastText = refusalToast(result);
+      if (toastText) toast.error(toastText);
     });
   }
 
@@ -617,6 +647,10 @@ export function RequestForm({
             This location has no active work areas or shifts yet.
           </p>
         ) : (
+          <div className="flex flex-col gap-2">
+          {fieldErrors.lines ? (
+            <FieldError errors={[{ message: fieldErrors.lines }]} />
+          ) : null}
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-sm">
               <thead>
@@ -646,8 +680,18 @@ export function RequestForm({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.key} className="border-b">
+                {rows.map((row, index) => {
+                  // Best-effort per-line placement: the action's refusal
+                  // keys are lines-array indexes (`lines.<i>[.field]`), not
+                  // grid coordinates, so a row matching the index — if any
+                  // — gets the message inline; the toast is the safety net.
+                  const rowError =
+                    fieldErrors[`lines.${index}`] ??
+                    fieldErrors[`lines.${index}.date`] ??
+                    fieldErrors[`lines.${index}.headcount`];
+                  return (
+                    <Fragment key={row.key}>
+                      <tr className="border-b">
                     <td className="px-3 py-1.5">
                       {`${row.workAreaName} / ${row.shiftLabel}`}
                     </td>
@@ -708,8 +752,23 @@ export function RequestForm({
                         </span>
                       </td>
                     ) : null}
-                  </tr>
-                ))}
+                      </tr>
+                      {rowError ? (
+                        <tr
+                          key={`${row.key}-error`}
+                          className="border-b"
+                        >
+                          <td
+                            colSpan={dates.length + (type_ === "weekly" ? 2 : 1)}
+                            className="px-3 py-1 text-xs text-destructive"
+                          >
+                            {rowError}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
                 {inactivePairs.map((pair) => (
                   <tr
                     key={`${pair.workAreaId}|${pair.shiftDefinitionId}`}
@@ -751,6 +810,7 @@ export function RequestForm({
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
         )}
 
