@@ -1,5 +1,4 @@
 import { and, eq, sql } from "drizzle-orm";
-import type { SQL } from "drizzle-orm";
 
 import { rosterPlan } from "../drizzle/schema";
 import { db } from "./db";
