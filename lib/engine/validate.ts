@@ -1,21 +1,27 @@
 import type { EffectiveRules, RuleKey } from "@/types/engine";
+import { dayFromNumber, dayNumber, mondayOf, monthKey } from "./dates";
 
 // Pure validator for draft rosters over the effective rules C1–C7.
 // No DB, no Next, no clock — assignments + worker profiles + resolved rules
 // in, violations out. Rules enter only via the `rules` parameter: a site
 // with c1 = 6 legitimately allows 6 work days per week.
-
-export type Shift = 1 | 2 | 3;
+//
+// The engine speaks ordered shift definitions: `shiftOrder` holds
+// shift-definition ids by order index and C3/C4 compare indices into it.
+// A shiftDefId outside shiftOrder is flagged (rule "C3", "unknown shift")
+// to fail closed on bad input, and stays rotation-neutral. Cross-plan
+// history enters as extra rows of the same `assignments` array.
 
 export interface RosterAssignment {
   workerId: string;
   date: string; // "YYYY-MM-DD"
-  shift: Shift;
+  shiftDefId: string; // member of shiftOrder
   workAreaId: string;
 }
 
 export interface WorkerProfile {
   workAreaId: string;
+  positionIds: readonly string[];
 }
 
 export interface Violation {
@@ -25,35 +31,24 @@ export interface Violation {
   message: string;
 }
 
-// Day-number of a "YYYY-MM-DD" date: days since 1970-01-01, UTC. Pure
-// string/number math — deterministic, no Date.now, no timezone drift.
-const dayNumber = (date: string): number => {
-  const [y, m, d] = date.split("-").map(Number);
-  return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000);
-};
-
-const dayFromNumber = (n: number): string => new Date(n * 86_400_000).toISOString().slice(0, 10);
-
-// 1970-01-05 is the first Monday of the epoch (day-number 4), so this maps
-// any date onto its Monday-start week (architecture: weeks start Monday).
-const mondayOf = (date: string): string => {
-  const n = dayNumber(date);
-  return dayFromNumber(n - ((((n - 4) % 7) + 7) % 7));
-};
-
-const monthKey = (date: string): string => date.slice(0, 7);
-
 export function validateRoster(
   assignments: RosterAssignment[],
   workers: Record<string, WorkerProfile>,
   rules: EffectiveRules,
+  shiftOrder: readonly string[],
+  areaRequirements: Record<string, readonly string[]>,
 ): Violation[] {
   const violations: Violation[] = [];
+  const indexOf = new Map<string, number>(shiftOrder.map((id, i) => [id, i] as const));
 
   // workerId -> assignments in date order. One shift per worker-day is the
   // roster domain (a draft roster assigns at most one shift per day).
   const byWorker = new Map<string, RosterAssignment[]>();
   for (const a of assignments) {
+    if (!indexOf.has(a.shiftDefId)) {
+      violations.push({ rule: "C3", workerId: a.workerId, date: a.date, message: "unknown shift" });
+      continue;
+    }
     const list = byWorker.get(a.workerId);
     if (list) list.push(a);
     else byWorker.set(a.workerId, [a]);
@@ -64,10 +59,10 @@ export function validateRoster(
     const days = [...list].sort((a, b) => a.date.localeCompare(b.date));
     checkWeekLimit(days, workerId, rules, violations);
     checkMonthLimit(days, workerId, rules, violations);
-    checkRotation(days, workerId, rules, violations);
-    checkRestAfterShift3(days, workerId, rules, violations);
+    checkRotation(days, workerId, rules, violations, indexOf);
+    checkRestAfterLastShift(days, workerId, rules, violations, indexOf);
     checkMandatoryBreak(days, workerId, rules, violations);
-    checkQualification(days, workerId, workers[workerId], rules, violations);
+    checkQualification(days, workerId, workers[workerId], rules, areaRequirements, violations);
   }
 
   return violations;
@@ -120,48 +115,52 @@ function checkMonthLimit(
   }
 }
 
-// C3: forward rotation 1→2→3 only, on consecutive calendar days (a rest day
-// between assignments resets rotation — downshifts across a gap don't count).
+// C3: rotation must not downshift — the order index of an assignment must
+// not be lower than the previous day's (a rest day between resets).
 function checkRotation(
   days: RosterAssignment[],
   workerId: string,
   rules: EffectiveRules,
   violations: Violation[],
+  indexOf: ReadonlyMap<string, number>,
 ): void {
   if (!rules.c3.value) return;
   let prev: RosterAssignment | undefined;
   for (const a of days) {
-    if (prev && dayNumber(a.date) - dayNumber(prev.date) === 1 && a.shift < prev.shift) {
+    if (prev && dayNumber(a.date) - dayNumber(prev.date) === 1 && indexOf.get(a.shiftDefId)! < indexOf.get(prev.shiftDefId)!) {
       violations.push({
         rule: "C3",
         workerId,
         date: a.date,
-        message: `Shift downshift ${prev.shift}→${a.shift} on consecutive days (${prev.date} → ${a.date})`,
+        message: `Shift downshift from ${prev.shiftDefId} to ${a.shiftDefId} on consecutive days (${prev.date} → ${a.date})`,
       });
     }
     prev = a;
   }
 }
 
-// C4: the day immediately after a shift-3 day must be a rest day; working
-// on exactly that day violates.
-function checkRestAfterShift3(
+// C4: the day immediately after the last shift in the order must be a rest
+// day; working on exactly that day violates.
+function checkRestAfterLastShift(
   days: RosterAssignment[],
   workerId: string,
   rules: EffectiveRules,
   violations: Violation[],
+  indexOf: ReadonlyMap<string, number>,
 ): void {
   if (!rules.c4.value) return;
   const assigned = new Set(days.map((a) => a.date));
+  const lastIndex = indexOf.size - 1;
+  if (lastIndex < 0) return;
   for (const a of days) {
-    if (a.shift !== 3) continue;
+    if (indexOf.get(a.shiftDefId) !== lastIndex) continue;
     const next = dayFromNumber(dayNumber(a.date) + 1);
     if (assigned.has(next)) {
       violations.push({
         rule: "C4",
         workerId,
         date: next,
-        message: `Works ${next}, the day immediately after a shift-3 day (${a.date})`,
+        message: `Works ${next}, the day immediately after the last shift (${a.date})`,
       });
     }
   }
@@ -202,18 +201,29 @@ function checkMandatoryBreak(
   }
 }
 
-// C7 (dormant): will flag assignments to work requiring a qualification the
-// worker lacks. There is nothing to compare until workers carry
-// qualifications and work areas declare requirements — until then every
-// worker skips. When that data model lands, filling in the comparison is
-// the only change needed.
+// C7: an area whose requirement set is non-empty requires the worker to
+// hold at least one of the required positions. Empty sets and profiles the
+// worker data does not cover skip the check (no qualification data to
+// compare — c7 only bites where requirements are actually declared).
 function checkQualification(
   days: RosterAssignment[],
   workerId: string,
   profile: WorkerProfile | undefined,
   rules: EffectiveRules,
+  areaRequirements: Record<string, readonly string[]>,
   violations: Violation[],
 ): void {
   if (!rules.c7.value || !profile) return;
-  // dormant: no qualification data to compare yet
+  for (const a of days) {
+    const required = areaRequirements[a.workAreaId];
+    if (!required || required.length === 0) continue;
+    if (!required.some((p) => profile.positionIds.includes(p))) {
+      violations.push({
+        rule: "C7",
+        workerId,
+        date: a.date,
+        message: `Assigned to ${a.workAreaId} on ${a.date} without any required position`,
+      });
+    }
+  }
 }
