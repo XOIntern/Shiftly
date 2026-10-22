@@ -3,7 +3,8 @@ import { mondayOf, monthKey, dayNumber } from "./dates";
 import type { GeneratorWorker, RequirementLine, SuggestedCandidate } from "./generate";
 import { rankWorkers } from "./generate";
 import { validateRoster } from "./validate";
-import type { RosterAssignment, WorkerProfile } from "./validate";
+import type { RosterAssignment } from "./validate";
+import { buildWorkersRecord } from "./validate";
 
 // Pure replacement suggester: for one unfilled requirement line, rank the
 // area's workers by the generator's sortKey and return at most `limit`
@@ -50,8 +51,7 @@ export function suggestReplacements(
     else byWorker.set(a.workerId, [a]);
   }
 
-  const workersRecord: Record<string, WorkerProfile> = {};
-  for (const w of workers) workersRecord[w.id] = w;
+  const workersRecord = buildWorkersRecord(workers);
 
   // Area pool, ranked exactly like the generator ranks its greedy picks.
   const pool = workers.filter((w) => w.workAreaId === line.workAreaId);

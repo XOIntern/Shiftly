@@ -2,6 +2,7 @@ import type { EffectiveRules } from "@/types/engine";
 import { dayNumber, mondayOf, monthKey } from "./dates";
 import { validateRoster } from "./validate";
 import type { RosterAssignment, WorkerProfile } from "./validate";
+import { buildWorkersRecord } from "./validate";
 
 // Pure deterministic draft generator over the effective rules C1–C7.
 // No DB, no Next, no clock, and NO randomness: two runs on identical input
@@ -148,8 +149,7 @@ export function generateDraft(input: GenerateInput): {
 } {
   const { requirements, workers, shiftOrder, areaRequirements, priorAssignments, rules } = input;
 
-  const workersRecord: Record<string, WorkerProfile> = {};
-  for (const w of workers) workersRecord[w.id] = w;
+  const workersRecord = buildWorkersRecord(workers);
 
   // Merged horizon per worker, seeded with prior history and grown as the
   // draft fills in — both feed sortKey and the admission loop.

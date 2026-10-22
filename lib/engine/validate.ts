@@ -24,6 +24,28 @@ export interface WorkerProfile {
   positionIds: readonly string[];
 }
 
+// The loaders emit one input row per (worker, eligible area) pair, so the
+// same id can appear several times with a per-area slice of positions. The
+// validator must judge the worker's FULL qualification set (C7 evaluates it
+// against each assignment's area), so the per-worker profile is built by
+// unioning positionIds across all pairs of one id — first pair wins the
+// workAreaId (the record's area is never read; C7 uses the assignment's).
+export function buildWorkersRecord(
+  workers: Iterable<{ id: string; workAreaId: string; positionIds: readonly string[] }>,
+): Record<string, WorkerProfile> {
+  const record: Record<string, WorkerProfile> = {};
+  for (const w of workers) {
+    const merged = record[w.id];
+    record[w.id] = merged
+      ? {
+          workAreaId: merged.workAreaId,
+          positionIds: [...new Set([...merged.positionIds, ...w.positionIds])],
+        }
+      : { workAreaId: w.workAreaId, positionIds: w.positionIds };
+  }
+  return record;
+}
+
 export interface Violation {
   rule: RuleKey;
   workerId: string;

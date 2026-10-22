@@ -291,4 +291,41 @@ describe("generateDraft (roster-engine task 2)", () => {
     expect(result.assignments.length).toBeGreaterThan(0);
     expect(elapsed).toBeLessThan(5000);
   });
+
+  test("capability-derived pairs: one worker eligible for two areas validates clean across both (union profile)", () => {
+    // The loaders emit one pair per (worker, eligible area). The per-worker
+    // profile handed to the validator must carry the UNION of the pair
+    // positionIds — otherwise C7 rejects the area whose requirement only
+    // matches the other pair's slice.
+    const result = generateDraft({
+      requirements: [
+        line("2026-01-05", "s0", "wa-a"),
+        line("2026-01-06", "s0", "wa-b"),
+      ],
+      workers: [
+        mkWorker("w1", "wa-a", ["pos-a"]),
+        mkWorker("w1", "wa-b", ["pos-b"]),
+      ],
+      shiftOrder: mkShift(3),
+      areaRequirements: { "wa-a": ["pos-a"], "wa-b": ["pos-b"] },
+      priorAssignments: [],
+      rules: rules({ c7: true }),
+    });
+
+    expect(result.deficits).toEqual([]);
+    expect(result.assignments).toEqual([
+      assign("w1", "2026-01-05", "s0", "wa-a"),
+      assign("w1", "2026-01-06", "s0", "wa-b"),
+    ]);
+    // The union profile validates clean on every filled row.
+    expect(
+      validateRoster(
+        result.assignments,
+        { w1: { workAreaId: "wa-a", positionIds: ["pos-a", "pos-b"] } },
+        rules({ c7: true }),
+        mkShift(3),
+        { "wa-a": ["pos-a"], "wa-b": ["pos-b"] },
+      ),
+    ).toEqual([]);
+  });
 });
