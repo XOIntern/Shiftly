@@ -15,6 +15,10 @@ import {
   locationUpdateSchema,
   shiftCreateSchema,
   shiftUpdateSchema,
+  mpRequestLineSchema,
+  mpRequestCreateSchema,
+  mpRequestUpdateSchema,
+  advanceStatusSchema,
 } from "./validators";
 import { fieldErrorsFrom } from "../lib/action-state";
 
@@ -1254,5 +1258,302 @@ describe("shiftUpdateSchema", () => {
       id: "not-a-uuid",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// MP request validators (Module 3, spec §3.3/§4): the create-shaped
+// validators behind the /dashboard/requests actions. Anchors are plain
+// "YYYY-MM-DD" strings — the DB does the belt-and-braces (CHECKs, dow
+// anchor) and the schema refine mirrors it: weekly anchors on a Monday and
+// every line falls inside that week; daily anchors on one date and every
+// line shares it. Refine issues are placed so fieldErrorsFrom lands them
+// per-field (weekStart / requestDate) or on the offending line
+// (lines.<i>.date).
+const MONDAY = "2026-01-05";
+const TUESDAY = "2026-01-06";
+const WEDNESDAY = "2026-01-07";
+const lineWorkArea = "2f6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b07";
+const lineShift = "3a6c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b08";
+
+const mpLine = (over: Partial<{
+  workAreaId: string;
+  shiftDefinitionId: string;
+  date: string;
+  headcount: number;
+}> = {}) => ({
+  workAreaId: lineWorkArea,
+  shiftDefinitionId: lineShift,
+  date: MONDAY,
+  headcount: 2,
+  ...over,
+});
+
+const weeklyBase = {
+  siteLocationId: "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04",
+  type: "weekly",
+  weekStart: MONDAY,
+  notes: "Extra hands for the week",
+  lines: [mpLine()],
+};
+
+describe("mpRequestLineSchema", () => {
+  test("accepts a valid line", () => {
+    expect(mpRequestLineSchema.safeParse(mpLine()).success).toBe(true);
+  });
+
+  test("rejects headcount 0 and a fractional headcount", () => {
+    expect(mpRequestLineSchema.safeParse(mpLine({ headcount: 0 })).success).toBe(false);
+    expect(mpRequestLineSchema.safeParse(mpLine({ headcount: 1.5 })).success).toBe(false);
+  });
+
+  test("rejects a non-YYYY-MM-DD date", () => {
+    expect(mpRequestLineSchema.safeParse(mpLine({ date: "05-01-2026" })).success).toBe(false);
+  });
+});
+
+describe("mpRequestCreateSchema", () => {
+  test("accepts a valid weekly request", () => {
+    const result = mpRequestCreateSchema.safeParse(weeklyBase);
+    expect(result.success).toBe(true);
+  });
+
+  test("siteLocationId is optional at the schema level (admin's is pinned, superadmin passes through)", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      type: "weekly",
+      weekStart: MONDAY,
+      lines: [mpLine()],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a Tuesday anchor with a per-field weekStart issue", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      weekStart: TUESDAY,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find(
+        (i) => i.path.join(".") === "weekStart",
+      );
+      expect(issue?.message).toBe("Week start must be a Monday");
+    }
+  });
+
+  test("rejects a weekly request without a weekStart", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      weekStart: undefined,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(fieldErrorsFrom(result.error).weekStart).toBe(
+        "Week start is required",
+      );
+    }
+  });
+
+  test("rejects a weekly request carrying a requestDate", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      requestDate: MONDAY,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.map((i) => i.path.join(".")),
+      ).toContain("requestDate");
+    }
+  });
+
+  test("rejects a line date outside the request week with a lines.<i>.date path", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      weekStart: "2026-02-02", // a different Monday, still valid itself
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.map((i) => i.path.join(".")),
+      ).toContain("lines.0.date");
+    }
+  });
+
+  test("accepts a weekly request whose lines span the week", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      lines: [
+        mpLine({ date: MONDAY }),
+        mpLine({ date: WEDNESDAY, headcount: 5 }),
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a weekly request whose lines span other weeks", () => {
+    const otherWeek = "2026-03-02";
+    const nextMonday = "2026-03-09";
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      weekStart: otherWeek,
+      lines: [mpLine({ date: nextMonday })],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.join(".") === "lines.0.date")).toBe(true);
+    }
+  });
+
+  test("accepts a valid daily request", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      type: "daily",
+      requestDate: MONDAY,
+      lines: [mpLine({ date: MONDAY })],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts a daily request with a siteId (superadmin passes through)", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      siteId: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+      siteLocationId: "7d3c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b04",
+      type: "daily",
+      requestDate: MONDAY,
+      lines: [mpLine({ date: MONDAY })],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a daily request with mixed line dates", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      type: "daily",
+      requestDate: MONDAY,
+      lines: [mpLine({ date: MONDAY }), mpLine({ date: TUESDAY })],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths).toContain("lines.1.date");
+      expect(paths).not.toContain("lines.0.date");
+    }
+  });
+
+  test("rejects a daily request carrying a weekStart", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      type: "daily",
+      requestDate: MONDAY,
+      weekStart: MONDAY,
+      lines: [mpLine({ date: MONDAY })],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.map((i) => i.path.join(".")),
+      ).toContain("weekStart");
+    }
+  });
+
+  test("rejects a daily request without a requestDate", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      type: "daily",
+      lines: [mpLine({ date: MONDAY })],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(fieldErrorsFrom(result.error).requestDate).toBe(
+        "Request date is required",
+      );
+    }
+  });
+
+  test("rejects empty lines", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      lines: [],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path.join(".")).toBe("lines");
+    }
+  });
+
+  test("rejects an over-long notes field", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      notes: "x".repeat(2001),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects an unknown type", () => {
+    const result = mpRequestCreateSchema.safeParse({
+      ...weeklyBase,
+      type: "monthly",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("mpRequestUpdateSchema", () => {
+  const base = {
+    id: "8e4c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b05",
+    notes: "Trimmed",
+    lines: [mpLine()],
+  };
+
+  test("accepts an edit with only id, notes and lines — no anchor needed", () => {
+    const result = mpRequestUpdateSchema.safeParse(base);
+    expect(result.success).toBe(true);
+  });
+
+  test("leaves the anchor and type to the stored row: parsed data carries neither", () => {
+    const result = mpRequestUpdateSchema.safeParse({
+      ...base,
+      type: "weekly",
+      weekStart: MONDAY,
+      requestDate: MONDAY,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect("type" in result.data).toBe(false);
+      expect("weekStart" in result.data).toBe(false);
+      expect("requestDate" in result.data).toBe(false);
+    }
+  });
+
+  test("keeps siteLocationId optional on the update path too", () => {
+    const result = mpRequestUpdateSchema.safeParse({
+      id: base.id,
+      lines: [mpLine()],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a non-uuid id", () => {
+    const result = mpRequestUpdateSchema.safeParse({ ...base, id: "nope" });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects empty lines", () => {
+    const result = mpRequestUpdateSchema.safeParse({ ...base, lines: [] });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("advanceStatusSchema", () => {
+  const id = "8e4c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b05";
+
+  test("accepts a valid status advance", () => {
+    const result = advanceStatusSchema.safeParse({ id, status: "received" });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects an unknown status and a non-uuid id", () => {
+    expect(
+      advanceStatusSchema.safeParse({ id, status: "flying" }).success,
+    ).toBe(false);
+    expect(
+      advanceStatusSchema.safeParse({ id: "nope", status: "received" }).success,
+    ).toBe(false);
   });
 });
