@@ -141,6 +141,13 @@
       "when": 1792691527203,
       "tag": "0019_luxuriant_mojo",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792699815390,
+      "tag": "0020_large_black_bolt",
+      "breakpoints": true
     }
   ]
 }
