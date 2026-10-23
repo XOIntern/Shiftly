@@ -207,12 +207,15 @@
   --duration-medium: 240ms;
   --duration-slow: 320ms;
 
-  /* The one sanctioned gradient — hero/empty states only (§2.8) */
+  /* The one sanctioned gradient — hero/empty states only (§2.8). Stops
+     strengthened 2026-10-22 (user feedback: too faint) so the glass
+     surfaces have real color to refract — the old near-white middle
+     read as a flat page. */
   --gradient-hero: linear-gradient(
     110deg,
-    #e6e9f8 0%,
-    #ffffff 55%,
-    #e4f7f6 100%
+    #d6ddf8 0%,
+    #eef1fc 45%,
+    #d3f4ef 100%
   );
 }
 
@@ -400,7 +403,6 @@
 }
 
 @utility container {
-  max-width: 72rem;
   padding-inline: 1rem;
   margin-inline: auto;
 
@@ -419,4 +421,41 @@
   @variant 2xl {
     padding-inline: 6rem;
   }
+}
+
+/*
+ * Glass fallback (design rule: glassmorphism ships with a solid fill).
+ * [data-glass] marks every glass surface; --glass-fill lets a surface pin
+ * its own solid color (e.g. the hero's primary-900 anchor card — its white
+ * text must never land on --card). Unlayered, so it wins over the bg and
+ * backdrop utilities without !important.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  [data-glass] {
+    background-color: var(--glass-fill, var(--card));
+    backdrop-filter: none;
+  }
+}
+
+/*
+ * Ambient drift for the hero color fields: the glass panes refract slowly
+ * moving color, so the glassmorphism reads as always on, not hover-only.
+ * Transform-only (GPU-composited). The prefers-reduced-motion block above
+ * flattens this to nothing (animation-duration !important), and each blob
+ * varies duration/delay inline so the three never sync.
+ */
+@keyframes blob-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2.5rem, -1.75rem, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(-2rem, 1.5rem, 0) scale(0.94);
+  }
+}
+
+.animate-blob-drift {
+  animation: blob-drift 42s ease-in-out infinite alternate;
 }
