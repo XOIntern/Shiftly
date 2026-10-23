@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { isMonday, weekDates } from "../lib/week";
 
+const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+
 const dateString = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be a valid YYYY-MM-DD");
+  .regex(DATE_SHAPE, "Date must be a valid YYYY-MM-DD");
 
 export const mpRequestLineSchema = z.object({
   workAreaId: z.uuid(),
@@ -46,6 +48,12 @@ export const mpRequestCreateSchema = mpRequestBaseSchema.superRefine(
           path: ["weekStart"],
           message: "Week start is required",
         });
+        return;
+      }
+      if (!DATE_SHAPE.test(data.weekStart)) {
+        // zod v4 runs this refine even when the base shape check failed,
+        // handing it the raw input — the Monday/week math below needs a
+        // parseable date, and the shape issue already landed on the field.
         return;
       }
       if (!isMonday(data.weekStart)) {
