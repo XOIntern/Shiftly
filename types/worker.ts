@@ -14,3 +14,8 @@ export type WorkerRow = {
   locationName: string;
   positions: { id: string; name: string; isActive: boolean }[];
 };
+
+export interface WorkerProfile {
+  workAreaId: string;
+  positionIds: readonly string[];
+}

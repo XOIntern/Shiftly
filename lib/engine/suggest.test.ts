@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import type { EffectiveRule, EffectiveRules } from "@/types/engine";
-import { DEFAULT_RULES } from "./types";
+import { DEFAULT_RULES } from "@/types/engine";
+import type { EffectiveRule, EffectiveRules, RosterAssignment } from "@/types/engine";
+import type { WorkerProfile } from "@/types/worker";
 import { suggestReplacements } from "./suggest";
 import type { RequirementLine } from "./generate";
 import { validateRoster } from "./validate";
-import type { RosterAssignment, WorkerProfile } from "./validate";
 
 // Task 2 of the roster-engine plan: the replacement suggester — pure,
 // deterministic, validator-clean candidates ranked by the same sortKey as

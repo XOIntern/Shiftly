@@ -1,9 +1,8 @@
-import type { EffectiveRules } from "@/types/engine";
+import type { EffectiveRules, RosterAssignment } from "@/types/engine";
 import { mondayOf, monthKey, dayNumber } from "./dates";
 import type { GeneratorWorker, RequirementLine, SuggestedCandidate } from "./generate";
 import { rankWorkers } from "./generate";
 import { validateRoster } from "./validate";
-import type { RosterAssignment } from "./validate";
 import { buildWorkersRecord } from "./validate";
 
 // Pure replacement suggester: for one unfilled requirement line, rank the

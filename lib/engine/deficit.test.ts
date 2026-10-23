@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { computeDeficit } from "./deficit";
 import type { RequirementLine } from "./generate";
-import type { RosterAssignment } from "./validate";
+import type { RosterAssignment } from "@/types/engine";
 
 // Task 2 of the roster-engine plan: deficit computation — the pure
 // bookkeeping layer that diffs requirement lines against filled

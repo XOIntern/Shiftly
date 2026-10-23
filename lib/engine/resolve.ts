@@ -1,6 +1,6 @@
 import type { EffectiveRule, EffectiveRules, RuleKey } from "@/types/engine";
 import type { RuleConfigRow } from "@/types/domain";
-import { DEFAULT_RULES } from "./types";
+import { DEFAULT_RULES } from "@/types/engine";
 
 const readInt = (row: RuleConfigRow): number | null => row.intValue;
 const readBool = (row: RuleConfigRow): boolean | null => row.boolValue;

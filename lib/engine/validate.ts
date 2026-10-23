@@ -1,5 +1,15 @@
-import type { EffectiveRules, RuleKey } from "@/types/engine";
-import { dayFromNumber, dayNumber, mondayOf, monthKey } from "./dates";
+import type {
+  EffectiveRules,
+  RosterAssignment,
+  RuleKey,
+} from "@/types/engine";
+import {
+  dayFromNumber,
+  dayNumber,
+  mondayOf,
+  monthKey,
+} from "@/lib/engine/dates";
+import type { WorkerProfile } from "@/types/worker";
 
 // Pure validator for draft rosters over the effective rules C1–C7.
 // No DB, no Next, no clock — assignments + worker profiles + resolved rules
@@ -12,18 +22,6 @@ import { dayFromNumber, dayNumber, mondayOf, monthKey } from "./dates";
 // to fail closed on bad input, and stays rotation-neutral. Cross-plan
 // history enters as extra rows of the same `assignments` array.
 
-export interface RosterAssignment {
-  workerId: string;
-  date: string; // "YYYY-MM-DD"
-  shiftDefId: string; // member of shiftOrder
-  workAreaId: string;
-}
-
-export interface WorkerProfile {
-  workAreaId: string;
-  positionIds: readonly string[];
-}
-
 // The loaders emit one input row per (worker, eligible area) pair, so the
 // same id can appear several times with a per-area slice of positions. The
 // validator must judge the worker's FULL qualification set (C7 evaluates it
@@ -31,7 +29,11 @@ export interface WorkerProfile {
 // unioning positionIds across all pairs of one id — first pair wins the
 // workAreaId (the record's area is never read; C7 uses the assignment's).
 export function buildWorkersRecord(
-  workers: Iterable<{ id: string; workAreaId: string; positionIds: readonly string[] }>,
+  workers: Iterable<{
+    id: string;
+    workAreaId: string;
+    positionIds: readonly string[];
+  }>,
 ): Record<string, WorkerProfile> {
   const record: Record<string, WorkerProfile> = {};
   for (const w of workers) {
@@ -61,14 +63,21 @@ export function validateRoster(
   areaRequirements: Record<string, readonly string[]>,
 ): Violation[] {
   const violations: Violation[] = [];
-  const indexOf = new Map<string, number>(shiftOrder.map((id, i) => [id, i] as const));
+  const indexOf = new Map<string, number>(
+    shiftOrder.map((id, i) => [id, i] as const),
+  );
 
   // workerId -> assignments in date order. One shift per worker-day is the
   // roster domain (a draft roster assigns at most one shift per day).
   const byWorker = new Map<string, RosterAssignment[]>();
   for (const a of assignments) {
     if (!indexOf.has(a.shiftDefId)) {
-      violations.push({ rule: "C3", workerId: a.workerId, date: a.date, message: "unknown shift" });
+      violations.push({
+        rule: "C3",
+        workerId: a.workerId,
+        date: a.date,
+        message: "unknown shift",
+      });
       continue;
     }
     const list = byWorker.get(a.workerId);
@@ -84,7 +93,14 @@ export function validateRoster(
     checkRotation(days, workerId, rules, violations, indexOf);
     checkRestAfterLastShift(days, workerId, rules, violations, indexOf);
     checkMandatoryBreak(days, workerId, rules, violations);
-    checkQualification(days, workerId, workers[workerId], rules, areaRequirements, violations);
+    checkQualification(
+      days,
+      workerId,
+      workers[workerId],
+      rules,
+      areaRequirements,
+      violations,
+    );
   }
 
   return violations;
@@ -149,7 +165,11 @@ function checkRotation(
   if (!rules.c3.value) return;
   let prev: RosterAssignment | undefined;
   for (const a of days) {
-    if (prev && dayNumber(a.date) - dayNumber(prev.date) === 1 && indexOf.get(a.shiftDefId)! < indexOf.get(prev.shiftDefId)!) {
+    if (
+      prev &&
+      dayNumber(a.date) - dayNumber(prev.date) === 1 &&
+      indexOf.get(a.shiftDefId)! < indexOf.get(prev.shiftDefId)!
+    ) {
       violations.push({
         rule: "C3",
         workerId,

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_RULES } from "./types";
-import type { EffectiveRule, EffectiveRules } from "@/types/engine";
+import { DEFAULT_RULES } from "@/types/engine";
+import type { EffectiveRule, EffectiveRules, RosterAssignment } from "@/types/engine";
+import type { WorkerProfile } from "@/types/worker";
 import { resolveRules } from "./resolve";
 import type { RuleConfigRow } from "@/types/domain";
 import { validateRoster } from "./validate";
-import type { RosterAssignment, WorkerProfile } from "./validate";
 
 // Task 1 of the roster-engine plan: the pure validator over an ordered set
 // of shift definitions. The engine speaks indices into `shiftOrder`, never

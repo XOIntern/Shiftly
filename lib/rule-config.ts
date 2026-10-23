@@ -3,7 +3,7 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { auditLog, rosterRuleConfig, site, siteLocation } from "../drizzle/schema";
 import { db } from "./db";
 import { resolveRules } from "./engine/resolve";
-import { DEFAULT_RULES } from "./engine/types";
+import { DEFAULT_RULES } from "@/types/engine";
 import type { EffectiveRules } from "@/types/engine";
 import type { RuleConfigRow } from "@/types/domain";
 

@@ -1,7 +1,10 @@
-import type { EffectiveRules } from "@/types/engine";
+import type {
+  EffectiveRules,
+  RosterAssignment,
+} from "@/types/engine";
+import type { WorkerProfile } from "@/types/worker";
 import { dayNumber, mondayOf, monthKey } from "./dates";
 import { validateRoster } from "./validate";
-import type { RosterAssignment, WorkerProfile } from "./validate";
 import { buildWorkersRecord } from "./validate";
 
 // Pure deterministic draft generator over the effective rules C1–C7.

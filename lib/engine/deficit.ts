@@ -1,5 +1,5 @@
 import type { Deficit, RequirementLine } from "./generate";
-import type { RosterAssignment } from "./validate";
+import type { RosterAssignment } from "@/types/engine";
 
 // Pure deficit computation: diff requirement lines against the filled
 // assignments. Where the generator's deficits explain WHY a slot could not

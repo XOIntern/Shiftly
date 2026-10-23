@@ -13,7 +13,7 @@ import {
   workAreaPosition,
 } from "../drizzle/schema";
 import type { GeneratorWorker, RequirementLine } from "./engine/generate";
-import type { RosterAssignment } from "./engine/validate";
+import type { RosterAssignment } from "@/types/engine";
 
 // Data loaders between the roster schema and the pure engine (roster-engine
 // task 5). Every loader is site_location-pinned, so the actions can derive

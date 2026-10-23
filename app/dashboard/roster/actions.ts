@@ -25,7 +25,8 @@ import { generateDraft } from "@/lib/engine/generate";
 import type { RequirementLine, SuggestedCandidate } from "@/lib/engine/generate";
 import { suggestReplacements } from "@/lib/engine/suggest";
 import { buildWorkersRecord, validateRoster } from "@/lib/engine/validate";
-import type { RosterAssignment, Violation } from "@/lib/engine/validate";
+import type { Violation } from "@/lib/engine/validate";
+import type { RosterAssignment } from "@/types/engine";
 import { loadEffectiveRules } from "@/lib/rule-config";
 import {
   latestPublishedWeeklyPlan,

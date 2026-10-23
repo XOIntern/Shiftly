@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_RULES } from "./types";
+import { DEFAULT_RULES } from "@/types/engine";
 import { resolveRules } from "./resolve";
 import type { RuleConfigRow } from "@/types/domain";
 
