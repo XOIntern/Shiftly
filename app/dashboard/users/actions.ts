@@ -22,7 +22,7 @@ import {
   parseUserCreate,
   parseUserUpdate,
   userPasswordSchema,
-} from "@/validation/validators";
+} from "@/validation/user";
 
 // Loads a management target and applies the shared permission gate. The
 // target's site for the gate comes from the bound location (admins only);

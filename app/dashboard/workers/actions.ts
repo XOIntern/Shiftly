@@ -19,7 +19,7 @@ import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import {
   workerCreateSchema,
   workerUpdateSchema,
-} from "@/validation/validators";
+} from "@/validation/worker";
 import {
   workerBulkMutationWhere,
   workerMutationWhere,

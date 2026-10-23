@@ -18,7 +18,7 @@ import {
   createRequest,
   updateRequestLines,
 } from "@/app/dashboard/requests/actions";
-import type { MpRequestCreateInput } from "@/validation/validators";
+import type { MpRequestCreateInput } from "@/validation/request-line";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

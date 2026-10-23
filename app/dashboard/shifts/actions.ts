@@ -16,7 +16,7 @@ import {
   shiftUpdateSchema,
   type ShiftCreateInput,
   type ShiftUpdateInput,
-} from "@/validation/validators";
+} from "@/validation/shift";
 import { shiftMutationWhere, shiftOwnedByActor } from "@/lib/shift-scope";
 
 // The partial unique on shift_definition (site_location_id, order_index)

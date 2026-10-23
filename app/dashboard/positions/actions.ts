@@ -21,7 +21,7 @@ import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import {
   positionCreateSchema,
   positionUpdateSchema,
-} from "@/validation/validators";
+} from "@/validation/position";
 import {
   positionBulkMutationWhere,
   positionMutationWhere,

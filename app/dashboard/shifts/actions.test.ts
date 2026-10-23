@@ -15,7 +15,7 @@ import type { SessionUser } from "@/types/session";
 import type {
   ShiftCreateInput,
   ShiftUpdateInput,
-} from "@/validation/validators";
+} from "@/validation/shift";
 
 // The shift actions resolve their actor through requireUser — swapped
 // for a stub so the real server actions read against the test database.

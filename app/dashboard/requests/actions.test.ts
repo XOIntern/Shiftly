@@ -18,7 +18,7 @@ import type { SessionUser } from "@/types/session";
 import type {
   MpRequestCreateInput,
   MpRequestLineInput,
-} from "@/validation/validators";
+} from "@/validation/request-line";
 
 // The request actions resolve their actor through requireUser — swapped
 // for a stub so the real server actions read against the test database.

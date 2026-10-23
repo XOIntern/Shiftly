@@ -19,7 +19,7 @@ import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import {
   workAreaCreateSchema,
   workAreaUpdateSchema,
-} from "@/validation/validators";
+} from "@/validation/worker-area";
 import {
   workAreaMutationWhere,
   workAreaOwnedByActor,

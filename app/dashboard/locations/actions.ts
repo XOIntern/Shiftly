@@ -14,7 +14,7 @@ import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import {
   locationCreateSchema,
   locationUpdateSchema,
-} from "@/validation/validators";
+} from "@/validation/location";
 import {
   locationMutationWhere,
   locationOwnedByActor,
