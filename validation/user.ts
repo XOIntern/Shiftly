@@ -65,7 +65,7 @@ export function parseUserCreate(input: {
 export const userPasswordSchema = z.object({
   newPassword: z
     .string()
-    .min(8, "Password must be at least 15 characters")
+    .min(8, "Password must be at least 8 characters")
     .max(100),
 });
 
@@ -74,7 +74,7 @@ export const changePasswordSchema = z
     currentPassword: z.string().min(1),
     newPassword: z
       .string()
-      .min(8, "Password must be at least 15 characters")
+      .min(8, "Password must be at least 8 characters")
       .max(100),
   })
   .refine((v) => v.newPassword !== v.currentPassword, {
