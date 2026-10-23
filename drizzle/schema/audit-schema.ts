@@ -1,11 +1,5 @@
 import { relations } from "drizzle-orm";
-import {
-  jsonb,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-} from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import { user } from "./auth-schema";
 import { site, siteLocation } from "./site-schema";

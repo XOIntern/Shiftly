@@ -13,7 +13,11 @@ const TEST_PASSWORD = "password-123456";
 
 // Provisions a user + credential account the same way HO provisioning does
 // (seed-script style), since Better Auth sign-up is disabled in lib/auth.ts.
-async function createUser({ isActive }: { isActive: boolean }): Promise<string> {
+async function createUser({
+  isActive,
+}: {
+  isActive: boolean;
+}): Promise<string> {
   const userId = randomUUID();
   const passwordHash = await hashPassword(TEST_PASSWORD);
   await db.insert(user).values({
@@ -51,7 +55,11 @@ async function signIn(userId: string): Promise<SignInResult> {
       body: { email, password: TEST_PASSWORD },
       returnHeaders: true,
     })
-    .then(({ response, headers }) => ({ response, headers, error: null as string | null }))
+    .then(({ response, headers }) => ({
+      response,
+      headers,
+      error: null as string | null,
+    }))
     .catch((err: unknown) => ({
       response: null,
       headers: null,
