@@ -17,3 +17,7 @@ export const dataTableFeatures = tableFeatures({
     sortable?: boolean;
   },
 });
+
+// The feature-map type cannot be spelled, only derived — so it is exported
+// beside the runtime value it comes from instead of a types/ module.
+export type DataTableFeatures = typeof dataTableFeatures;

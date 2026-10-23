@@ -1,6 +1,6 @@
 import { asc, desc, type SQL, type SQLWrapper } from "drizzle-orm";
 
-import type { TableSort } from "@/types/data-table";
+import type { TableSort } from "@/lib/table-params";
 
 // Turns the parsed URL sorts into an ORDER BY list. Column ids are
 // own-property checked against the page's whitelist — a plain truthiness
