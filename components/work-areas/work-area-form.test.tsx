@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { SiteOption, SiteLocationOption, WorkAreaRow } from "@/types/forms";
+import type { SiteOption, SiteLocationOption } from "@/types/site";
+import type { WorkAreaRow } from "@/types/work-area";
 import { WorkAreaForm, siteLocationOptionsFor } from "./work-area-form";
 
 // Form fixtures: site A holds locations LA1/LA2, site B holds LB1. No DB —

@@ -9,12 +9,9 @@ mock.module("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import type {
-  PositionRow,
-  SiteOption,
-  SiteLocationOption,
-  WorkerRow,
-} from "@/types/forms";
+import type { PositionRow } from "@/types/position";
+import type { SiteOption, SiteLocationOption } from "@/types/site";
+import type { WorkerRow } from "@/types/worker";
 import { WorkersTable } from "./workers-table";
 
 // No DB — the table is pure presentation over the options and rows the page

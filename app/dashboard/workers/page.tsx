@@ -28,12 +28,9 @@ import {
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWorkerButton } from "@/components/workers/worker-form";
-import type {
-  PositionRow,
-  SiteLocationOption,
-  SiteOption,
-  WorkerRow,
-} from "@/types/forms";
+import type { PositionRow } from "@/types/position";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
+import type { WorkerRow } from "@/types/worker";
 import { WorkersTable } from "@/components/workers/workers-table";
 
 // Deliberate block: the page queries master data behind the session check,

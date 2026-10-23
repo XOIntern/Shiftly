@@ -4,7 +4,7 @@ import { useId, useState, useTransition } from "react";
 
 import { updateRuleConfig } from "@/app/dashboard/settings/rule-config-actions";
 import type { RuleKey } from "@/types/engine";
-import type { RuleLocationOption, RuleRowView } from "@/types/forms";
+import type { RuleLocationOption, RuleRowView } from "@/types/rule";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";

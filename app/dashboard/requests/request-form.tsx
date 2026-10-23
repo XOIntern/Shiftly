@@ -9,9 +9,8 @@ import type {
   MpRequestGridShift,
   MpRequestGridWorkArea,
   MpRequestLineView,
-  SiteLocationOption,
-  SiteOption,
-} from "@/types/forms";
+} from "@/types/mp-request";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { mondayOf, weekDates } from "@/lib/week";
 import {

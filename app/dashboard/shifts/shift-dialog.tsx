@@ -5,7 +5,8 @@ import { CalendarClockIcon, EllipsisIcon, PencilIcon, PowerIcon } from "lucide-r
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
-import type { SiteLocationOption, SiteOption, ShiftRow } from "@/types/forms";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
+import type { ShiftRow } from "@/types/shift";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createShift,

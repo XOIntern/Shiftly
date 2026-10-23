@@ -12,7 +12,7 @@ import {
 import { requireHO } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateLocationButton } from "@/components/locations/location-form";
-import type { SiteOption } from "@/types/forms";
+import type { SiteOption } from "@/types/site";
 import { LocationsTable } from "@/components/locations/locations-table";
 
 // Deliberate block: the page queries master data behind the HO session check,

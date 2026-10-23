@@ -1,4 +1,4 @@
-import type { PositionRow } from "@/types/forms";
+import type { PositionRow } from "@/types/position";
 
 // Shared position-picker rules, extracted from the worker form so the
 // work-area form can reuse them without a component-level import cycle

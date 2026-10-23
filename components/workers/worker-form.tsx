@@ -10,12 +10,9 @@ import {
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
-import type {
-  PositionRow,
-  SiteOption,
-  SiteLocationOption,
-  WorkerRow,
-} from "@/types/forms";
+import type { PositionRow } from "@/types/position";
+import type { SiteOption, SiteLocationOption } from "@/types/site";
+import type { WorkerRow } from "@/types/worker";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createWorker,

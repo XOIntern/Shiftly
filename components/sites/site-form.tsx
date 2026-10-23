@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
-import type { SiteRow } from "@/types/forms";
+import type { SiteRow } from "@/types/site";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createSite,

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { MpRequestRow } from "@/types/forms";
+import type { MpRequestRow, MpRequestGridShift, MpRequestGridWorkArea } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { advanceStatus } from "@/app/dashboard/requests/actions";
 import { Button } from "@/components/ui/button";
@@ -39,10 +39,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RequestForm } from "@/app/dashboard/requests/request-form";
-import type {
-  MpRequestGridShift,
-  MpRequestGridWorkArea,
-} from "@/types/forms";
 
 // Manual status machine (mirror of the actions' LEGAL_TRANSITIONS — the
 // two MUST stay in step): the menu renders ONLY these next statuses, so a

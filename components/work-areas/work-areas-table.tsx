@@ -14,11 +14,9 @@ import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { WorkAreaRowActions } from "@/components/work-areas/work-area-form";
-import type {
-  PositionRow,
-  SiteLocationOption,
-  WorkAreaRow,
-} from "@/types/forms";
+import type { PositionRow } from "@/types/position";
+import type { SiteLocationOption } from "@/types/site";
+import type { WorkAreaRow } from "@/types/work-area";
 
 const helper = createColumnHelper<typeof dataTableFeatures, WorkAreaRow>();
 

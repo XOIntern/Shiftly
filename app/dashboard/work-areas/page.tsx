@@ -12,12 +12,9 @@ import {
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWorkAreaButton } from "@/components/work-areas/work-area-form";
-import type {
-  PositionRow,
-  SiteLocationOption,
-  SiteOption,
-  WorkAreaRow,
-} from "@/types/forms";
+import type { PositionRow } from "@/types/position";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
+import type { WorkAreaRow } from "@/types/work-area";
 import { WorkAreasTable } from "@/components/work-areas/work-areas-table";
 
 // Deliberate block: the page queries master data behind the session check,

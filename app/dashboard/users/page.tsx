@@ -14,12 +14,9 @@ import { canManageActorTarget, userScopeFilter } from "@/lib/scope";
 import type { Role } from "@/types/domain";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateUserButton } from "@/components/users/user-form";
-import type {
-  LocationOption,
-  SiteOption,
-  UserFormData,
-  UserRow,
-} from "@/types/forms";
+import type { LocationOption } from "@/types/location";
+import type { SiteOption } from "@/types/site";
+import type { UserFormData, UserRow } from "@/types/user";
 import { UsersTable } from "@/components/users/users-table";
 
 // Deliberate block: the page queries master data behind the HO session check,

@@ -24,9 +24,8 @@ import type {
   MpRequestGridWorkArea,
   MpRequestLineView,
   MpRequestRow,
-  SiteLocationOption,
-  SiteOption,
-} from "@/types/forms";
+} from "@/types/mp-request";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
 import { RequestsTable } from "@/app/dashboard/requests/requests-table";
 
 // Deliberate block: the page queries request data behind the session check,

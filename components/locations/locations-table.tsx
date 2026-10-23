@@ -11,7 +11,8 @@ import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { LocationRowActions } from "@/components/locations/location-form";
-import type { LocationRow, SiteOption } from "@/types/forms";
+import type { LocationRow } from "@/types/location";
+import type { SiteOption } from "@/types/site";
 
 const helper = createColumnHelper<typeof dataTableFeatures, LocationRow>();
 

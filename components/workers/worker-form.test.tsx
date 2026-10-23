@@ -1,12 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type {
-  PositionRow,
-  SiteOption,
-  SiteLocationOption,
-  WorkerRow,
-} from "@/types/forms";
+import type { PositionRow } from "@/types/position";
+import type { SiteOption, SiteLocationOption } from "@/types/site";
+import type { WorkerRow } from "@/types/worker";
 import {
   WorkerForm,
   positionOptionsFor,

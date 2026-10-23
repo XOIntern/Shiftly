@@ -12,7 +12,7 @@ import {
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreatePositionButton } from "@/components/positions/position-form";
-import type { SiteOption } from "@/types/forms";
+import type { SiteOption } from "@/types/site";
 import { PositionsTable } from "@/components/positions/positions-table";
 
 // Deliberate block: the page queries master data behind the session check,

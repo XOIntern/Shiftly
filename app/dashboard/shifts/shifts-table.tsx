@@ -8,11 +8,8 @@ import { dataTableFeatures } from "@/components/data-table-features";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusFilter } from "@/components/status-filter";
 import { ShiftRowActions } from "@/app/dashboard/shifts/shift-dialog";
-import type {
-  SiteLocationOption,
-  SiteOption,
-  ShiftRow,
-} from "@/types/forms";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
+import type { ShiftRow } from "@/types/shift";
 
 const helper = createColumnHelper<typeof dataTableFeatures, ShiftRow>();
 

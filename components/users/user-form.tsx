@@ -19,12 +19,9 @@ import {
 import { GENERIC_ERROR } from "@/lib/action-state";
 import type { ActionState } from "@/types/action-state";
 import type { Role } from "@/types/domain";
-import type {
-  LocationOption,
-  SiteOption,
-  UserFormData,
-  UserRow,
-} from "@/types/forms";
+import type { LocationOption } from "@/types/location";
+import type { SiteOption } from "@/types/site";
+import type { UserFormData, UserRow } from "@/types/user";
 import { RowDeleteItem } from "@/components/row-delete-item";
 import { Button } from "@/components/ui/button";
 import {

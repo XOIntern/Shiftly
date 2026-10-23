@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CalendarPlusIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { toast } from "sonner";
-import type { SiteLocationOption, SiteOption } from "@/types/forms";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { dayFromNumber, dayNumber } from "@/lib/engine/dates";

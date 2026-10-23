@@ -32,7 +32,7 @@ import type {
   RosterPlanOption,
 } from "@/app/dashboard/roster/roster-week-view";
 import type { DailyLineRow } from "@/app/dashboard/roster/daily-requests";
-import type { SiteLocationOption, SiteOption } from "@/types/forms";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
 
 // Deliberate block: the page queries roster data behind the session check,
 // so there is no static shell worth shipping first. See:

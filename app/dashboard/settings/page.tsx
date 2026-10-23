@@ -12,7 +12,7 @@ import {
 import { requireUser } from "@/lib/session";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
 import { RuleConfigTable } from "@/components/settings/rule-config-form";
-import type { RuleLocationOption, RuleRowView } from "@/types/forms";
+import type { RuleLocationOption, RuleRowView } from "@/types/rule";
 import {
   Card,
   CardContent,

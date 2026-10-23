@@ -13,12 +13,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { UserRowActions } from "@/components/users/user-form";
 import type { Role } from "@/types/domain";
-import type {
-  LocationOption,
-  SiteOption,
-  UserFormData,
-  UserRow,
-} from "@/types/forms";
+import type { LocationOption } from "@/types/location";
+import type { SiteOption } from "@/types/site";
+import type { UserFormData, UserRow } from "@/types/user";
 
 const helper = createColumnHelper<
   typeof dataTableFeatures,

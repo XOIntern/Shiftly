@@ -10,7 +10,8 @@ import {
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
-import type { LocationRow, SiteOption } from "@/types/forms";
+import type { LocationRow } from "@/types/location";
+import type { SiteOption } from "@/types/site";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createLocation,

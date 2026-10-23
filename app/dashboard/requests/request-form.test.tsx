@@ -23,9 +23,8 @@ import type {
   MpRequestGridShift,
   MpRequestGridWorkArea,
   MpRequestLineView,
-  SiteLocationOption,
-  SiteOption,
-} from "@/types/forms";
+} from "@/types/mp-request";
+import type { SiteLocationOption, SiteOption } from "@/types/site";
 import { mpRequestCreateSchema } from "@/validation/request-line";
 
 // Loaded after the mock above registers (bun executes module-level

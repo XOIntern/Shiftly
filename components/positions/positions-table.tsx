@@ -14,7 +14,7 @@ import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { PositionRowActions } from "@/components/positions/position-form";
-import type { PositionRow } from "@/types/forms";
+import type { PositionRow } from "@/types/position";
 
 const helper = createColumnHelper<typeof dataTableFeatures, PositionRow>();
 

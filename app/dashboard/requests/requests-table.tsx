@@ -16,11 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MpRequestRowActions } from "@/app/dashboard/requests/status-actions";
-import type {
-  MpRequestGridShift,
-  MpRequestGridWorkArea,
-  MpRequestRow,
-} from "@/types/forms";
+import type { MpRequestGridShift, MpRequestGridWorkArea, MpRequestRow } from "@/types/mp-request";
 
 const helper = createColumnHelper<typeof dataTableFeatures, MpRequestRow>();
 
