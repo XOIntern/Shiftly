@@ -51,9 +51,9 @@ export const auth = betterAuth({
     // dist/api/routes/sign-up.mjs: `emailAndPassword?.disableSignUp`);
     // users are provisioned by HO instead of self sign-up.
     disableSignUp: true,
-    // Backstop for any direct Better Auth API path; OWASP no-MFA minimum
-    // (Better Auth 1.7.7 create-context.mjs:186 defaults it to 8 otherwise).
-    minPasswordLength: 15,
+    // Backstop for any direct Better Auth API path, matching the zod
+    // schemas' minimum (create/reset/change all demand 8).
+    minPasswordLength: 8,
   },
   // Explicit, not default-dependent: window 10s, max 100, memory storage.
   // Better Auth's built-in special rules already throttle /sign-in and

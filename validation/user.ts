@@ -20,7 +20,7 @@ const userBaseSchema = z.object({
   email: z.email(),
   password: z
     .string()
-    .min(15, "Password must be at least 15 characters")
+    .min(8, "Password must be at least 8 characters")
     .max(200),
   role: z.enum(ROLES),
   siteId: z.uuid().optional(),
