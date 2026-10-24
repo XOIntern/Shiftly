@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useState, useTransition } from "react";
+import { Fragment, useState, useTransition, type ComponentProps } from "react";
+import { useRouter } from "next/navigation";
 import { EraserIcon, SparklesIcon, CalendarPlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -878,5 +879,20 @@ export function CreateRequestButton({
         />
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Full-page host for RequestForm: function props cannot cross the
+// server→client boundary, so the page renders this thin client wrapper and
+// the wrapper supplies onSaved (back to the list on a successful save).
+export function RequestFormPage(
+  props: Omit<ComponentProps<typeof RequestForm>, "onSaved">,
+) {
+  const router = useRouter();
+  return (
+    <RequestForm
+      {...props}
+      onSaved={() => router.push("/dashboard/requests")}
+    />
   );
 }

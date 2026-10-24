@@ -37,6 +37,12 @@ mock.module("next/navigation", () => ({
   redirect: () => {
     throw new Error("redirect");
   },
+  // Pages under test may call notFound(); every stub in the repo carries it
+  // because bun's module mocks are process-wide and the last registration
+  // wins across suites.
+  notFound: () => {
+    throw new Error("not-found");
+  },
   useRouter: () => ({}),
   usePathname: () => "/dashboard/requests",
   useSearchParams: () => new URLSearchParams(),
