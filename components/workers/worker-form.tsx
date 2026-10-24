@@ -279,7 +279,9 @@ export function WorkerForm({
   });
   const positionPlaceholder =
     positionSiteId === null
-      ? "Select a location first"
+      ? showSiteSelect
+        ? "Select a site first"
+        : "Select a location first"
       : renderedPositions.length === 0
         ? "No positions for this site yet"
         : "Select positions";
@@ -344,31 +346,36 @@ export function WorkerForm({
       <FieldGroup className="gap-4">
         {message ? <FieldError>{message}</FieldError> : null}
 
-        {showSiteSelect ? (
-          <SelectField
-            id="worker-site"
-            label="Site"
-            items={toSelectItems(sites, "Select a site")}
-            value={siteId}
-            onChange={(next) => {
-              // A site switch invalidates both picks — the previous
-              // location/position may belong to the old site.
-              setSiteLocationId(null);
-              setPositionIds([]);
-              setSiteId(next);
-            }}
-            error={fieldErrors?.siteId}
+        <Field data-invalid={fieldErrors?.employeeId ? "true" : undefined}>
+          <FieldLabel htmlFor="worker-employee-id">Employee ID</FieldLabel>
+          <Input
+            id="worker-employee-id"
+            name="employeeId"
+            value={employeeId}
+            onChange={(event) => setEmployeeId(event.target.value)}
+            aria-invalid={fieldErrors?.employeeId ? true : undefined}
+            maxLength={100}
+            required
           />
-        ) : null}
-
-        <LocationSelect
-          id="worker-location"
-          items={locationItems}
-          value={locationValue}
-          pinnedName={pinnedLocationName}
-          onChange={handleLocationChange}
-          error={fieldErrors?.siteLocationId}
-        />
+          {fieldErrors?.employeeId ? (
+            <FieldError errors={[{ message: fieldErrors.employeeId }]} />
+          ) : null}
+        </Field>
+        <Field data-invalid={fieldErrors?.name ? "true" : undefined}>
+          <FieldLabel htmlFor="worker-name">Name</FieldLabel>
+          <Input
+            id="worker-name"
+            name="name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            aria-invalid={fieldErrors?.name ? true : undefined}
+            maxLength={200}
+            required
+          />
+          {fieldErrors?.name ? (
+            <FieldError errors={[{ message: fieldErrors.name }]} />
+          ) : null}
+        </Field>
 
         <Field data-invalid={fieldErrors?.positionIds ? "true" : undefined}>
           <FieldLabel htmlFor="worker-positions">Positions</FieldLabel>
@@ -417,36 +424,34 @@ export function WorkerForm({
           ) : null}
         </Field>
 
-        <Field data-invalid={fieldErrors?.employeeId ? "true" : undefined}>
-          <FieldLabel htmlFor="worker-employee-id">Employee ID</FieldLabel>
-          <Input
-            id="worker-employee-id"
-            name="employeeId"
-            value={employeeId}
-            onChange={(event) => setEmployeeId(event.target.value)}
-            aria-invalid={fieldErrors?.employeeId ? true : undefined}
-            maxLength={100}
-            required
+        {/* The site pick scopes the position options, so it sits below the
+        identity fields: Positions renders disabled until it is unlocked. */}
+        {showSiteSelect ? (
+          <SelectField
+            id="worker-site"
+            label="Site"
+            items={toSelectItems(sites, "Select a site")}
+            value={siteId}
+            onChange={(next) => {
+              // A site switch invalidates both picks — the previous
+              // location/position may belong to the old site.
+              setSiteLocationId(null);
+              setPositionIds([]);
+              setSiteId(next);
+            }}
+            error={fieldErrors?.siteId}
           />
-          {fieldErrors?.employeeId ? (
-            <FieldError errors={[{ message: fieldErrors.employeeId }]} />
-          ) : null}
-        </Field>
-        <Field data-invalid={fieldErrors?.name ? "true" : undefined}>
-          <FieldLabel htmlFor="worker-name">Name</FieldLabel>
-          <Input
-            id="worker-name"
-            name="name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            aria-invalid={fieldErrors?.name ? true : undefined}
-            maxLength={200}
-            required
-          />
-          {fieldErrors?.name ? (
-            <FieldError errors={[{ message: fieldErrors.name }]} />
-          ) : null}
-        </Field>
+        ) : null}
+
+        <LocationSelect
+          id="worker-location"
+          items={locationItems}
+          value={locationValue}
+          pinnedName={pinnedLocationName}
+          onChange={handleLocationChange}
+          error={fieldErrors?.siteLocationId}
+        />
+
         <Field data-invalid={fieldErrors?.contractEndDate ? "true" : undefined}>
           <FieldLabel htmlFor="worker-contract-end">Contract end</FieldLabel>
           <Input
