@@ -37,6 +37,12 @@ mock.module("next/navigation", () => ({
   redirect: () => {
     throw new Error("redirect");
   },
+  // Pages under test may call notFound(); every stub in the repo carries it
+  // because bun's module mocks are process-wide and the last registration
+  // wins across suites.
+  notFound: () => {
+    throw new Error("not-found");
+  },
   useRouter: () => ({}),
   usePathname: () => "/dashboard/requests",
   useSearchParams: () => new URLSearchParams(),
@@ -289,6 +295,8 @@ describe("requests page SSR (mp-requests Task 8)", () => {
       expect(html.includes(fx.notes.rqA1)).toBeTrue();
       expect(html.includes(fx.notes.rqA2)).toBeTrue();
       expect(html.includes(fx.notes.rqB1)).toBeTrue();
+      // The header button links to the full-page create form (#130).
+      expect(html.includes('href="/dashboard/requests/new"')).toBeTrue();
       expect(html.includes("New request")).toBeTrue();
     } finally {
       await fx.cleanup();

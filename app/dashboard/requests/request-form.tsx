@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useState, useTransition } from "react";
-import { EraserIcon, SparklesIcon, CalendarPlusIcon } from "lucide-react";
+import { Fragment, useState, useTransition, type ComponentProps } from "react";
+import { useRouter } from "next/navigation";
+import { EraserIcon, SparklesIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
@@ -19,15 +20,7 @@ import {
 } from "@/app/dashboard/requests/actions";
 import type { MpRequestCreateInput } from "@/validation/request-line";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { DialogFooter } from "@/components/ui/dialog";
 import {
   Field,
   FieldError,
@@ -833,50 +826,18 @@ export function RequestForm({
   );
 }
 
-export function CreateRequestButton({
-  siteLocations,
-  sites,
-  activeWorkAreas,
-  activeShifts,
-  pinnedLocationName,
-}: {
-  siteLocations: SiteLocationOption[];
-  sites: SiteOption[];
-  activeWorkAreas: MpRequestGridWorkArea[];
-  activeShifts: MpRequestGridShift[];
-  pinnedLocationName?: string;
-}) {
-  const [open, setOpen] = useState(false);
-
+// Full-page host for RequestForm: function props cannot cross the
+// server→client boundary, so the page renders this thin client wrapper and
+// the wrapper supplies onSaved (back to the list on a successful save).
+// Its only remaining callers are the two pages (#130 — the dialogs went).
+export function RequestFormPage(
+  props: Omit<ComponentProps<typeof RequestForm>, "onSaved">,
+) {
+  const router = useRouter();
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button />}>
-        <CalendarPlusIcon data-icon="inline-start" />
-        New request
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New request</DialogTitle>
-          <DialogDescription>
-            Weekly requests anchor on a Monday and carry one line per work
-            area, shift and day; daily requests target a single date.
-          </DialogDescription>
-        </DialogHeader>
-        <RequestForm
-          type="weekly"
-          siteLocations={siteLocations}
-          sites={sites}
-          activeWorkAreas={activeWorkAreas}
-          activeShifts={activeShifts}
-          pinnedLocationName={pinnedLocationName}
-          siteLocationId={
-            pinnedLocationName !== undefined
-              ? siteLocations[0]?.id
-              : undefined
-          }
-          onSaved={() => setOpen(false)}
-        />
-      </DialogContent>
-    </Dialog>
+    <RequestForm
+      {...props}
+      onSaved={() => router.push("/dashboard/requests")}
+    />
   );
 }
