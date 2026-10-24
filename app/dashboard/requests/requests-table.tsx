@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MpRequestRowActions } from "@/app/dashboard/requests/status-actions";
-import type { MpRequestGridShift, MpRequestGridWorkArea, MpRequestRow } from "@/types/mp-request";
+import type { MpRequestRow } from "@/types/mp-request";
 
 const helper = createColumnHelper<typeof dataTableFeatures, MpRequestRow>();
 
@@ -163,8 +163,6 @@ const formatStamp = (iso: string) =>
 export function RequestsTable({
   requests,
   canWrite,
-  activeWorkAreas,
-  activeShifts,
   showSite,
   showLocation,
   pageCount,
@@ -174,8 +172,6 @@ export function RequestsTable({
   // May the actor write lines (admin + superadmin)? Only the row actions'
   // edit entry switches on this — an ho keeps the view + status menu.
   canWrite: boolean;
-  activeWorkAreas: MpRequestGridWorkArea[];
-  activeShifts: MpRequestGridShift[];
   // Site/location columns only carry information where the actor's scope
   // spans more than one of them: location for ho/superadmin, site for
   // superadmin alone.
@@ -184,7 +180,7 @@ export function RequestsTable({
   pageCount: number;
   total: number;
 }) {
-  // useTable requires stable columns; the edit dialog needs the masters.
+  // useTable requires stable columns.
   const columns = useMemo(
     () =>
       helper.columns([
@@ -255,16 +251,11 @@ export function RequestsTable({
             tdClassName: "text-right",
           },
           cell: (info) => (
-            <MpRequestRowActions
-              request={info.row.original}
-              canWrite={canWrite}
-              activeWorkAreas={activeWorkAreas}
-              activeShifts={activeShifts}
-            />
+            <MpRequestRowActions request={info.row.original} canWrite={canWrite} />
           ),
         }),
       ]),
-    [canWrite, activeWorkAreas, activeShifts, showSite, showLocation],
+    [canWrite, showSite, showLocation],
   );
 
   return (

@@ -1,4 +1,6 @@
-import { and, asc, count, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, sql } from "drizzle-orm";
+import Link from "next/link";
+import { CalendarPlusIcon } from "lucide-react";
 
 import {
   mpRequest,
@@ -18,14 +20,11 @@ import {
 import { requireUser } from "@/lib/session";
 import { mpRequestListWhere } from "@/lib/mp-request-scope";
 import { Card, CardContent } from "@/components/ui/card";
-import { CreateRequestButton } from "@/app/dashboard/requests/request-form";
+import { Button } from "@/components/ui/button";
 import type {
-  MpRequestGridShift,
-  MpRequestGridWorkArea,
   MpRequestLineView,
   MpRequestRow,
 } from "@/types/mp-request";
-import type { SiteLocationOption, SiteOption } from "@/types/site";
 import { RequestsTable } from "@/app/dashboard/requests/requests-table";
 
 // Deliberate block: the page queries request data behind the session check,
@@ -115,80 +114,29 @@ export default async function RequestsPage({
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
-  // Page rows first; their lines and the dialog masters load below.
-  const [requestRows, siteLocations, sites] = await Promise.all([
-    db
-      .select({
-        id: mpRequest.id,
-        type: mpRequest.type,
-        status: mpRequest.status,
-        weekStart: mpRequest.weekStart,
-        requestDate: mpRequest.requestDate,
-        notes: mpRequest.notes,
-        siteLocationId: mpRequest.siteLocationId,
-        siteName: site.name,
-        locationName: siteLocation.name,
-        updatedAt: mpRequest.updatedAt,
-      })
-      .from(mpRequest)
-      .innerJoin(site, eq(mpRequest.siteId, site.id))
-      .innerJoin(siteLocation, eq(mpRequest.siteLocationId, siteLocation.id))
-      .where(where)
-      .orderBy(...order)
-      .limit(pageSize)
-      .offset((clamped - 1) * pageSize),
-    // Dialog pickers exist only for writers: an admin's options shrink to
-    // their own binding (pinned dialog), a superadmin sees everything.
-    canWrite
-      ? actor.role === "admin"
-        ? actor.siteLocationId
-          ? db
-              .select({
-                id: siteLocation.id,
-                name: siteLocation.name,
-                siteId: siteLocation.siteId,
-              })
-              .from(siteLocation)
-              .where(
-                and(
-                  eq(siteLocation.id, actor.siteLocationId),
-                  isNull(siteLocation.deletedAt),
-                ),
-              )
-              .orderBy(asc(siteLocation.name))
-          : Promise.resolve([])
-        : db
-            .select({
-              id: siteLocation.id,
-              name: siteLocation.name,
-              siteId: siteLocation.siteId,
-            })
-            .from(siteLocation)
-            .where(isNull(siteLocation.deletedAt))
-            .orderBy(asc(siteLocation.name))
-      : Promise.resolve([]),
-    canWrite
-      ? actor.role === "admin"
-        ? actor.siteLocationId
-          ? db
-              .selectDistinct({ id: site.id, name: site.name })
-              .from(site)
-              .innerJoin(siteLocation, eq(site.id, siteLocation.siteId))
-              .where(
-                and(
-                  eq(siteLocation.id, actor.siteLocationId),
-                  isNull(site.deletedAt),
-                ),
-              )
-              .orderBy(asc(site.name))
-          : Promise.resolve([])
-        : db
-            .select({ id: site.id, name: site.name })
-            .from(site)
-            .where(isNull(site.deletedAt))
-            .orderBy(asc(site.name))
-      : Promise.resolve([]),
-  ]);
+  // Page rows first; their lines load below. (The create/edit dialogs'
+  // masters moved server-side to /dashboard/requests/new and
+  // /dashboard/requests/[id]/edit — #130.)
+  const requestRows = await db
+    .select({
+      id: mpRequest.id,
+      type: mpRequest.type,
+      status: mpRequest.status,
+      weekStart: mpRequest.weekStart,
+      requestDate: mpRequest.requestDate,
+      notes: mpRequest.notes,
+      siteLocationId: mpRequest.siteLocationId,
+      siteName: site.name,
+      locationName: siteLocation.name,
+      updatedAt: mpRequest.updatedAt,
+    })
+    .from(mpRequest)
+    .innerJoin(site, eq(mpRequest.siteId, site.id))
+    .innerJoin(siteLocation, eq(mpRequest.siteLocationId, siteLocation.id))
+    .where(where)
+    .orderBy(...order)
+    .limit(pageSize)
+    .offset((clamped - 1) * pageSize);
 
   const requestIds = requestRows.map((row) => row.id);
   const lineRows = requestIds.length
@@ -223,62 +171,6 @@ export default async function RequestsPage({
     lines: linesByRequest.get(row.id) ?? [],
   }));
 
-  // Grid masters for the create/edit dialogs — only writers fetch them.
-  // An admin is pinned to their own location's masters, a superadmin to
-  // every location's (the dialog filters the picked location client-side).
-  let activeWorkAreas: MpRequestGridWorkArea[] = [];
-  let activeShifts: MpRequestGridShift[] = [];
-  if (canWrite) {
-    const [waRows, shiftRows] = await Promise.all([
-      db
-        .select({
-          id: workArea.id,
-          name: workArea.name,
-          siteLocationId: workArea.siteLocationId,
-        })
-        .from(workArea)
-        .where(
-          and(
-            eq(workArea.isActive, true),
-            isNull(workArea.deletedAt),
-            ...(actor.role === "admin" && actor.siteLocationId
-              ? [eq(workArea.siteLocationId, actor.siteLocationId)]
-              : isSuperadmin
-                ? []
-                : [sql`false`]),
-          ),
-        )
-        .orderBy(asc(workArea.name)),
-      db
-        .select({
-          id: shiftDefinition.id,
-          label: shiftDefinition.label,
-          siteLocationId: shiftDefinition.siteLocationId,
-          orderIndex: shiftDefinition.orderIndex,
-          startTime: shiftDefinition.startTime,
-          endTime: shiftDefinition.endTime,
-        })
-        .from(shiftDefinition)
-        .where(
-          and(
-            eq(shiftDefinition.isActive, true),
-            isNull(shiftDefinition.deletedAt),
-            ...(actor.role === "admin" && actor.siteLocationId
-              ? [eq(shiftDefinition.siteLocationId, actor.siteLocationId)]
-              : isSuperadmin
-                ? []
-                : [sql`false`]),
-          ),
-        )
-        .orderBy(asc(shiftDefinition.orderIndex)),
-    ]);
-    activeWorkAreas = waRows;
-    activeShifts = shiftRows;
-  }
-
-  const pinnedLocationName =
-    actor.role === "admin" ? (siteLocations[0]?.name ?? undefined) : undefined;
-
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -290,13 +182,10 @@ export default async function RequestsPage({
           </p>
         </div>
         {canWrite ? (
-          <CreateRequestButton
-            siteLocations={siteLocations satisfies SiteLocationOption[]}
-            sites={sites satisfies SiteOption[]}
-            activeWorkAreas={activeWorkAreas}
-            activeShifts={activeShifts}
-            pinnedLocationName={pinnedLocationName}
-          />
+          <Button render={<Link href="/dashboard/requests/new" />}>
+            <CalendarPlusIcon data-icon="inline-start" />
+            New request
+          </Button>
         ) : null}
       </div>
       <Card>
@@ -304,8 +193,6 @@ export default async function RequestsPage({
           <RequestsTable
             requests={requests}
             canWrite={canWrite}
-            activeWorkAreas={activeWorkAreas}
-            activeShifts={activeShifts}
             showSite={isSuperadmin}
             showLocation={actor.role !== "admin"}
             pageCount={pageCount}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -10,7 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { MpRequestRow, MpRequestGridShift, MpRequestGridWorkArea } from "@/types/mp-request";
+import type { MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { advanceStatus } from "@/app/dashboard/requests/actions";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { RequestForm } from "@/app/dashboard/requests/request-form";
 
 // Manual status machine (mirror of the actions' LEGAL_TRANSITIONS — the
 // two MUST stay in step): the menu renders ONLY these next statuses, so a
@@ -103,17 +103,14 @@ function AdvanceMenu({ request }: { request: MpRequestRow }) {
 export function MpRequestRowActions({
   request,
   canWrite,
-  activeWorkAreas,
-  activeShifts,
 }: {
   request: MpRequestRow;
   // May the actor write request lines? Admin (own location) and superadmin
   // only — an ho carries the view + status menu alone.
   canWrite: boolean;
-  activeWorkAreas: MpRequestGridWorkArea[];
-  activeShifts: MpRequestGridShift[];
 }) {
-  const [dialog, setDialog] = useState<"lines" | "edit" | null>(null);
+  const [dialog, setDialog] = useState<"lines" | null>(null);
+  const router = useRouter();
 
   const canEdit = canWrite && request.status === "submitted";
 
@@ -137,7 +134,9 @@ export function MpRequestRowActions({
             View lines
           </DropdownMenuItem>
           {canEdit ? (
-            <DropdownMenuItem onClick={() => setDialog("edit")}>
+            <DropdownMenuItem
+              onClick={() => router.push(`/dashboard/requests/${request.id}/edit`)}
+            >
               <PencilIcon />
               Edit lines
             </DropdownMenuItem>
@@ -188,32 +187,6 @@ export function MpRequestRowActions({
           </Table>
         </DialogContent>
       </Dialog>
-      {canEdit ? (
-        <Dialog
-          open={dialog === "edit"}
-          onOpenChange={(open) => setDialog(open ? "edit" : null)}
-        >
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Edit request lines</DialogTitle>
-              <DialogDescription>
-                The anchor (week or date) is fixed after creation; edit the
-                headcounts within it.
-              </DialogDescription>
-            </DialogHeader>
-            <RequestForm
-              type={request.type}
-              siteLocationId={request.siteLocationId}
-              siteLocations={[]}
-              sites={[]}
-              activeWorkAreas={activeWorkAreas}
-              activeShifts={activeShifts}
-              request={request}
-              onSaved={() => setDialog(null)}
-            />
-          </DialogContent>
-        </Dialog>
-      ) : null}
     </DropdownMenu>
   );
 }
