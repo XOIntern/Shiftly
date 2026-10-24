@@ -182,7 +182,10 @@ export default async function RequestsPage({
           </p>
         </div>
         {canWrite ? (
-          <Button render={<Link href="/dashboard/requests/new" />}>
+          <Button
+            nativeButton={false}
+            render={<Link href="/dashboard/requests/new" />}
+          >
             <CalendarPlusIcon data-icon="inline-start" />
             New request
           </Button>

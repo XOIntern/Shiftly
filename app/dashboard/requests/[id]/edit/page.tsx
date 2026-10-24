@@ -122,6 +122,7 @@ export default async function EditRequestPage({
           variant="ghost"
           size="sm"
           className="-ml-2 w-fit text-muted-foreground"
+          nativeButton={false}
           render={<Link href="/dashboard/requests" />}
         >
           <ArrowLeftIcon data-icon="inline-start" />
