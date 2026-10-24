@@ -129,10 +129,31 @@ describe("WorkerForm cascade", () => {
 
     expect(html.includes(">Site<")).toBeTrue();
     expect(html.includes("Select a site first")).toBeTrue();
-    expect(html.includes("Select a location first")).toBeTrue();
+    // Positions render above their unlocked-by dependency, so the
+    // placeholder must name the missing pick — the site, not the location.
+    expect(html.includes("Select a location first")).toBeFalse();
     // This is the positionSiteId === null branch: the field must still be
-    // named while the combobox shows its "select a location" placeholder.
+    // named while the combobox shows its "select a site" placeholder.
     expectPositionFieldLabelled(html);
+  });
+
+  test("fields render in identity-first order", () => {
+    const html = renderForm({
+      sites,
+      siteLocations: allLocations,
+      positions: allPositions,
+    });
+
+    const offsets = [
+      "worker-employee-id",
+      "worker-name",
+      "worker-positions",
+      "worker-site",
+      "worker-location",
+      "worker-contract-end",
+    ].map((id) => html.indexOf(`for="${id}"`));
+    expect(offsets.every((offset) => offset >= 0)).toBeTrue();
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
   });
 
   test("create with a single site: no Site select, location unlocked", () => {

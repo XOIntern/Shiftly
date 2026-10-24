@@ -398,6 +398,74 @@ export async function setActiveBulk(
   return { ok: true, applied };
 }
 
+// Bulk variant of deleteUser: the same weld as setActiveBulk (candidate
+// select on live rows, per-row permission gate, self exclusion, a write
+// WHERE that cannot resurrect a row deleted between select and update) and
+// the same end state as deleteUser — deletedAt stamped, sessions evicted.
+// Unlike setActiveBulk there is no isActive direction to respect; like
+// deleteUser the action does not demand a prior deactivation, the UI
+// toolbar does. The caller only learns a count.
+export async function deleteUserBulk(ids: string[]): Promise<ActionState> {
+  const current = await requireHO();
+
+  // user.id is text (see setActiveBulk) — no uuid check, just non-empty.
+  const validIds = [...new Set(ids)].filter((id) => id.length > 0);
+  if (validIds.length === 0) {
+    return { ok: false, message: "No users selected." };
+  }
+
+  const candidates = await db
+    .select({
+      id: user.id,
+      role: user.role,
+      siteId: user.siteId,
+      siteLocationId: user.siteLocationId,
+      locationSiteId: siteLocation.siteId,
+    })
+    .from(user)
+    .leftJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
+    .where(and(inArray(user.id, validIds), isNull(user.deletedAt)));
+
+  const managed = candidates.filter(
+    (target) =>
+      canManageActorTarget(current, {
+        role: target.role,
+        locationSiteId: target.locationSiteId,
+      }) && target.id !== current.id,
+  );
+  if (managed.length === 0) {
+    revalidatePath("/dashboard/users");
+    return { ok: true, applied: 0 };
+  }
+
+  let applied = 0;
+  try {
+    const deleted = await db
+      .update(user)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          inArray(
+            user.id,
+            managed.map((target) => target.id),
+          ),
+          isNull(user.deletedAt),
+        ),
+      )
+      .returning({ id: user.id });
+
+    // Session hygiene matches deleteUser: a soft-deleted account cannot
+    // stay logged in.
+    await Promise.all(deleted.map((row) => deleteUserSessions(row.id)));
+    applied = deleted.length;
+  } catch {
+    return { ok: false, message: GENERIC_ERROR };
+  }
+
+  revalidatePath("/dashboard/users");
+  return { ok: true, applied };
+}
+
 // Soft-deletes a user: the row survives with a deleted_at stamp (its email
 // frees up for reuse), the target's live sessions are evicted so the deleted
 // account cannot stay logged in, and the shared gate keeps the actor inside

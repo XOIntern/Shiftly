@@ -106,7 +106,7 @@ export function ResetPasswordDialog({
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.target.value)}
                   aria-invalid={fieldErrors?.newPassword ? true : undefined}
-                  minLength={15}
+                  minLength={8}
                   required
                 />
                 <InputGroupAddon align="inline-end">
@@ -122,7 +122,7 @@ export function ResetPasswordDialog({
                   </button>
                 </InputGroupAddon>
               </InputGroup>
-              <FieldDescription>At least 15 characters.</FieldDescription>
+              <FieldDescription>At least 8 characters.</FieldDescription>
               {fieldErrors?.newPassword ? (
                 <FieldError errors={[{ message: fieldErrors.newPassword }]} />
               ) : null}

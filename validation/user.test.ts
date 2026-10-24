@@ -12,12 +12,12 @@ const SITE_ID = "c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f";
 const SITE_LOCATION_ID = "d3e4f5a6-b7c8-4d9e-8f0a-2b3c4d5e6f7a";
 const USER_ID = "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01";
 
-const PASSWORD_15 = "a".repeat(15);
+const PASSWORD_8 = "a".repeat(8);
 
 const baseCreate = {
   name: "User Satu",
   email: "user@example.com",
-  password: PASSWORD_15,
+  password: PASSWORD_8,
   role: "admin",
   siteLocationId: SITE_LOCATION_ID,
 };
@@ -136,10 +136,10 @@ describe("userCreateSchema field checks", () => {
     }
   });
 
-  test("rejects a create password under 15 characters", () => {
+  test("rejects a create password under 8 characters", () => {
     const result = userCreateSchema.safeParse({
       ...baseCreate,
-      password: "a".repeat(14),
+      password: "a".repeat(7),
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -147,7 +147,7 @@ describe("userCreateSchema field checks", () => {
     }
   });
 
-  test("accepts a create password of exactly 15 characters", () => {
+  test("accepts a create password of exactly 8 characters", () => {
     const result = userCreateSchema.safeParse(baseCreate);
     expect(result.success).toBe(true);
   });
@@ -347,7 +347,7 @@ describe("parseUserUpdate", () => {
       role: "admin",
       siteLocationId: SITE_LOCATION_ID,
       email: "changed@example.com",
-      password: PASSWORD_15,
+      password: PASSWORD_8,
     } as never);
     expect(result.success).toBe(true);
     if (result.success) {
