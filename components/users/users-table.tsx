@@ -3,7 +3,10 @@
 import { useMemo } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 
-import { setActiveBulk } from "@/app/dashboard/users/actions";
+import {
+  deleteUserBulk,
+  setActiveBulk,
+} from "@/app/dashboard/users/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
@@ -136,6 +139,7 @@ export function UsersTable({
           clear={clear}
           onActivate={() => setActiveBulk(ids, true)}
           onDeactivate={() => setActiveBulk(ids, false)}
+          onDelete={() => deleteUserBulk(ids)}
           selectedStatuses={rows.map((row) => row.user.isActive)}
         />
       )}
