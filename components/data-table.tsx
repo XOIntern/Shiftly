@@ -74,6 +74,10 @@ interface DataTableProps<TData extends RowData> {
   /** Shown when the filtered set is empty with no search in the URL. */
   emptyMessage?: string;
   placeholder?: string;
+  /** Opt out of the toolbar search box (default true). For tables whose
+   * server query has no free-text column left to match — the search would
+   * otherwise narrow to nothing. */
+  searchable?: boolean;
   /** Extra toolbar controls (e.g. a status filter) rendered after the
    * search box; they own their URL params and push them like the
    * search does. Any URL change — theirs included — drops selection. */
@@ -105,6 +109,7 @@ export function DataTable<TData extends RowData>({
   total,
   emptyMessage = "No results.",
   placeholder = "Search…",
+  searchable = true,
   filters,
   getRowId,
   canSelectRow,
@@ -266,17 +271,19 @@ export function DataTable<TData extends RowData>({
             so an added filter sits beside it instead of wrapping below: the
             InputGroup's own w-full would otherwise claim the whole line. */}
         <div className="flex flex-1 flex-wrap items-center gap-2">
-          <InputGroup className="min-w-56 flex-1 sm:max-w-sm">
-            <InputGroupAddon>
-              <SearchIcon />
-            </InputGroupAddon>
-            <InputGroupInput
-              aria-label="Search table"
-              placeholder={placeholder}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-            />
-          </InputGroup>
+          {searchable ? (
+            <InputGroup className="min-w-56 flex-1 sm:max-w-sm">
+              <InputGroupAddon>
+                <SearchIcon />
+              </InputGroupAddon>
+              <InputGroupInput
+                aria-label="Search table"
+                placeholder={placeholder}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+              />
+            </InputGroup>
+          ) : null}
           {filters}
         </div>
         {selectedIds.length > 0 && selectionToolbar

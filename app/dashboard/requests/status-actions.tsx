@@ -160,7 +160,6 @@ export function MpRequestRowActions({
               {request.type === "weekly"
                 ? `Week of ${request.weekStart}`
                 : `Date ${request.requestDate}`}
-              {request.notes ? ` — ${request.notes}` : ""}
             </DialogDescription>
           </DialogHeader>
           <Table>

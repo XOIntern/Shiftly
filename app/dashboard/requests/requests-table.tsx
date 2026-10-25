@@ -198,21 +198,11 @@ export function RequestsTable({
           id: "anchor",
           header: "Week / date",
           meta: { thClassName: "min-w-[120px]", tdClassName: "tabular-nums" },
-          cell: (info) => {
-            const row = info.row.original;
-            return (
-              <span>
-                <span className="block tabular-nums">
-                  {requestAnchor(row)}
-                </span>
-                {row.notes ? (
-                  <span className="block max-w-[180px] truncate text-xs text-muted-foreground">
-                    {row.notes}
-                  </span>
-                ) : null}
-              </span>
-            );
-          },
+          cell: (info) => (
+            <span className="block tabular-nums">
+              {requestAnchor(info.row.original)}
+            </span>
+          ),
         }),
         helper.accessor((row) => row.lines.length, {
           id: "lines",
@@ -265,6 +255,9 @@ export function RequestsTable({
       pageCount={pageCount}
       total={total}
       emptyMessage="No requests yet"
+      // The `q` search lived on the (dropped) notes column — nothing left
+      // to match, so the requests table opts out of the toolbar search #133.
+      searchable={false}
       getRowId={(row) => row.id}
       filters={
         <>

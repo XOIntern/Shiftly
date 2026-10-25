@@ -25,7 +25,6 @@ const mpRequestBaseSchema = z.object({
   type: z.enum(["weekly", "daily"]),
   weekStart: dateString.optional(),
   requestDate: dateString.optional(),
-  notes: z.string().trim().max(2000).optional(),
   lines: z.array(mpRequestLineSchema).min(1),
 });
 
