@@ -7,8 +7,13 @@ import type { ReactNode } from "react";
 mock.module("next/navigation", () => ({
   useRouter: () => ({ push: () => {}, replace: () => {} }),
   usePathname: () => "/dashboard/requests",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParamsHolder.params,
 }));
+
+// Late-bound so individual tests can set the URL query before rendering.
+const searchParamsHolder: { params: URLSearchParams } = {
+  params: new URLSearchParams(),
+};
 
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -29,15 +34,20 @@ const rows: TestRow[] = [{ id: "row-1", name: "Row One" }];
 function renderTable(options: {
   searchable?: boolean;
   filters?: ReactNode;
+  urlQuery?: string;
+  data?: TestRow[];
+  emptyMessage?: string;
 }) {
+  searchParamsHolder.params = new URLSearchParams(options.urlQuery ?? "");
   return renderToStaticMarkup(
     <DataTable
       columns={columns}
-      data={rows}
+      data={options.data ?? rows}
       pageCount={1}
-      total={rows.length}
+      total={options.data?.length ?? rows.length}
       {...(options.searchable === undefined ? {} : { searchable: options.searchable })}
       {...(options.filters ? { filters: options.filters } : {})}
+      {...(options.emptyMessage ? { emptyMessage: options.emptyMessage } : {})}
     />,
   );
 }
@@ -60,5 +70,17 @@ describe("DataTable searchable opt-out", () => {
     expect(html.includes('aria-label="Search table"')).toBeFalse();
     // Filters still render when the search is opted out.
     expect(html.includes("Filter Strip")).toBeTrue();
+  });
+
+  test("#133 pin: with searchable={false}, a URL q no control produced must not yield 'No results for'", () => {
+    const html = renderTable({
+      searchable: false,
+      urlQuery: "q=foo",
+      data: [],
+      emptyMessage: "empty-message-marker",
+    });
+
+    expect(html.includes('No results for "foo".')).toBeFalse();
+    expect(html.includes("empty-message-marker")).toBeTrue();
   });
 });

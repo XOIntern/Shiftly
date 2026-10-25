@@ -397,7 +397,7 @@ export function DataTable<TData extends RowData>({
                   ))}
                 </TableRow>
               ))
-            ) : q ? (
+            ) : q && searchable ? (
               <TableRow>
                 <TableCell
                   colSpan={columns.length + (selectionToolbar ? 1 : 0)}
