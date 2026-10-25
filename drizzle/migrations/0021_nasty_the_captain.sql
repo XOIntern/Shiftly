@@ -1,0 +1,1 @@
+ALTER TABLE "mp_request" DROP COLUMN "notes";

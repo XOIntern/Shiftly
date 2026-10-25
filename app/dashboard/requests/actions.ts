@@ -216,7 +216,6 @@ export async function createRequest(
     type: input.type,
     weekStart: input.weekStart,
     requestDate: input.requestDate,
-    notes: input.notes,
     lines: input.lines,
   });
   if (!parsed.success) {
@@ -250,7 +249,6 @@ export async function createRequest(
           type: parsed.data.type,
           weekStart: parsed.data.weekStart ?? null,
           requestDate: parsed.data.requestDate ?? null,
-          notes: parsed.data.notes ?? null,
           createdBy: actor.id,
         })
         .returning({ id: mpRequest.id });

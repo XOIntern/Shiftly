@@ -202,13 +202,11 @@ async function dropAll(fx: {
 function weeklyInput(args: {
   siteLocationId?: string;
   lines: MpRequestLineInput[];
-  notes?: string;
 }): MpRequestCreateInput {
   return {
     ...(args.siteLocationId ? { siteLocationId: args.siteLocationId } : {}),
     type: "weekly",
     weekStart: MONDAY,
-    ...(args.notes ? { notes: args.notes } : {}),
     lines: args.lines,
   };
 }
@@ -227,7 +225,6 @@ describe("request actions: createRequest", () => {
         weeklyInput({
           // A foreign pick is ignored — the admin binding pins the location.
           siteLocationId: fx.locB,
-          notes: "t-mp-create-happy",
           lines: [
             { workAreaId: waA1, shiftDefinitionId: shiftA1, date: MONDAY, headcount: 2 },
             {
@@ -252,7 +249,6 @@ describe("request actions: createRequest", () => {
       expect(row.requestDate).toBeNull();
       expect(row.status).toBe("submitted");
       expect(row.createdBy).toBe(actor.id);
-      expect(row.notes).toBe("t-mp-create-happy");
 
       const lines = await db
         .select()

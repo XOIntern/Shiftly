@@ -188,7 +188,6 @@ describe("collectLines / buildCreateInput (the submit payload)", () => {
       type: "weekly",
       weekStart: MONDAY,
       requestDate: null,
-      notes: "Extra hands for launch week",
       siteLocationId: LOC_A1,
       values: filled,
     });
@@ -199,6 +198,8 @@ describe("collectLines / buildCreateInput (the submit payload)", () => {
     expect(parsed.success).toBeTrue();
     expect(built.input.lines).toHaveLength(3);
     expect(built.input.weekStart).toBe(MONDAY);
+    // The notes field is gone (#133): the built payload carries no key.
+    expect("notes" in built.input).toBeFalse();
   });
 
   test("the submitted weekStart is the snapped Monday of the typed anchor", () => {
@@ -206,7 +207,6 @@ describe("collectLines / buildCreateInput (the submit payload)", () => {
       type: "weekly",
       weekStart: "2026-01-08", // Thursday
       requestDate: null,
-      notes: "",
       siteLocationId: LOC_A1,
       values: filled,
     });
@@ -221,7 +221,6 @@ describe("collectLines / buildCreateInput (the submit payload)", () => {
       type: "weekly",
       weekStart: null,
       requestDate: null,
-      notes: "",
       siteLocationId: LOC_A1,
       values: filled,
     });
@@ -236,7 +235,6 @@ describe("collectLines / buildCreateInput (the submit payload)", () => {
       type: "daily",
       weekStart: null,
       requestDate: null,
-      notes: "",
       siteLocationId: LOC_A1,
       values: filled,
     });
@@ -251,7 +249,6 @@ describe("collectLines / buildCreateInput (the submit payload)", () => {
       type: "weekly",
       weekStart: MONDAY,
       requestDate: null,
-      notes: "",
       siteLocationId: LOC_A1,
       values: {},
     });
@@ -312,7 +309,6 @@ describe("refusal surfacing (toasts + grid errors)", () => {
       type: "weekly",
       weekStart: MONDAY,
       requestDate: null,
-      notes: "",
       siteLocationId: LOC_A1,
       values: {},
     });
@@ -573,7 +569,6 @@ describe("RequestForm markup", () => {
       type: "daily",
       weekStart: null,
       requestDate: "2026-01-07",
-      notes: "",
       siteLocationId: LOC_A1,
       values: {
         // Only an active pair's cell remains — the inactive pair was removed.
@@ -603,6 +598,16 @@ describe("RequestForm markup", () => {
     });
     expect(pinnedHtml.includes("Select a site")).toBeFalse();
     expect(pinnedHtml.includes("Loc Alpha One")).toBeTrue();
+  });
+
+  test("the removed notes field renders nowhere in the form (#133)", () => {
+    const html = renderForm({
+      siteLocationId: LOC_A1,
+      defaultWeekStart: MONDAY,
+    });
+
+    expect(html.includes('id="request-notes"')).toBeFalse();
+    expect(html.includes(">Notes<")).toBeFalse();
   });
 
   test("a seeded fieldError renders next to the week input", () => {

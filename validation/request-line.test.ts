@@ -201,28 +201,21 @@ describe("mpRequestCreateSchema daily", () => {
   });
 });
 
-describe("mpRequestCreateSchema notes", () => {
-  test("trims surrounding whitespace from notes", () => {
+describe("mpRequestCreateSchema notes (field removed, #133)", () => {
+  test("a payload carrying notes parses with the key stripped", () => {
+    // zod's default object behavior drops unknown keys: a stale client
+    // that still sends notes gets a clean parse — never a 400 — and the
+    // actions have no notes to persist.
     const result = mpRequestCreateSchema.safeParse({
       type: "daily",
       requestDate: WEDNESDAY,
-      notes: "  urgent cover  ",
+      notes: "urgent cover",
       lines: [line(WEDNESDAY)],
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.notes).toBe("urgent cover");
+      expect("notes" in result.data).toBe(false);
     }
-  });
-
-  test("accepts notes of exactly 2000 chars and rejects more", () => {
-    const base = {
-      type: "daily",
-      requestDate: WEDNESDAY,
-      lines: [line(WEDNESDAY)],
-    };
-    expect(mpRequestCreateSchema.safeParse({ ...base, notes: "x".repeat(2000) }).success).toBe(true);
-    expect(mpRequestCreateSchema.safeParse({ ...base, notes: "x".repeat(2001) }).success).toBe(false);
   });
 });
 
@@ -230,7 +223,6 @@ describe("mpRequestUpdateSchema", () => {
   test("accepts lines plus id without an anchor", () => {
     const result = mpRequestUpdateSchema.safeParse({
       id: REQUEST_ID,
-      notes: "updated",
       lines: [line(WEDNESDAY)],
     });
     expect(result.success).toBe(true);

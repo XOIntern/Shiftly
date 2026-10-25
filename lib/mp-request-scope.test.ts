@@ -142,7 +142,7 @@ describe("mp-request mutation weld", () => {
 
       const updated = await db
         .update(mpRequest)
-        .set({ notes: "Hijacked" })
+        .set({ status: "received" })
         .where(mpRequestMutationWhere(admin, seededId))
         .returning({ id: mpRequest.id });
       expect(updated).toHaveLength(0);
@@ -180,15 +180,15 @@ describe("mp-request mutation weld", () => {
 
       const updated = await db
         .update(mpRequest)
-        .set({ notes: "Admin edit" })
+        .set({ status: "received" })
         .where(mpRequestMutationWhere(admin, ownId))
-        .returning({ id: mpRequest.id, notes: mpRequest.notes });
+        .returning({ id: mpRequest.id, status: mpRequest.status });
       expect(updated).toHaveLength(1);
-      expect(updated[0].notes).toBe("Admin edit");
+      expect(updated[0].status).toBe("received");
 
       const unbound = await db
         .update(mpRequest)
-        .set({ notes: "Unbound" })
+        .set({ status: "processing" })
         .where(
           mpRequestMutationWhere(
             { role: "admin", siteId: null, siteLocationId: null },
@@ -237,7 +237,7 @@ describe("mp-request mutation weld", () => {
 
       const hoUpdates = await db
         .update(mpRequest)
-        .set({ notes: "Ho edit" })
+        .set({ status: "received" })
         .where(mpRequestMutationWhere(ho, ownId))
         .returning({ id: mpRequest.id });
       expect(hoUpdates).toHaveLength(1);
@@ -245,7 +245,7 @@ describe("mp-request mutation weld", () => {
       expect(await mpRequestOwnedByActor(ho, foreignId)).toBe(false);
       const foreignUpdates = await db
         .update(mpRequest)
-        .set({ notes: "Hijacked" })
+        .set({ status: "received" })
         .where(mpRequestMutationWhere(ho, foreignId))
         .returning({ id: mpRequest.id });
       expect(foreignUpdates).toHaveLength(0);

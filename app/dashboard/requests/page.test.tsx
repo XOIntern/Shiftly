@@ -64,8 +64,8 @@ async function renderRequests(
 // Shared fixture: site A holds locations LA1/LA2 and site B holds LB1. Each
 // location carries one active work area + one active shift so their
 // requests can hold lines. rqA1 (weekly, under LA1), rqA2 (daily, under
-// LA2) and rqB1 (weekly, under LB1) are told apart by unique note tokens —
-// notes are never carried by another row. Child-first cleanup.
+// LA2) and rqB1 (weekly, under LB1) are told apart by their anchors —
+// three distinct dates no other rendered field carries. Child-first cleanup.
 async function seedRequestFixtures() {
   const siteA = randomUUID();
   const siteB = randomUUID();
@@ -83,12 +83,10 @@ async function seedRequestFixtures() {
   const rqB1 = randomUUID();
   const creator = `t-rq-creator-${randomUUID().slice(0, 8)}`;
   const suffix = randomUUID().slice(0, 8);
-  const notes = {
-    rqA1: `t-rq-alpha-${suffix}`,
-    rqA2: `t-rq-other-loc-${suffix}`,
-    rqB1: `t-rq-foreign-${suffix}`,
-  };
-  const monday = "2026-01-05"; // a Monday
+  // One Monday per weekly request: the anchor cell's date uniquely names
+  // each row in the markup (notes no longer render — #133).
+  const mondayA1 = "2026-01-05"; // a Monday
+  const mondayB1 = "2026-01-12"; // the next Monday
 
   await db.insert(user).values({
     id: creator,
@@ -146,8 +144,7 @@ async function seedRequestFixtures() {
       siteLocationId: locA1,
       type: "weekly",
       status: "submitted",
-      weekStart: monday,
-      notes: notes.rqA1,
+      weekStart: mondayA1,
       createdBy: creator,
     },
     {
@@ -157,7 +154,6 @@ async function seedRequestFixtures() {
       type: "daily",
       status: "received",
       requestDate: "2026-01-07",
-      notes: notes.rqA2,
       createdBy: creator,
     },
     {
@@ -166,8 +162,7 @@ async function seedRequestFixtures() {
       siteLocationId: locB1,
       type: "weekly",
       status: "submitted",
-      weekStart: monday,
-      notes: notes.rqB1,
+      weekStart: mondayB1,
       createdBy: creator,
     },
   ]);
@@ -205,14 +200,16 @@ async function seedRequestFixtures() {
       siteLocationId: locB1,
       workAreaId: waB1,
       shiftDefinitionId: shB1,
-      date: "2026-01-05",
+      date: "2026-01-12",
       headcount: 5,
     },
   ]);
 
   return {
     ids: { siteA, siteB, locA1, locA2, locB1 },
-    notes,
+    // The anchor dates each row renders in the table — presence/exclusion
+    // is asserted on these instead of note tokens (#133).
+    anchors: { rqA1: "2026-01-05", rqA2: "2026-01-07", rqB1: "2026-01-12" },
     counts: { rqA1Lines: 2, rqA2Lines: 1, rqB1Lines: 5 },
     async cleanup() {
       for (const id of [rqA1, rqA2, rqB1]) {
@@ -262,9 +259,9 @@ describe("requests page SSR (mp-requests Task 8)", () => {
 
       const html = await renderRequests();
       expect(html.includes("Requests")).toBeTrue();
-      expect(html.includes(fx.notes.rqA1)).toBeTrue();
-      expect(html.includes(fx.notes.rqA2)).toBeTrue();
-      expect(html.includes(fx.notes.rqB1)).toBeFalse();
+      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
+      expect(html.includes(fx.anchors.rqB1)).toBeFalse();
       expect(html.includes("New request")).toBeFalse();
     } finally {
       await fx.cleanup();
@@ -277,9 +274,9 @@ describe("requests page SSR (mp-requests Task 8)", () => {
       actor = makeActor("admin", null, fx.ids.locA1);
 
       const html = await renderRequests();
-      expect(html.includes(fx.notes.rqA1)).toBeTrue();
-      expect(html.includes(fx.notes.rqA2)).toBeFalse();
-      expect(html.includes(fx.notes.rqB1)).toBeFalse();
+      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+      expect(html.includes(fx.anchors.rqA2)).toBeFalse();
+      expect(html.includes(fx.anchors.rqB1)).toBeFalse();
       expect(html.includes("New request")).toBeTrue();
     } finally {
       await fx.cleanup();
@@ -292,9 +289,9 @@ describe("requests page SSR (mp-requests Task 8)", () => {
       actor = makeActor("superadmin", null, null);
 
       const html = await renderRequests();
-      expect(html.includes(fx.notes.rqA1)).toBeTrue();
-      expect(html.includes(fx.notes.rqA2)).toBeTrue();
-      expect(html.includes(fx.notes.rqB1)).toBeTrue();
+      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
+      expect(html.includes(fx.anchors.rqB1)).toBeTrue();
       // The header button links to the full-page create form (#130).
       expect(html.includes('href="/dashboard/requests/new"')).toBeTrue();
       expect(html.includes("New request")).toBeTrue();
@@ -316,8 +313,8 @@ describe("requests page SSR (mp-requests Task 8)", () => {
       actor = makeActor("ho", fx.ids.siteA, null);
 
       const html = await renderRequests({ status: "received" });
-      expect(html.includes(fx.notes.rqA1)).toBeFalse();
-      expect(html.includes(fx.notes.rqA2)).toBeTrue();
+      expect(html.includes(fx.anchors.rqA1)).toBeFalse();
+      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
     } finally {
       await fx.cleanup();
     }
@@ -329,8 +326,24 @@ describe("requests page SSR (mp-requests Task 8)", () => {
       actor = makeActor("ho", fx.ids.siteA, null);
 
       const html = await renderRequests({ type: "daily" });
-      expect(html.includes(fx.notes.rqA1)).toBeFalse();
-      expect(html.includes(fx.notes.rqA2)).toBeTrue();
+      expect(html.includes(fx.anchors.rqA1)).toBeFalse();
+      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("a ?q= deep link is ignored: rows still render (#133)", async () => {
+    // The search lived on the (removed) notes column; with no searchable
+    // column left the page must ignore the param entirely.
+    const fx = await seedRequestFixtures();
+    try {
+      actor = makeActor("ho", fx.ids.siteA, null);
+
+      const html = await renderRequests({ q: "zzz-no-such-row-zzz" });
+      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
+      expect(html.includes(fx.anchors.rqB1)).toBeFalse();
     } finally {
       await fx.cleanup();
     }

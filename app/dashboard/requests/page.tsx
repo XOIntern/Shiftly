@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import Link from "next/link";
 import { CalendarPlusIcon } from "lucide-react";
 
@@ -14,7 +14,6 @@ import { db } from "@/lib/db";
 import { buildOrder } from "@/lib/table-order";
 import {
   PAGE_SIZE_OPTIONS,
-  ilikePattern,
   parseTableSearchParams,
 } from "@/lib/table-params";
 import { requireUser } from "@/lib/session";
@@ -72,7 +71,9 @@ export default async function RequestsPage({
   // §3.3: ho views + advances, admin/superadmin write lines).
   const actor = await requireUser();
   const raw = await searchParams;
-  const { q, page, sorts, pageSize } = parseTableSearchParams(
+  // `q` is deliberately not read #133: the search lived on the (dropped)
+  // notes column, so a ?q= URL param is simply ignored rather than filtered.
+  const { page, sorts, pageSize } = parseTableSearchParams(
     raw,
     PAGE_SIZE_OPTIONS,
   );
@@ -93,11 +94,9 @@ export default async function RequestsPage({
   // binding matches nothing rather than everything).
   const scope = mpRequestListWhere(actor);
 
-  const pattern = ilikePattern(q);
-  // Notes-only search; the joined site/location names are deliberately not
-  // searched. Null-safe and(...) composes scope+search+filters.
+  // Null-safe and(...) composes scope+filters. Notes search is gone (#133):
+  // the status/type filters remain, nothing free-text narrows the rows.
   const where = and(
-    ...(pattern ? [ilike(mpRequest.notes, pattern)] : []),
     ...(status ? [eq(mpRequest.status, status)] : []),
     ...(type ? [eq(mpRequest.type, type)] : []),
     ...(scope ? [scope] : []),
@@ -124,7 +123,6 @@ export default async function RequestsPage({
       status: mpRequest.status,
       weekStart: mpRequest.weekStart,
       requestDate: mpRequest.requestDate,
-      notes: mpRequest.notes,
       siteLocationId: mpRequest.siteLocationId,
       siteName: site.name,
       locationName: siteLocation.name,

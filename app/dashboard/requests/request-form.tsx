@@ -36,7 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 
 // ---------------------------------------------------------------------------
 // Pure grid primitives (exported for the form tests — bun test has no DOM,
@@ -128,7 +127,6 @@ export function buildCreateInput(state: {
   type: "weekly" | "daily";
   weekStart: string | null;
   requestDate: string | null;
-  notes: string;
   siteLocationId: string | undefined;
   values: GridValues;
 }): BuildResult {
@@ -152,7 +150,6 @@ export function buildCreateInput(state: {
   const input: MpRequestCreateInput = {
     siteLocationId: state.siteLocationId,
     type: state.type,
-    notes: state.notes.trim() ? state.notes.trim() : undefined,
     lines,
   };
   if (state.type === "weekly") input.weekStart = mondayOf(state.weekStart!);
@@ -391,7 +388,6 @@ export function RequestForm({
   );
   const [removedPairs, setRemovedPairs] = useState<Set<string>>(new Set());
   const [quickFill, setQuickFill] = useState<Record<string, string>>({});
-  const [notes, setNotes] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(
     initialFieldErrors ?? {},
   );
@@ -484,7 +480,6 @@ export function RequestForm({
       type: type_,
       weekStart: weekStart || null,
       requestDate: requestDate || null,
-      notes,
       siteLocationId: effectiveLocationId,
       values: liveValues,
     });
@@ -803,18 +798,6 @@ export function RequestForm({
           </div>
           </div>
         )}
-
-        <Field>
-          <FieldLabel htmlFor="request-notes">Notes</FieldLabel>
-          <Textarea
-            id="request-notes"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            maxLength={2000}
-            rows={3}
-            disabled={isEdit}
-          />
-        </Field>
 
         <DialogFooter>
           <Button type="submit" disabled={pending}>

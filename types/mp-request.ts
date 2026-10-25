@@ -18,7 +18,6 @@ export type MpRequestRow = {
   status: "submitted" | "received" | "processing" | "fulfilled" | "rejected";
   weekStart: string | null;
   requestDate: string | null;
-  notes: string | null;
   siteLocationId: string;
   siteName: string;
   locationName: string;
