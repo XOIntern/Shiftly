@@ -159,7 +159,6 @@ async function seedEditFixtures() {
       type: "weekly",
       status: "submitted",
       weekStart: monday,
-      notes: `t129-edit-alpha-${suffix}`,
       createdBy: creator,
     },
     {
@@ -169,7 +168,6 @@ async function seedEditFixtures() {
       type: "weekly",
       status: "submitted",
       weekStart: monday,
-      notes: `t129-edit-foreign-${suffix}`,
       createdBy: creator,
     },
     {
@@ -179,7 +177,6 @@ async function seedEditFixtures() {
       type: "weekly",
       status: "received",
       weekStart: "2026-01-12", // one open weekly request per location/week
-      notes: `t129-edit-received-${suffix}`,
       createdBy: creator,
     },
   ]);

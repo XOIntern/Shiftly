@@ -123,7 +123,6 @@ interface RequestRowArgs {
   weekStart?: string;
   requestDate?: string;
   status?: "submitted" | "received" | "processing" | "fulfilled" | "rejected";
-  notes?: string;
 }
 
 // Insert a tracked request row; the id is pre-generated so callers that
@@ -143,7 +142,6 @@ async function insertRequest(
     ...(args.status ? { status: args.status } : {}),
     weekStart: args.weekStart,
     requestDate: args.requestDate,
-    notes: args.notes,
     createdBy: fx.adminId,
   });
   return id;
@@ -188,7 +186,6 @@ describe("mp_request (Module 3 requests)", () => {
     const requestId = await insertRequest(fx, {
       type: "weekly",
       weekStart: MONDAY,
-      notes: `${run}-week notes`,
     });
 
     const [row] = await db
@@ -202,7 +199,6 @@ describe("mp_request (Module 3 requests)", () => {
     expect(row.status).toBe("submitted");
     expect(row.weekStart).toBe(MONDAY);
     expect(row.requestDate).toBeNull();
-    expect(row.notes).toBe(`${run}-week notes`);
     expect(row.createdBy).toBe(fx.adminId);
   });
 

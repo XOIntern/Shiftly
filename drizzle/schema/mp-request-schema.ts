@@ -51,7 +51,6 @@ export const mpRequest = pgTable(
     status: mpRequestStatusEnum("status").notNull().default("submitted"),
     weekStart: date("week_start"),
     requestDate: date("request_date"),
-    notes: text("notes"),
     // auth user.id is a text PK — the FK column type must match (text).
     createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
