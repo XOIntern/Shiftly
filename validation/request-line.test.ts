@@ -30,7 +30,8 @@ const line = (date: string, headcount = 5) => ({
 
 describe("mpRequestLineSchema", () => {
   test("requires a positionId (per-position demand, epic #135)", () => {
-    const { positionId: _omitted, ...withoutPosition } = line(MONDAY);
+    const { positionId, ...withoutPosition } = line(MONDAY);
+    void positionId; // deliberately dropped to test the required field
     const result = mpRequestLineSchema.safeParse(withoutPosition);
     expect(result.success).toBe(false);
     if (!result.success) {

@@ -55,10 +55,10 @@ const ILLEGAL_TRANSITION = "That status change is not allowed";
 // both the pre-check's message for a foreign reference and the catch's net
 // when a row vanishes or moves between the check and the write.
 const REFERENCE_FK =
-  "Selected work area or shift must belong to this request's location";
-const REFERENCE_GONE = "Selected work area or shift no longer exists";
+  "Selected work area, shift or position must belong to this request's location";
+const REFERENCE_GONE = "Selected work area, shift or position no longer exists";
 const LINE_DUPLICATE =
-  "Duplicate work area, shift and date combination";
+  "Duplicate work area, shift, position and date combination";
 const INACTIVE_WA_KEEP_ONLY =
   "Inactive work areas can only be kept unchanged, not re-added";
 const INACTIVE_SHIFT_KEEP_ONLY =

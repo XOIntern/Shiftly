@@ -447,7 +447,7 @@ describe("request actions: createRequest", () => {
 
       expect(result.ok).toBe(false);
       expect(result.message).toBe(
-        "Selected work area or shift must belong to this request's location",
+        "Selected work area, shift or position must belong to this request's location",
       );
 
       const rows = await db
@@ -504,7 +504,7 @@ describe("request actions: createRequest", () => {
 
       expect(result).toEqual({
         ok: false,
-        message: "Selected work area or shift no longer exists",
+        message: "Selected work area, shift or position no longer exists",
       });
 
       const rows = await db
@@ -774,7 +774,7 @@ describe("request actions: updateRequestLines", () => {
 
       expect(result.ok).toBe(false);
       expect(result.message).toBe(
-        "Selected work area or shift must belong to this request's location",
+        "Selected work area, shift or position must belong to this request's location",
       );
 
       const rows = await db
@@ -845,7 +845,7 @@ describe("request actions: updateRequestLines", () => {
 
       expect(duplicate.ok).toBe(false);
       expect(duplicate.fieldErrors?.lines).toBe(
-        "Duplicate work area, shift and date combination",
+        "Duplicate work area, shift, position and date combination",
       );
 
       // The refusal rolled back: the stored line survives untouched.

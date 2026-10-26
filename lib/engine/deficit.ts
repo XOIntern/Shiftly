@@ -10,6 +10,18 @@ export function computeDeficit(
   requirements: RequirementLine[],
   assignments: RosterAssignment[],
 ): Deficit[] {
+  // Demand aggregates per (area, shift, date) tuple: several lines may
+  // share one tuple with different demanded positions (#135), and an
+  // assignment carries no position — bookkeeping can attribute a filled
+  // slot to the tuple, never to a specific line.
+  const demand = new Map<string, { req: RequirementLine; headcount: number }>();
+  for (const req of requirements) {
+    const key = `${req.workAreaId}|${req.shiftDefId}|${req.date}`;
+    const entry = demand.get(key);
+    if (entry) entry.headcount += req.headcount;
+    else demand.set(key, { req, headcount: req.headcount });
+  }
+
   const filled = new Map<string, number>();
   for (const a of assignments) {
     const key = `${a.workAreaId}|${a.shiftDefId}|${a.date}`;
@@ -17,9 +29,8 @@ export function computeDeficit(
   }
 
   const deficits: Deficit[] = [];
-  for (const req of requirements) {
-    const key = `${req.workAreaId}|${req.shiftDefId}|${req.date}`;
-    const missing = req.headcount - (filled.get(key) ?? 0);
+  for (const [key, { req, headcount }] of demand) {
+    const missing = headcount - (filled.get(key) ?? 0);
     if (missing > 0) {
       deficits.push({
         workAreaId: req.workAreaId,
