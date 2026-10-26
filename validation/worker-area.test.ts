@@ -10,10 +10,12 @@ const POSITION_ID_B = "0e1f2a3b-4c5d-4e6f-9a0b-1c2d3e4f5a6b";
 const positionIdAt = (n: number) =>
   `a0000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
-const validCreate = {
+const base = {
   siteLocationId: SITE_LOCATION_ID,
   name: "Line 1",
 };
+
+const validCreate = { ...base, requiredPositionIds: [POSITION_ID_A] };
 
 describe("workAreaCreateSchema", () => {
   test("accepts a valid work area without a siteId (derived server-side)", () => {
@@ -74,12 +76,73 @@ describe("workAreaCreateSchema", () => {
     const result = workAreaCreateSchema.safeParse({ ...validCreate, name: "x".repeat(101) });
     expect(result.success).toBe(false);
   });
+
+  test("rejects a missing requiredPositionIds on the field", () => {
+    const result = workAreaCreateSchema.safeParse({
+      ...validCreate,
+      requiredPositionIds: undefined,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path.includes("requiredPositionIds")),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects an empty requiredPositionIds array", () => {
+    const result = workAreaCreateSchema.safeParse({
+      ...validCreate,
+      requiredPositionIds: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects duplicate requiredPositionIds with the once-only message", () => {
+    const result = workAreaCreateSchema.safeParse({
+      ...validCreate,
+      requiredPositionIds: [POSITION_ID_A, POSITION_ID_A],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toHaveLength(1);
+      expect(result.error.issues[0].path).toEqual(["requiredPositionIds"]);
+      expect(result.error.issues[0].message).toBe("Select each position once");
+    }
+  });
+
+  test("accepts 1 to 20 required positions and rejects 21", () => {
+    const ids = (count: number) =>
+      Array.from({ length: count }, (_, i) => positionIdAt(i));
+    for (const count of [1, 20]) {
+      expect(
+        workAreaCreateSchema.safeParse({
+          ...validCreate,
+          requiredPositionIds: ids(count),
+        }).success,
+      ).toBe(true);
+    }
+    expect(
+      workAreaCreateSchema.safeParse({
+        ...validCreate,
+        requiredPositionIds: ids(21),
+      }).success,
+    ).toBe(false);
+  });
+
+  test("rejects a non-uuid entry in requiredPositionIds", () => {
+    const result = workAreaCreateSchema.safeParse({
+      ...validCreate,
+      requiredPositionIds: ["not-a-uuid"],
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("workAreaUpdateSchema", () => {
   test("accepts a valid update with isActive and no requiredPositionIds", () => {
     const result = workAreaUpdateSchema.safeParse({
-      ...validCreate,
+      ...base,
       id: WORK_AREA_ID,
       isActive: false,
     });
@@ -88,7 +151,7 @@ describe("workAreaUpdateSchema", () => {
 
   test("rejects missing isActive", () => {
     const result = workAreaUpdateSchema.safeParse({
-      ...validCreate,
+      ...base,
       id: WORK_AREA_ID,
     });
     expect(result.success).toBe(false);
@@ -96,7 +159,7 @@ describe("workAreaUpdateSchema", () => {
 
   test("rejects a non-uuid id", () => {
     const result = workAreaUpdateSchema.safeParse({
-      ...validCreate,
+      ...base,
       id: "not-a-uuid",
       isActive: true,
     });
@@ -105,7 +168,7 @@ describe("workAreaUpdateSchema", () => {
 
   test("accepts requiredPositionIds", () => {
     const result = workAreaUpdateSchema.safeParse({
-      ...validCreate,
+      ...base,
       id: WORK_AREA_ID,
       isActive: true,
       requiredPositionIds: [POSITION_ID_A, POSITION_ID_B],
@@ -115,7 +178,7 @@ describe("workAreaUpdateSchema", () => {
 
   test("accepts an empty requiredPositionIds array", () => {
     const result = workAreaUpdateSchema.safeParse({
-      ...validCreate,
+      ...base,
       id: WORK_AREA_ID,
       isActive: true,
       requiredPositionIds: [],
@@ -125,7 +188,7 @@ describe("workAreaUpdateSchema", () => {
 
   test("rejects duplicate requiredPositionIds with the once-only message", () => {
     const result = workAreaUpdateSchema.safeParse({
-      ...validCreate,
+      ...base,
       id: WORK_AREA_ID,
       isActive: true,
       requiredPositionIds: [POSITION_ID_A, POSITION_ID_A],
@@ -143,7 +206,7 @@ describe("workAreaUpdateSchema", () => {
       Array.from({ length: count }, (_, i) => positionIdAt(i));
     expect(
       workAreaUpdateSchema.safeParse({
-        ...validCreate,
+        ...base,
         id: WORK_AREA_ID,
         isActive: true,
         requiredPositionIds: ids(20),
@@ -151,7 +214,7 @@ describe("workAreaUpdateSchema", () => {
     ).toBe(true);
     expect(
       workAreaUpdateSchema.safeParse({
-        ...validCreate,
+        ...base,
         id: WORK_AREA_ID,
         isActive: true,
         requiredPositionIds: ids(21),
@@ -161,7 +224,7 @@ describe("workAreaUpdateSchema", () => {
 
   test("rejects a non-uuid entry in requiredPositionIds", () => {
     const result = workAreaUpdateSchema.safeParse({
-      ...validCreate,
+      ...base,
       id: WORK_AREA_ID,
       isActive: true,
       requiredPositionIds: ["not-a-uuid"],
@@ -171,7 +234,7 @@ describe("workAreaUpdateSchema", () => {
 
   test("keeps the create rules: a missing siteLocationId still fails", () => {
     const result = workAreaUpdateSchema.safeParse({
-      ...validCreate,
+      ...base,
       siteLocationId: undefined,
       id: WORK_AREA_ID,
       isActive: true,
