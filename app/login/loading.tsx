@@ -1,38 +1,40 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-// Loading shell for the login route: mirrors the form column (mobile logo
-// slot, heading, two fields, submit, centered footer note) so the swap to
-// the real form moves nothing. The brand panel is static markup that needs
-// no skeleton — a solid primary field holds its place.
+// Loading shell for the login route: mirrors the single centered column (top
+// bar slot for the logo, then heading, two fields, submit, and a centered
+// footer note) so the swap to the real page moves nothing. Gaps and line
+// heights match the real classes: the field group uses the same gap as
+// FieldGroup, and each text skeleton is the height of one rendered line of
+// the real text. Keep them in step when the form changes.
 export default function LoginLoading() {
   return (
-    <div className="grid min-h-svh lg:grid-cols-2">
-      <div className="hidden bg-primary lg:block" />
-
-      <div className="flex flex-col items-center justify-center gap-6 bg-background p-6 md:p-10">
-        <Skeleton className="h-6 w-24 self-center lg:hidden" />
-        <div className="flex w-full max-w-xs flex-col gap-6">
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-8 w-40" />
-            <Skeleton className="h-4 w-60" />
+    <div className="flex min-h-svh flex-col">
+      <div className="container flex h-14 items-center">
+        <Skeleton className="h-7 w-28" />
+      </div>
+      <main className="flex flex-1 items-center justify-center px-4 pb-24">
+        <div className="flex w-full max-w-90 flex-col gap-6">
+          <div className="flex flex-col gap-1.5">
+            <Skeleton className="h-9.5 w-44" />
+            <Skeleton className="h-5 w-60" />
           </div>
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-5">
             <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-12" />
+              <Skeleton className="h-5 w-12" />
               <Skeleton className="h-9 w-full" />
             </div>
             <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-5 w-16" />
               <Skeleton className="h-9 w-full" />
             </div>
             <Skeleton className="h-9 w-full" />
           </div>
-          <div className="flex flex-col items-center gap-1.5">
-            <Skeleton className="h-4 w-52" />
-            <Skeleton className="h-4 w-44" />
+          <div className="flex flex-col items-center gap-0.5">
+            <Skeleton className="h-5 w-52" />
+            <Skeleton className="h-5 w-44" />
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

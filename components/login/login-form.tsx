@@ -61,14 +61,12 @@ export function LoginForm({
 
   return (
     <div
-      className={cn("flex w-full max-w-xs flex-col gap-6", className)}
+      className={cn("flex w-full max-w-90 flex-col gap-6", className)}
       {...props}
     >
       <div className="flex flex-col gap-1.5">
-        <h1 className="text-2xl font-semibold tracking-tighter">
-          Welcome back
-        </h1>
-        <p className="text-sm text-muted-foreground">
+        <h1 className="page-title">Welcome back</h1>
+        <p className="text-sm text-foreground-secondary">
           Enter your email and password below.
         </p>
       </div>
@@ -85,6 +83,7 @@ export function LoginForm({
             <FieldLabel htmlFor="email">Email</FieldLabel>
             <Input
               id="email"
+              className="h-9"
               type="email"
               placeholder="m@example.com"
               value={email}
@@ -95,7 +94,7 @@ export function LoginForm({
           </Field>
           <Field>
             <FieldLabel htmlFor="password">Password</FieldLabel>
-            <InputGroup>
+            <InputGroup className="h-9">
               <InputGroupInput
                 id="password"
                 type={showPassword ? "text" : "password"}
@@ -119,7 +118,12 @@ export function LoginForm({
             </InputGroup>
           </Field>
           <Field>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full"
+              disabled={loading}
+            >
               {loading && <Loader2Icon className="animate-spin" />}
               {loading ? "Logging in..." : "Login"}
             </Button>
@@ -127,7 +131,7 @@ export function LoginForm({
         </FieldGroup>
       </form>
 
-      <FieldDescription className="text-center text-muted-foreground">
+      <FieldDescription className="text-center text-foreground-muted">
         Accounts are created by your admin.
         <br />
         Forgot your password? Contact your admin.
