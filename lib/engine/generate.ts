@@ -11,21 +11,24 @@ import { buildWorkersRecord } from "./validate";
 // Rules enter only via the `rules` parameter.
 //
 // One requirement line = one date × one shift definition × one work area ×
-// `headcount` distinct workers. The candidate admission loop is validator-
-// driven: append the candidate to this worker's merged horizon (current
-// draft + prior history) → `validateRoster` over that worker's assignments
-// → any violation rejects the candidate and advances to the next.
+// one required position (#143) × `headcount` distinct workers. The
+// candidate admission loop is validator-driven: append the candidate to
+// this worker's merged horizon (current draft + prior history) →
+// `validateRoster` over that worker's assignments → any violation rejects
+// the candidate and advances to the next.
 
 export interface RequirementLine {
   workAreaId: string;
   shiftDefId: string;
+  positionId: string;
   date: string; // "YYYY-MM-DD"
   headcount: number;
 }
 
 // Why a slot could not be filled:
-// - "no_qualified_candidate": nobody with a required position was available
-//   (C7 filtered everyone out).
+// - "no_qualified_candidate": nobody holding the line's required position
+//   was available (the exact-position pool filter and/or C7 filtered
+//   everyone out — the reason also covers "nobody holds the position").
 // - "all_rule_limited": qualified candidates existed but the ruleset
 //   rejected every one of them.
 // - "unfilled": no engine attempt was made (computeDeficit cannot know why).
@@ -191,7 +194,12 @@ export function generateDraft(input: GenerateInput): {
   const deficits: Deficit[] = [];
 
   for (const req of requirements) {
-    const pool = byArea.get(req.workAreaId) ?? [];
+    // Exact-position pool first (#143): only workers holding the line's
+    // demanded position are candidates — sharper than C7's
+    // any-required-position gate, which runs after.
+    const pool = (byArea.get(req.workAreaId) ?? []).filter((w) =>
+      w.positionIds.includes(req.positionId),
+    );
     const qualified = pool.filter((w) =>
       isQualified(w, req.workAreaId, rules, areaRequirements),
     );

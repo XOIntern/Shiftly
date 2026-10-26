@@ -60,13 +60,14 @@ const line = (
   shiftDefId = "s0",
   workAreaId = "wa-a",
   headcount = 1,
-): RequirementLine => ({ workAreaId, shiftDefId, date, headcount });
+  positionId = "pos-a",
+): RequirementLine => ({ workAreaId, shiftDefId, date, headcount, positionId });
 
 describe("generateDraft (roster-engine task 2)", () => {
   test("two runs on identical input are byte-equal (deterministic)", () => {
     const input = {
       requirements: [line("2026-01-05"), line("2026-01-06")],
-      workers: [mkWorker("w1"), mkWorker("w2")],
+      workers: [mkWorker("w1", "wa-a", ["pos-a"]), mkWorker("w2", "wa-a", ["pos-a"])],
       shiftOrder: mkShift(3),
       areaRequirements: {},
       priorAssignments: [],
@@ -83,7 +84,7 @@ describe("generateDraft (roster-engine task 2)", () => {
     // w1 has 4 work days in the target week, w2 only 2.
     const result = generateDraft({
       requirements: [line("2026-01-09")],
-      workers: [mkWorker("w1"), mkWorker("w2")],
+      workers: [mkWorker("w1", "wa-a", ["pos-a"]), mkWorker("w2", "wa-a", ["pos-a"])],
       shiftOrder: mkShift(3),
       areaRequirements: {},
       priorAssignments: [
@@ -107,7 +108,7 @@ describe("generateDraft (roster-engine task 2)", () => {
     // downshift) is admitted instead.
     const result = generateDraft({
       requirements: [line("2026-01-06")],
-      workers: [mkWorker("w1"), mkWorker("w2")],
+      workers: [mkWorker("w1", "wa-a", ["pos-a"]), mkWorker("w2", "wa-a", ["pos-a"])],
       shiftOrder: mkShift(3),
       areaRequirements: {},
       priorAssignments: [
@@ -122,7 +123,7 @@ describe("generateDraft (roster-engine task 2)", () => {
     // With C3 off the tie-break wins instead: w1 gets the slot.
     const noRotation = generateDraft({
       requirements: [line("2026-01-06")],
-      workers: [mkWorker("w1"), mkWorker("w2")],
+      workers: [mkWorker("w1", "wa-a", ["pos-a"]), mkWorker("w2", "wa-a", ["pos-a"])],
       shiftOrder: mkShift(3),
       areaRequirements: {},
       priorAssignments: [
@@ -137,7 +138,7 @@ describe("generateDraft (roster-engine task 2)", () => {
 
   test("C7 requirement filters candidates → deficit no_qualified_candidate when none", () => {
     const result = generateDraft({
-      requirements: [line("2026-01-05", "s0", "wa-a", 2)],
+      requirements: [line("2026-01-05", "s0", "wa-a", 2, "pos-weld")],
       workers: [
         mkWorker("w1", "wa-a", ["pos-paint"]),
         mkWorker("w2", "wa-a", ["pos-weld"]),
@@ -164,7 +165,7 @@ describe("generateDraft (roster-engine task 2)", () => {
     // Every worker is at the 5-day week limit: Saturday would be the 6th.
     const result = generateDraft({
       requirements: [line("2026-01-10", "s0", "wa-a")],
-      workers: [mkWorker("w1"), mkWorker("w2")],
+      workers: [mkWorker("w1", "wa-a", ["pos-a"]), mkWorker("w2", "wa-a", ["pos-a"])],
       shiftOrder: mkShift(3),
       areaRequirements: {},
       priorAssignments: [
@@ -202,7 +203,7 @@ describe("generateDraft (roster-engine task 2)", () => {
     const prior: RosterAssignment[] = [assign("w1", "2026-01-05")];
     const result = generateDraft({
       requirements: [line("2026-01-07"), line("2026-01-06")],
-      workers: [mkWorker("w1"), mkWorker("w2")],
+      workers: [mkWorker("w1", "wa-a", ["pos-a"]), mkWorker("w2", "wa-a", ["pos-a"])],
       shiftOrder: mkShift(3),
       areaRequirements: {},
       priorAssignments: prior,
@@ -247,7 +248,7 @@ describe("generateDraft (roster-engine task 2)", () => {
     // 12 Monday-start weeks of demand: every area, every day, 2 slots on s0.
     const start = "2026-03-02";
     const requirements = Array.from({ length: 12 * 7 }, (_, d) =>
-      areas.map((area) => line(addDays(start, d), "s0", area, 2)),
+      areas.map((area) => line(addDays(start, d), "s0", area, 2, `pos-${area}`)),
     ).flat();
 
     const priorAssignments: RosterAssignment[] = [];
@@ -318,8 +319,8 @@ describe("generateDraft (roster-engine task 2)", () => {
     const start = "2026-03-02";
     const requirements = Array.from({ length: 12 * 7 }, (_, d) =>
       areas.flatMap((area) => [
-        line(addDays(start, d), "s0", area, 3),
-        line(addDays(start, d), "s1", area, 3),
+        line(addDays(start, d), "s0", area, 3, `pos-${area}`),
+        line(addDays(start, d), "s1", area, 3, `pos-${area}`),
       ]),
     ).flat();
 
@@ -345,8 +346,8 @@ describe("generateDraft (roster-engine task 2)", () => {
     // matches the other pair's slice.
     const result = generateDraft({
       requirements: [
-        line("2026-01-05", "s0", "wa-a"),
-        line("2026-01-06", "s0", "wa-b"),
+        line("2026-01-05", "s0", "wa-a", 1, "pos-a"),
+        line("2026-01-06", "s0", "wa-b", 1, "pos-b"),
       ],
       workers: [
         mkWorker("w1", "wa-a", ["pos-a"]),
@@ -373,5 +374,50 @@ describe("generateDraft (roster-engine task 2)", () => {
         { "wa-a": ["pos-a"], "wa-b": ["pos-b"] },
       ),
     ).toEqual([]);
+  });
+
+  test("the candidate pool demands the line's exact position (#143)", () => {
+    // Two same-area workers: A holds p1, B holds p2. The line demands p2 —
+    // exact-position matching, sharper than C7's any-required-position —
+    // so only B is assignable.
+    const result = generateDraft({
+      requirements: [line("2026-01-05", "s0", "wa-a", 1, "pos-p2")],
+      workers: [
+        mkWorker("w-a", "wa-a", ["pos-p1"]),
+        mkWorker("w-b", "wa-a", ["pos-p2"]),
+      ],
+      shiftOrder: mkShift(3),
+      areaRequirements: { "wa-a": ["pos-p1", "pos-p2"] },
+      priorAssignments: [],
+      rules: rules({ c7: true }),
+    });
+
+    expect(result.assignments.map((a) => a.workerId)).toEqual(["w-b"]);
+    expect(result.deficits).toEqual([]);
+  });
+
+  test("nobody holds the demanded position → no_qualified_candidate with full missing", () => {
+    const result = generateDraft({
+      requirements: [line("2026-01-05", "s0", "wa-a", 2, "pos-p3")],
+      workers: [
+        mkWorker("w-a", "wa-a", ["pos-p1"]),
+        mkWorker("w-b", "wa-a", ["pos-p2"]),
+      ],
+      shiftOrder: mkShift(3),
+      areaRequirements: { "wa-a": ["pos-p1", "pos-p2"] },
+      priorAssignments: [],
+      rules: rules({ c7: true }),
+    });
+
+    expect(result.assignments).toEqual([]);
+    expect(result.deficits).toEqual([
+      {
+        workAreaId: "wa-a",
+        shiftDefId: "s0",
+        date: "2026-01-05",
+        missing: 2,
+        reason: "no_qualified_candidate",
+      },
+    ]);
   });
 });

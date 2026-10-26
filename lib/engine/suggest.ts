@@ -62,8 +62,13 @@ export function suggestReplacements(
 
   const workersRecord = buildWorkersRecord(workers);
 
-  // Area pool, ranked exactly like the generator ranks its greedy picks.
-  const pool = workers.filter((w) => w.workAreaId === line.workAreaId);
+  // Area pool narrowed to the line's exact position (#143), ranked exactly
+  // like the generator ranks its greedy picks.
+  const pool = workers.filter(
+    (w) =>
+      w.workAreaId === line.workAreaId &&
+      w.positionIds.includes(line.positionId),
+  );
   const ranked = rankWorkers(pool, line.date, byWorker);
 
   const suggested: SuggestedCandidate[] = [];

@@ -14,7 +14,8 @@ const line = (
   shiftDefId = "s0",
   workAreaId = "wa-a",
   headcount = 1,
-): RequirementLine => ({ workAreaId, shiftDefId, date, headcount });
+  positionId = "pos-a",
+): RequirementLine => ({ workAreaId, shiftDefId, date, headcount, positionId });
 
 const assign = (
   workerId: string,
