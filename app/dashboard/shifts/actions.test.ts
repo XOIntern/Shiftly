@@ -8,8 +8,10 @@ import { site, siteLocation, shiftDefinition } from "@/drizzle/schema";
 import {
   mpRequest,
   mpRequestLine,
+  position,
   user,
   workArea,
+  workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 import type {
@@ -599,6 +601,7 @@ describe("shift actions: delete", () => {
     const requestId = randomUUID();
     const lineId = randomUUID();
     const waId = randomUUID();
+    const posId = randomUUID();
 
     try {
       await db.insert(user).values({
@@ -611,6 +614,19 @@ describe("shift actions: delete", () => {
         siteId: fx.siteA,
         siteLocationId: fx.locA1,
         name: `t-shift-guard-wa-${waId}`,
+      });
+      await db.insert(position).values({
+        id: posId,
+        siteId: fx.siteA,
+        name: `t-shift-guard-pos-${posId}`,
+      });
+      // A line's demanded position must be one of the area's required
+      // positions (the weld FK, #135).
+      await db.insert(workAreaPosition).values({
+        workAreaId: waId,
+        positionId: posId,
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
       });
       await db.insert(mpRequest).values({
         id: requestId,
@@ -627,6 +643,7 @@ describe("shift actions: delete", () => {
         siteLocationId: fx.locA1,
         workAreaId: waId,
         shiftDefinitionId: shiftId,
+        positionId: posId,
         date: "2026-01-06",
         headcount: 2,
       });
@@ -647,6 +664,8 @@ describe("shift actions: delete", () => {
     } finally {
       await db.delete(mpRequestLine).where(eq(mpRequestLine.id, lineId));
       await db.delete(mpRequest).where(eq(mpRequest.id, requestId));
+      await db.delete(workAreaPosition).where(eq(workAreaPosition.workAreaId, waId));
+      await db.delete(position).where(eq(position.id, posId));
       await db.delete(workArea).where(eq(workArea.id, waId));
       await db.delete(user).where(eq(user.id, userId));
       await db.delete(shiftDefinition).where(eq(shiftDefinition.id, shiftId));

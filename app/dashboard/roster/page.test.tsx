@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import {
   mpRequest,
   mpRequestLine,
+  position,
   rosterAssignment,
   rosterPlan,
   shiftDefinition,
@@ -15,7 +16,9 @@ import {
   siteLocation,
   user,
   workArea,
+  workAreaPosition,
   worker,
+  workerPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
@@ -77,6 +80,7 @@ async function seedRosterFixtures() {
   const waOne = randomUUID();
   const waTwo = randomUUID();
   const waL2 = randomUUID();
+  const posOne = randomUUID();
   const shEarly = randomUUID();
   const shLate = randomUUID();
   const shL2 = randomUUID();
@@ -109,6 +113,17 @@ async function seedRosterFixtures() {
     { id: waTwo, siteLocationId: locL1, siteId: siteS, name: `t-roster-wa-two-${suffix}` },
     { id: waL2, siteLocationId: locL2, siteId: siteS, name: `t-roster-wa-l2-${suffix}` },
   ]);
+  await db.insert(position).values({
+    id: posOne,
+    siteId: siteS,
+    name: `t-roster-pos-one-${suffix}`,
+  });
+  await db.insert(workAreaPosition).values({
+    workAreaId: waOne,
+    positionId: posOne,
+    siteId: siteS,
+    siteLocationId: locL1,
+  });
   await db.insert(shiftDefinition).values([
     {
       id: shEarly,
@@ -147,6 +162,11 @@ async function seedRosterFixtures() {
       name: `t-roster-worker-${suffix}-${index + 1}`,
     })),
   );
+  // The card requires posOne, so every sliced worker holds it (the profile
+  // loader admits only workers holding one of the area's positions).
+  await db.insert(workerPosition).values(
+    workerIds.map((id) => ({ workerId: id, positionId: posOne, siteId: siteS })),
+  );
   await db.insert(mpRequest).values([
     {
       id: reqWeekly,
@@ -174,6 +194,7 @@ async function seedRosterFixtures() {
       siteLocationId: locL1,
       workAreaId: waOne,
       shiftDefinitionId: shEarly,
+      positionId: posOne,
       date: MONDAY,
       headcount: 2,
     },
@@ -183,6 +204,7 @@ async function seedRosterFixtures() {
       siteLocationId: locL1,
       workAreaId: waOne,
       shiftDefinitionId: shEarly,
+      positionId: posOne,
       date: "2026-01-06",
       headcount: 2,
     },
@@ -192,6 +214,7 @@ async function seedRosterFixtures() {
       siteLocationId: locL1,
       workAreaId: waOne,
       shiftDefinitionId: shEarly,
+      positionId: posOne,
       date: "2026-01-07",
       headcount: 2,
     },
@@ -273,6 +296,7 @@ async function seedRosterFixtures() {
       areaOne: `t-roster-wa-one-${suffix}`,
       areaTwo: `t-roster-wa-two-${suffix}`,
       shiftEarly: `t-roster-shift-early-${suffix}`,
+      posOne: `t-roster-pos-one-${suffix}`,
       loc1: `t-roster-loc-1-${suffix}`,
       loc2: `t-roster-loc-2-${suffix}`,
     },
@@ -288,13 +312,17 @@ async function seedRosterFixtures() {
         await db.delete(mpRequestLine).where(eq(mpRequestLine.requestId, id));
         await db.delete(mpRequest).where(eq(mpRequest.id, id));
       }
+      // Pivots first: they RESTRICT to worker / work_area rows.
+      await db.delete(workerPosition).where(eq(workerPosition.positionId, posOne));
       await db.delete(worker).where(eq(worker.siteLocationId, locL1));
       for (const id of [shEarly, shLate, shL2]) {
         await db.delete(shiftDefinition).where(eq(shiftDefinition.id, id));
       }
+      await db.delete(workAreaPosition).where(eq(workAreaPosition.workAreaId, waOne));
       for (const id of [waOne, waTwo, waL2]) {
         await db.delete(workArea).where(eq(workArea.id, id));
       }
+      await db.delete(position).where(eq(position.id, posOne));
       for (const id of [locL1, locL2]) {
         await db.delete(siteLocation).where(eq(siteLocation.id, id));
       }
@@ -470,6 +498,8 @@ describe("roster page SSR (roster-engine Task 7)", () => {
       expect(html.includes("Daily requests")).toBeTrue();
       expect(html.includes("2026-01-07")).toBeTrue();
       expect(html.includes("Suggest replacements")).toBeTrue();
+      // The daily line's demanded position rides its own column.
+      expect(html.includes(fx.labels.posOne)).toBeTrue();
     } finally {
       await fx.cleanup();
     }

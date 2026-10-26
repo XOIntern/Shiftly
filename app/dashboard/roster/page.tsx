@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } 
 import {
   mpRequest,
   mpRequestLine,
+  position,
   rosterPlan,
   shiftDefinition,
   site,
@@ -270,7 +271,7 @@ export default async function RosterPage({
 
   // The daily tab's outstanding lines: received/processing daily requests
   // dated within the running week, honoring the shared table's q search
-  // (work area, shift, location names) and page/pageSize URL state.
+  // (work area, shift, position, location names) and page/pageSize URL state.
   const pattern = ilikePattern(q);
   const dailyWhere = and(
     eq(mpRequest.type, "daily"),
@@ -283,6 +284,7 @@ export default async function RosterPage({
           or(
             ilike(workArea.name, pattern),
             ilike(shiftDefinition.label, pattern),
+            ilike(position.name, pattern),
             ilike(siteLocation.name, pattern),
           ),
         ]
@@ -298,6 +300,7 @@ export default async function RosterPage({
       shiftDefinition,
       eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
     )
+    .innerJoin(position, eq(mpRequestLine.positionId, position.id))
     .innerJoin(siteLocation, eq(mpRequest.siteLocationId, siteLocation.id))
     .where(dailyWhere);
   const dailyPageCount = Math.max(1, Math.ceil(dailyTotal / pageSize));
@@ -314,6 +317,8 @@ export default async function RosterPage({
       workAreaName: workArea.name,
       shiftDefinitionId: mpRequestLine.shiftDefinitionId,
       shiftLabel: shiftDefinition.label,
+      positionId: mpRequestLine.positionId,
+      positionName: position.name,
       siteLocationId: mpRequest.siteLocationId,
       locationName: siteLocation.name,
       siteName: site.name,
@@ -325,6 +330,7 @@ export default async function RosterPage({
       shiftDefinition,
       eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
     )
+    .innerJoin(position, eq(mpRequestLine.positionId, position.id))
     .innerJoin(siteLocation, eq(mpRequest.siteLocationId, siteLocation.id))
     .innerJoin(site, eq(mpRequest.siteId, site.id))
     .where(dailyWhere)

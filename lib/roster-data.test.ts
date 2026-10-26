@@ -198,9 +198,22 @@ async function addRequestLine(
   fx: BaseFixture,
   requestId: string,
   args: { workAreaId: string; shiftDefinitionId: string; date: string; headcount?: number },
-): Promise<void> {
+): Promise<string> {
   const id = randomUUID();
   createdRequestLineIds.push(id);
+  // A line demands one exact position (#135): default to a freshly created
+  // position, pivoted onto the area.
+  const positionId = randomUUID();
+  createdPositionIds.push(positionId);
+  await db.insert(position).values({
+    id: positionId,
+    siteId: fx.siteId,
+    name: `t-roster-pos-auto-${positionId}`,
+  });
+  await db
+    .insert(workAreaPosition)
+    .values({ workAreaId: args.workAreaId, positionId, siteId: fx.siteId, siteLocationId: fx.locationId })
+    .onConflictDoNothing();
   await db.insert(mpRequestLine).values({
     id,
     requestId,
@@ -208,9 +221,11 @@ async function addRequestLine(
     siteLocationId: fx.locationId,
     workAreaId: args.workAreaId,
     shiftDefinitionId: args.shiftDefinitionId,
+    positionId,
     date: args.date,
     headcount: args.headcount ?? 2,
   });
+  return positionId;
 }
 
 interface PlanArgs {
@@ -429,9 +444,9 @@ describe("loadRequirementsForWeek", () => {
     const shift = await createShift(fx, 1);
     await createShift(fx, 2);
     const received = await createRequest(fx, { status: "received", weekStart: MON });
-    await addRequestLine(fx, received, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 3 });
+    const pos = await addRequestLine(fx, received, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 3 });
 
-    const expected = [{ workAreaId: area, shiftDefId: shift, date: MON, headcount: 3 }];
+    const expected = [{ workAreaId: area, shiftDefId: shift, positionId: pos, date: MON, headcount: 3 }];
     // received is confirmed demand.
     expect(await loadRequirementsForWeek(fx.locationId, MON)).toEqual(expected);
 

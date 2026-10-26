@@ -78,6 +78,7 @@ export interface FillDailyRequestInput {
   workAreaId: string;
   shiftDefId: string;
   date: string;
+  positionId: string;
   workerId: string;
   siteLocationId?: string;
 }
@@ -86,6 +87,7 @@ export interface SuggestInput {
   workAreaId: string;
   shiftDefId: string;
   date: string;
+  positionId: string;
   siteLocationId?: string;
 }
 
@@ -108,6 +110,7 @@ const REFERENCE_FK =
 const REFERENCE_GONE = "Selected work area or shift no longer exists";
 const ASSIGNMENT_DUPLICATE = "That worker already has a shift on this date";
 const DAILY_PLAN_RACE = "A daily plan already exists for this date";
+const POSITION_MISMATCH = "Worker does not hold the requested position";
 
 const isDate = (value: string): boolean =>
   /^\d{4}-\d{2}-\d{2}$/.test(value) && z.string().date().safeParse(value).success;
@@ -567,7 +570,11 @@ export async function suggestReplacementsAction(
     return { ok: false, message: "Location is required" };
   }
   if (
-    !areIds(input.workAreaId, input.shiftDefId) ||
+    !areIds(
+      input.workAreaId,
+      input.shiftDefId,
+      input.positionId,
+    ) ||
     !isDate(input.date)
   ) {
     return { ok: false, message: "Invalid suggestion target" };
@@ -624,6 +631,7 @@ export async function suggestReplacementsAction(
     {
       workAreaId: input.workAreaId,
       shiftDefId: input.shiftDefId,
+      positionId: input.positionId,
       date: input.date,
       headcount: 1,
     },
@@ -652,7 +660,13 @@ export async function fillDailyRequest(
     return { ok: false, fieldErrors: { siteLocationId: "Location is required" } };
   }
   if (
-    !areIds(input.requestId, input.workerId, input.workAreaId, input.shiftDefId) ||
+    !areIds(
+      input.requestId,
+      input.workerId,
+      input.workAreaId,
+      input.shiftDefId,
+      input.positionId,
+    ) ||
     !isDate(input.date)
   ) {
     return { ok: false, message: REQUEST_GONE };
@@ -776,6 +790,14 @@ export async function fillDailyRequest(
     workAreaId: r.workAreaId,
   });
 
+  // The fill is position-aware (#141): the candidate must hold the exact
+  // position the line demands — the profiles loader emits one entry per
+  // worker×area pair with the worker's position set.
+  const profile = profiles.find((p) => p.id === input.workerId);
+  if (!profile || !profile.positionIds.includes(input.positionId)) {
+    return { ok: false, message: POSITION_MISMATCH };
+  }
+
   const candidate: RosterAssignment = {
     workerId: input.workerId,
     date: input.date,
@@ -845,6 +867,7 @@ export async function fillDailyRequest(
           requestId: input.requestId,
           workerId: input.workerId,
           date: input.date,
+          positionId: input.positionId,
         },
       });
     });

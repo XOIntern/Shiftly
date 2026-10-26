@@ -39,6 +39,8 @@ export type DailyLineRow = {
   workAreaName: string;
   shiftDefinitionId: string;
   shiftLabel: string;
+  positionId: string;
+  positionName: string;
   siteLocationId: string;
   locationName: string;
   siteName: string;
@@ -58,6 +60,7 @@ function SuggestMenu({ line }: { line: DailyLineRow }) {
         workAreaId: line.workAreaId,
         shiftDefId: line.shiftDefinitionId,
         date: line.date,
+        positionId: line.positionId,
         siteLocationId: line.siteLocationId,
       });
       if (result.ok && "data" in result) {
@@ -79,6 +82,7 @@ function SuggestMenu({ line }: { line: DailyLineRow }) {
         workAreaId: line.workAreaId,
         shiftDefId: line.shiftDefinitionId,
         date: line.date,
+        positionId: line.positionId,
         workerId,
         siteLocationId: line.siteLocationId,
       });
@@ -161,6 +165,10 @@ export function DailyRequests({
           header: "Shift",
           meta: { thClassName: "min-w-[120px]" },
         }),
+        helper.accessor("positionName", {
+          header: "Position",
+          meta: { thClassName: "min-w-[140px]" },
+        }),
         helper.accessor("headcount", {
           header: "Headcount",
           meta: { thClassName: "w-24", tdClassName: "text-right tabular-nums" },
@@ -214,7 +222,7 @@ export function DailyRequests({
       pageCount={pageCount}
       total={total}
       emptyMessage="No outstanding daily requests this week"
-      placeholder="Search work area, shift…"
+      placeholder="Search work area, shift, position…"
       getRowId={(row) => row.id}
     />
   );
