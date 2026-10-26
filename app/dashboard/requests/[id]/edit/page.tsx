@@ -7,8 +7,10 @@ import { z } from "zod";
 import {
   mpRequest,
   mpRequestLine,
+  position,
   shiftDefinition,
   workArea,
+  workAreaPosition,
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
@@ -17,6 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RequestFormPage } from "@/app/dashboard/requests/request-form";
 import type {
+  MpRequestGridPosition,
   MpRequestGridShift,
   MpRequestGridWorkArea,
 } from "@/types/mp-request";
@@ -58,7 +61,8 @@ export default async function EditRequestPage({
     .limit(1);
   if (!row) notFound();
 
-  const [lineRows, activeWorkAreas, activeShifts] = await Promise.all([
+  const [lineRows, activeWorkAreaRows, activeShifts, areaPositionRows] =
+    await Promise.all([
     // Names joined even for pairs that have since left the active masters:
     // the form renders those lines as removable inactive pairs.
     db
@@ -68,6 +72,8 @@ export default async function EditRequestPage({
         workAreaName: workArea.name,
         shiftDefinitionId: mpRequestLine.shiftDefinitionId,
         shiftLabel: shiftDefinition.label,
+        positionId: mpRequestLine.positionId,
+        positionName: position.name,
         date: mpRequestLine.date,
         headcount: mpRequestLine.headcount,
       })
@@ -77,6 +83,7 @@ export default async function EditRequestPage({
         shiftDefinition,
         eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
       )
+      .innerJoin(position, eq(mpRequestLine.positionId, position.id))
       .where(eq(mpRequestLine.requestId, row.id)),
     // This row's active masters only — the location is immutable here, so
     // there is no site/location pick to serve options for.
@@ -113,7 +120,40 @@ export default async function EditRequestPage({
         ),
       )
       .orderBy(asc(shiftDefinition.orderIndex)),
+    // This row's location's required positions per area (live + active,
+    // name-ascending) — the grid rows are area × shift × required
+    // position (#137).
+    db
+      .select({
+        workAreaId: workAreaPosition.workAreaId,
+        positionId: position.id,
+        positionName: position.name,
+      })
+      .from(workAreaPosition)
+      .innerJoin(position, eq(workAreaPosition.positionId, position.id))
+      .where(
+        and(
+          eq(position.isActive, true),
+          isNull(position.deletedAt),
+          eq(workAreaPosition.siteLocationId, row.siteLocationId),
+        ),
+      )
+      .orderBy(asc(position.name)),
   ]);
+
+  // Group the pivot rows onto their area masters (order preserved).
+  const positionsByWorkArea = new Map<string, MpRequestGridPosition[]>();
+  for (const areaPosition of areaPositionRows) {
+    const list = positionsByWorkArea.get(areaPosition.workAreaId) ?? [];
+    list.push({ id: areaPosition.positionId, name: areaPosition.positionName });
+    positionsByWorkArea.set(areaPosition.workAreaId, list);
+  }
+  const activeWorkAreas: MpRequestGridWorkArea[] = activeWorkAreaRows.map(
+    (area) => ({
+      ...area,
+      positions: positionsByWorkArea.get(area.id) ?? [],
+    }),
+  );
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">

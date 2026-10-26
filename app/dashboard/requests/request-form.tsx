@@ -43,8 +43,8 @@ import {
 // ---------------------------------------------------------------------------
 
 // The headcount input lives in state as a string keyed
-// `${workAreaId}|${shiftDefinitionId}|${date}` — one map serves the weekly
-// 7-day grid and the daily single-date grid alike.
+// `${workAreaId}|${shiftDefinitionId}|${positionId}|${date}` (#137) — one
+// map serves the weekly 7-day grid and the daily single-date grid alike.
 export type GridValues = Record<string, string>;
 
 // The dates the grid shows: the 7 Monday-start days, or the single daily
@@ -60,11 +60,15 @@ export type GridRow = {
   workAreaName: string;
   shiftDefinitionId: string;
   shiftLabel: string;
+  positionId: string;
+  positionName: string;
 };
 
-// A grid row per active work area × active shift of the location — the
-// cross product the spec's grid is built on. Other locations' masters
-// never enter (the dialog masters arrive scoped per role).
+// A grid row per active work area × active shift × the area's required
+// positions (#137) — the cross product the spec's grid is built on. An
+// area with an empty required-position set contributes no rows at all.
+// Other locations' masters never enter (the dialog masters arrive scoped
+// per role).
 export function gridRows(
   activeWorkAreas: MpRequestGridWorkArea[],
   activeShifts: MpRequestGridShift[],
@@ -76,16 +80,37 @@ export function gridRows(
     if (workArea.siteLocationId !== siteLocationId) continue;
     for (const shift of activeShifts) {
       if (shift.siteLocationId !== siteLocationId) continue;
-      rows.push({
-        key: `${workArea.id}|${shift.id}`,
-        workAreaId: workArea.id,
-        workAreaName: workArea.name,
-        shiftDefinitionId: shift.id,
-        shiftLabel: shift.label,
-      });
+      for (const position of workArea.positions) {
+        rows.push({
+          key: `${workArea.id}|${shift.id}|${position.id}`,
+          workAreaId: workArea.id,
+          workAreaName: workArea.name,
+          shiftDefinitionId: shift.id,
+          shiftLabel: shift.label,
+          positionId: position.id,
+          positionName: position.name,
+        });
+      }
     }
   }
   return rows;
+}
+
+// Names of the location's areas that render no grid rows because no
+// required positions are configured on them (#137) — the form hints at
+// configuring them instead of leaving silent emptiness.
+export function areasWithoutPositions(
+  activeWorkAreas: MpRequestGridWorkArea[],
+  siteLocationId: string | null,
+): string[] {
+  if (!siteLocationId) return [];
+  return activeWorkAreas
+    .filter(
+      (workArea) =>
+        workArea.siteLocationId === siteLocationId &&
+        workArea.positions.length === 0,
+    )
+    .map((workArea) => workArea.name);
 }
 
 // Per-row "same all days": one value spread over the row's day cells. An
@@ -104,14 +129,20 @@ export function collectLines(values: GridValues, dates: string[]) {
   return Object.entries(values)
     .filter(([, headcount]) => headcount !== "")
     .map(([key, headcount]) => {
-      const [workAreaId, shiftDefinitionId, date] = key.split("|");
-      return { workAreaId, shiftDefinitionId, date, headcount: Number(headcount) };
+      const [workAreaId, shiftDefinitionId, positionId, date] = key.split("|");
+      return {
+        workAreaId,
+        shiftDefinitionId,
+        positionId,
+        date,
+        headcount: Number(headcount),
+      };
     })
     .filter((line) => allowed.has(line.date) && line.headcount > 0)
     .sort(
       (a, b) =>
-        `${a.workAreaId}${a.shiftDefinitionId}${a.date}`.localeCompare(
-          `${b.workAreaId}${b.shiftDefinitionId}${b.date}`,
+        `${a.workAreaId}${a.shiftDefinitionId}${a.positionId}${a.date}`.localeCompare(
+          `${b.workAreaId}${b.shiftDefinitionId}${b.positionId}${b.date}`,
         ),
     );
 }
@@ -162,12 +193,15 @@ export type InactivePair = {
   workAreaName: string;
   shiftDefinitionId: string;
   shiftLabel: string;
+  positionId: string;
+  positionName: string;
   dates: string[];
 };
 
 // Lines whose work area / shift pair is missing from the location's active
-// masters (Task 7 note: such lines can only be kept unchanged or removed —
-// re-adding an inactive reference is refused by the action).
+// masters — or whose demanded position left the area's required set (#137)
+// — can only be kept unchanged or removed (re-adding an inactive reference
+// is refused by the action). Pairs group by the wa|shift|position triple.
 export function inactiveLinePairs(
   lines: MpRequestLineView[],
   activeWorkAreas: MpRequestGridWorkArea[],
@@ -175,14 +209,23 @@ export function inactiveLinePairs(
 ): InactivePair[] {
   const activeWorkAreaIds = new Set(activeWorkAreas.map((row) => row.id));
   const activeShiftIds = new Set(activeShifts.map((row) => row.id));
+  // A line is only live when its demanded position is still one of the
+  // (active) area's required positions.
+  const requiredPositions = new Set(
+    activeWorkAreas.flatMap((row) =>
+      row.positions.map((position) => `${row.id}|${position.id}`),
+    ),
+  );
 
   const pairs: InactivePair[] = [];
   const indexOf = new Map<string, number>();
   for (const line of lines) {
-    if (activeWorkAreaIds.has(line.workAreaId) && activeShiftIds.has(line.shiftDefinitionId)) {
-      continue;
-    }
-    const key = `${line.workAreaId}|${line.shiftDefinitionId}`;
+    const stillRequired =
+      activeWorkAreaIds.has(line.workAreaId) &&
+      activeShiftIds.has(line.shiftDefinitionId) &&
+      requiredPositions.has(`${line.workAreaId}|${line.positionId}`);
+    if (stillRequired) continue;
+    const key = `${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}`;
     const index = indexOf.get(key);
     if (index === undefined) {
       indexOf.set(key, pairs.length);
@@ -191,6 +234,8 @@ export function inactiveLinePairs(
         workAreaName: line.workAreaName,
         shiftDefinitionId: line.shiftDefinitionId,
         shiftLabel: line.shiftLabel,
+        positionId: line.positionId,
+        positionName: line.positionName,
         dates: [line.date],
       });
     } else {
@@ -381,7 +426,7 @@ export function RequestForm({
   const [values, setValues] = useState<GridValues>(() =>
     Object.fromEntries(
       (request?.lines ?? []).map((line) => [
-        `${line.workAreaId}|${line.shiftDefinitionId}|${line.date}`,
+        `${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}|${line.date}`,
         String(line.headcount),
       ]),
     ),
@@ -421,11 +466,22 @@ export function RequestForm({
     activeShifts,
     effectiveLocationId ?? null,
   );
+  // Areas rendering no rows because nothing positions them (#137): hinted
+  // above the grid — or in the empty state — instead of silent emptiness.
+  const configureHint = (() => {
+    const unconfigured = areasWithoutPositions(
+      activeWorkAreas,
+      effectiveLocationId ?? null,
+    );
+    return unconfigured.length > 0
+      ? `No required positions: ${unconfigured.join(", ")} — configure the area's positions to request for it.`
+      : null;
+  })();
   const inactivePairs = request
     ? inactiveLinePairs(request.lines, activeWorkAreas, activeShifts).filter(
         (pair) =>
           !removedPairs.has(
-            `${pair.workAreaId}|${pair.shiftDefinitionId}`,
+            `${pair.workAreaId}|${pair.shiftDefinitionId}|${pair.positionId}`,
           ),
       )
     : [];
@@ -433,19 +489,24 @@ export function RequestForm({
   const cellKey = (
     workAreaId: string,
     shiftDefinitionId: string,
+    positionId: string,
     date: string,
-  ) => `${workAreaId}|${shiftDefinitionId}|${date}`;
+  ) => `${workAreaId}|${shiftDefinitionId}|${positionId}|${date}`;
 
   function removePair(pair: InactivePair) {
     setValues((prev) => {
       const next = { ...prev };
       for (const date of pair.dates) {
-        delete next[cellKey(pair.workAreaId, pair.shiftDefinitionId, date)];
+        delete next[
+          cellKey(pair.workAreaId, pair.shiftDefinitionId, pair.positionId, date)
+        ];
       }
       return next;
     });
     setRemovedPairs((prev) =>
-      new Set(prev).add(`${pair.workAreaId}|${pair.shiftDefinitionId}`),
+      new Set(prev).add(
+        `${pair.workAreaId}|${pair.shiftDefinitionId}|${pair.positionId}`,
+      ),
     );
   }
 
@@ -454,8 +515,9 @@ export function RequestForm({
     setValues((prev) => {
       const next = { ...prev };
       for (const date of dates) {
-        next[cellKey(row.workAreaId, row.shiftDefinitionId, date)] =
-          spread[date];
+        next[
+          cellKey(row.workAreaId, row.shiftDefinitionId, row.positionId, date)
+        ] = spread[date];
       }
       return next;
     });
@@ -631,10 +693,14 @@ export function RequestForm({
           </p>
         ) : rows.length === 0 && inactivePairs.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            This location has no active work areas or shifts yet.
+            {configureHint ??
+              "This location has no active work areas or shifts yet."}
           </p>
         ) : (
           <div className="flex flex-col gap-2">
+          {configureHint ? (
+            <p className="text-sm text-muted-foreground">{configureHint}</p>
+          ) : null}
           {fieldErrors.lines ? (
             <FieldError errors={[{ message: fieldErrors.lines }]} />
           ) : null}
@@ -643,7 +709,7 @@ export function RequestForm({
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="min-w-[200px] px-3 py-2 text-start font-medium">
-                    Work area / shift
+                    Work area / shift / position
                   </th>
                   {type_ === "weekly"
                     ? DAYS.map((day) => (
@@ -680,18 +746,19 @@ export function RequestForm({
                     <Fragment key={row.key}>
                       <tr className="border-b">
                     <td className="px-3 py-1.5">
-                      {`${row.workAreaName} / ${row.shiftLabel}`}
+                      {`${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`}
                     </td>
                     {dates.map((date) => {
                       const key = cellKey(
                         row.workAreaId,
                         row.shiftDefinitionId,
+                        row.positionId,
                         date,
                       );
                       return (
                         <td key={date} className="px-2 py-1.5">
                           <Input
-                            aria-label={`Headcount ${row.workAreaName} / ${row.shiftLabel} / ${date}`}
+                            aria-label={`Headcount ${row.workAreaName} / ${row.shiftLabel} / ${row.positionName} / ${date}`}
                             type="number"
                             inputMode="numeric"
                             min={1}
@@ -713,7 +780,7 @@ export function RequestForm({
                       <td className="px-2 py-1.5">
                         <span className="flex items-center gap-1">
                           <Input
-                            aria-label={`Same all days ${row.workAreaName} / ${row.shiftLabel}`}
+                            aria-label={`Same all days ${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`}
                             type="number"
                             inputMode="numeric"
                             min={1}
@@ -731,7 +798,7 @@ export function RequestForm({
                             type="button"
                             variant="ghost"
                             size="icon-sm"
-                            aria-label={`Quick fill ${row.workAreaName} / ${row.shiftLabel}`}
+                            aria-label={`Quick fill ${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`}
                             onClick={() => applyQuickFill(row)}
                           >
                             <SparklesIcon />
@@ -758,18 +825,25 @@ export function RequestForm({
                 })}
                 {inactivePairs.map((pair) => (
                   <tr
-                    key={`${pair.workAreaId}|${pair.shiftDefinitionId}`}
+                    key={`${pair.workAreaId}|${pair.shiftDefinitionId}|${pair.positionId}`}
                     className="border-b bg-muted/30 text-muted-foreground"
                   >
                     <td className="px-3 py-1.5">
-                      {`${pair.workAreaName} / ${pair.shiftLabel}`}
+                      {`${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
                       <span className="block text-xs">
                         Inactive — keep unchanged or remove
                       </span>
                     </td>
                     {dates.map((date) => {
                       const cell = pair.dates.includes(date)
-                        ? values[cellKey(pair.workAreaId, pair.shiftDefinitionId, date)]
+                        ? values[
+                            cellKey(
+                              pair.workAreaId,
+                              pair.shiftDefinitionId,
+                              pair.positionId,
+                              date,
+                            )
+                          ]
                         : undefined;
                       return (
                         <td
@@ -785,7 +859,7 @@ export function RequestForm({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel}`}
+                        aria-label={`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
                         onClick={() => removePair(pair)}
                       >
                         <EraserIcon />
