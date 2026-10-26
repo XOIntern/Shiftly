@@ -260,7 +260,7 @@ export default async function WorkersPage({
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Workers</h1>
+          <h1 className="page-title">Workers</h1>
           <p className="text-sm text-muted-foreground">
             Worker master data per site_location, scoped per role. Every role
             manages workers within its own scope.
