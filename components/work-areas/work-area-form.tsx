@@ -7,6 +7,7 @@ import {
   PencilIcon,
   PowerIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
@@ -65,6 +66,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Field,
+  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -201,6 +203,27 @@ export function siteLocationOptionsFor(
     : siteLocations.filter((option) => option.siteId === siteId);
 }
 
+// Pre-submit guard shared by both modes: a work area must bind a location
+// (issue #18), and a new one must start with at least one required position
+// or it renders no request rows. An edit may clear the set. Undefined means
+// nothing blocks the submit.
+export function validateWorkAreaForm({
+  isEdit,
+  locationValue,
+  requiredPositionIds,
+}: {
+  isEdit: boolean;
+  locationValue: string | null;
+  requiredPositionIds: readonly string[];
+}): WorkAreaFieldErrors | undefined {
+  const errors: WorkAreaFieldErrors = {};
+  if (!locationValue) errors.siteLocationId = "Location is required";
+  if (!isEdit && requiredPositionIds.length === 0) {
+    errors.requiredPositionIds = "Select at least one position";
+  }
+  return Object.keys(errors).length > 0 ? errors : undefined;
+}
+
 export function WorkAreaForm({
   positions,
   siteLocations,
@@ -209,9 +232,8 @@ export function WorkAreaForm({
   workArea,
   onSaved,
 }: {
-  // The scoped position catalog the edit dialog's required-positions picker
-  // offers; absent on the create dialog (the set is set-replacement only,
-  // so a new area starts with none).
+  // The scoped position catalog the required-positions picker offers, in
+  // create and edit alike.
   positions?: PositionRow[];
   siteLocations: SiteLocationOption[];
   // Site masters for the site-first pick, already scoped per role by the
@@ -231,8 +253,8 @@ export function WorkAreaForm({
     workArea?.siteLocationId ?? null,
   );
   const [name, setName] = useState(workArea?.name ?? "");
-  // The area's required positions (C7 data): empty is a valid state — the
-  // picker only replaces the set on edit, a new area starts with none.
+  // The area's required positions (C7 data): a new area must pick at least
+  // one; an edit replaces the set wholesale and may clear it.
   const [requiredPositionIds, setRequiredPositionIds] = useState<string[]>(
     workArea?.positions.map((option) => option.id) ?? [],
   );
@@ -261,13 +283,13 @@ export function WorkAreaForm({
         workArea?.siteLocationId ?? (siteLocations[0]?.id ?? null)
       : siteLocationId;
 
-  // Positions live under a site, so the edit picker resolves its site
-  // through the picked location (or the area's own site as a fallback).
+  // Positions live under a site, so the picker resolves its site through
+  // the picked location (on edit, falling back to the area's own site).
   const pickedLocation =
     siteLocations.find((option) => option.id === locationValue) ?? null;
   const positionSiteId = isEdit
     ? (pickedLocation?.siteId ?? workArea.siteId)
-    : null;
+    : (pickedLocation?.siteId ?? null);
   const renderedPositions = visiblePositionOptions(
     positions ?? [],
     positionSiteId,
@@ -279,10 +301,12 @@ export function WorkAreaForm({
     const option = renderedPositions.find((candidate) => candidate.id === id);
     return option ? [option] : [];
   });
+  const siteHasNoPositions =
+    positionSiteId !== null && renderedPositions.length === 0;
   const positionPlaceholder =
     positionSiteId === null
       ? "Select a location first"
-      : renderedPositions.length === 0
+      : siteHasNoPositions
         ? "No positions for this site yet"
         : "Select positions";
 
@@ -302,11 +326,15 @@ export function WorkAreaForm({
     setFieldErrors(undefined);
     setMessage(undefined);
 
-    // Pre-submit site guard (mirrors the location form's, issue #18): a
-    // work area must bind a location; a missing pick surfaces the local
-    // field error and skips the server action entirely.
-    if (!locationValue) {
-      setFieldErrors({ siteLocationId: "Location is required" });
+    // Pre-submit guard (mirrors the location form's, issue #18): a failure
+    // surfaces the local field errors and skips the server action entirely.
+    const blocked = validateWorkAreaForm({
+      isEdit,
+      locationValue,
+      requiredPositionIds,
+    });
+    if (blocked) {
+      setFieldErrors(blocked);
       return;
     }
 
@@ -327,6 +355,7 @@ export function WorkAreaForm({
         : await createWorkArea({
             siteLocationId: locationValue ?? undefined,
             name,
+            requiredPositionIds,
           });
 
       if (result.ok) {
@@ -367,60 +396,75 @@ export function WorkAreaForm({
           error={fieldErrors?.siteLocationId}
         />
 
-        {isEdit ? (
-          <Field
-            data-invalid={fieldErrors?.requiredPositionIds ? "true" : undefined}
+        <Field
+          data-invalid={fieldErrors?.requiredPositionIds ? "true" : undefined}
+        >
+          <FieldLabel htmlFor="work-area-positions">
+            Required positions
+            {isEdit ? null : (
+              <span aria-hidden="true" className="text-destructive">
+                *
+              </span>
+            )}
+          </FieldLabel>
+          <Combobox
+            multiple
+            items={renderedPositions}
+            itemToStringLabel={(option) => option.name}
+            isItemEqualToValue={(option, value) => option.id === value.id}
+            value={selectedPositions}
+            onValueChange={(next) =>
+              setRequiredPositionIds(next.map((option) => option.id))
+            }
+            disabled={positionSiteId === null || renderedPositions.length === 0}
           >
-            <FieldLabel htmlFor="work-area-positions">
-              Required positions
-            </FieldLabel>
-            <Combobox
-              multiple
-              items={renderedPositions}
-              itemToStringLabel={(option) => option.name}
-              isItemEqualToValue={(option, value) => option.id === value.id}
-              value={selectedPositions}
-              onValueChange={(next) =>
-                setRequiredPositionIds(next.map((option) => option.id))
-              }
-              disabled={positionSiteId === null || renderedPositions.length === 0}
-            >
-              <ComboboxChips>
-                <ComboboxValue>
-                  {selectedPositions.map((option) => (
-                    <ComboboxChip
-                      key={option.id}
-                      aria-label={positionLabel(option)}
-                      removeLabel={`Remove ${positionLabel(option)}`}
-                    >
-                      {positionLabel(option)}
-                    </ComboboxChip>
-                  ))}
-                </ComboboxValue>
-                <ComboboxChipsInput
-                  id="work-area-positions"
-                  placeholder={positionPlaceholder}
-                  aria-invalid={
-                    fieldErrors?.requiredPositionIds ? true : undefined
-                  }
-                />
-              </ComboboxChips>
-              <ComboboxContent>
-                <ComboboxEmpty>No matching positions.</ComboboxEmpty>
-                <ComboboxList>
-                  {(option: PositionRow) => (
-                    <ComboboxItem key={option.id} value={option}>
-                      {positionLabel(option)}
-                    </ComboboxItem>
-                  )}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
-            {fieldErrors?.requiredPositionIds ? (
-              <FieldError errors={[{ message: fieldErrors.requiredPositionIds }]} />
-            ) : null}
-          </Field>
-        ) : null}
+            <ComboboxChips>
+              <ComboboxValue>
+                {selectedPositions.map((option) => (
+                  <ComboboxChip
+                    key={option.id}
+                    aria-label={positionLabel(option)}
+                    removeLabel={`Remove ${positionLabel(option)}`}
+                  >
+                    {positionLabel(option)}
+                  </ComboboxChip>
+                ))}
+              </ComboboxValue>
+              <ComboboxChipsInput
+                id="work-area-positions"
+                placeholder={positionPlaceholder}
+                aria-invalid={
+                  fieldErrors?.requiredPositionIds ? true : undefined
+                }
+                aria-required={isEdit ? undefined : true}
+              />
+            </ComboboxChips>
+            <ComboboxContent>
+              <ComboboxEmpty>No matching positions.</ComboboxEmpty>
+              <ComboboxList>
+                {(option: PositionRow) => (
+                  <ComboboxItem key={option.id} value={option}>
+                    {positionLabel(option)}
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
+          {!isEdit && siteHasNoPositions ? (
+            <FieldDescription>
+              <Link
+                href="/dashboard/positions"
+                className="underline underline-offset-4"
+              >
+                Add a position
+              </Link>{" "}
+              to this site before creating an area.
+            </FieldDescription>
+          ) : null}
+          {fieldErrors?.requiredPositionIds ? (
+            <FieldError errors={[{ message: fieldErrors.requiredPositionIds }]} />
+          ) : null}
+        </Field>
 
         <Field data-invalid={fieldErrors?.name ? "true" : undefined}>
           <FieldLabel htmlFor="work-area-name">Work area name</FieldLabel>
@@ -448,10 +492,12 @@ export function WorkAreaForm({
 }
 
 export function CreateWorkAreaButton({
+  positions,
   siteLocations,
   sites,
   pinnedLocationName,
 }: {
+  positions: PositionRow[];
   siteLocations: SiteLocationOption[];
   sites: SiteOption[];
   pinnedLocationName?: string;
@@ -473,6 +519,7 @@ export function CreateWorkAreaButton({
           </DialogDescription>
         </DialogHeader>
         <WorkAreaForm
+          positions={positions}
           siteLocations={siteLocations}
           sites={sites}
           pinnedLocationName={pinnedLocationName}

@@ -123,6 +123,7 @@ export async function createWorkArea(input: {
   siteId?: string;
   siteLocationId?: string;
   name: string;
+  requiredPositionIds: readonly string[];
 }): Promise<ActionState> {
   const actor = await requireUser();
 
@@ -131,6 +132,7 @@ export async function createWorkArea(input: {
     siteId: undefined,
     siteLocationId: effectiveSiteLocationId(actor, input.siteLocationId),
     name: input.name,
+    requiredPositionIds: input.requiredPositionIds,
   });
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
@@ -149,17 +151,57 @@ export async function createWorkArea(input: {
     return { ok: false, fieldErrors: LOCATION_SCOPE_FIELD_ERRORS };
   }
 
+  // The client only picks position ids: the weld to the area's site is
+  // re-checked server-side before any write.
+  const positionCheck = await checkRequiredPositions(
+    parsed.data.requiredPositionIds,
+    derivedSiteId,
+  );
+  if ("fieldError" in positionCheck) {
+    return {
+      ok: false,
+      fieldErrors: { requiredPositionIds: positionCheck.fieldError },
+    };
+  }
+
+  // The area and its required set commit or roll back together: no orphan
+  // area without positions when the pivot insert fails.
   try {
-    await db.insert(workArea).values({
-      siteId: derivedSiteId,
-      siteLocationId: parsed.data.siteLocationId,
-      name: parsed.data.name,
+    await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(workArea)
+        .values({
+          siteId: derivedSiteId,
+          siteLocationId: parsed.data.siteLocationId,
+          name: parsed.data.name,
+        })
+        .returning({ id: workArea.id });
+
+      await tx.insert(workAreaPosition).values(
+        parsed.data.requiredPositionIds.map((positionId) => ({
+          workAreaId: created.id,
+          positionId,
+          siteId: derivedSiteId,
+          siteLocationId: parsed.data.siteLocationId,
+        })),
+      );
     });
   } catch (err) {
+    // The server-side check leaves only a race: a position removed between
+    // the check and the insert surfaces on the field that carried it.
+    if (pgErrorConstraint(err) === "work_area_position_position_site_fk") {
+      return {
+        ok: false,
+        fieldErrors: {
+          requiredPositionIds: "Selected position no longer exists",
+        },
+      };
+    }
     return fkResult(err);
   }
 
   revalidatePath("/dashboard/work-areas");
+  revalidatePath("/dashboard/roster");
   return { ok: true };
 }
 

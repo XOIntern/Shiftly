@@ -4,7 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { site, siteLocation, workArea } from "@/drizzle/schema";
+import { position, site, siteLocation, workArea } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
 // The work-areas page reads its actor through requireUser (all three roles
@@ -139,6 +139,7 @@ function makeActor(
 type DialogOptionsNode = {
   siteLocations: Array<{ id: string; name: string; siteId: string }>;
   sites?: Array<{ id: string; name: string }>;
+  positions?: Array<{ id: string; siteId: string }>;
 };
 
 // The create dialog travels to the client as the siteLocations/sites props
@@ -286,6 +287,73 @@ describe("work-areas create dialog site options", () => {
       const dialog = await renderDialogOptions();
       expect(dialog.sites?.map((s) => s.id)).toEqual([fx.ids.siteA]);
     } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe("work-areas create dialog positions", () => {
+  async function seedPositions(fx: Awaited<ReturnType<typeof seedWorkAreaFixtures>>) {
+    const posA = randomUUID();
+    const posB = randomUUID();
+    await db.insert(position).values([
+      { id: posA, siteId: fx.ids.siteA, name: `t145-pos-a-${posA}` },
+      { id: posB, siteId: fx.ids.siteB, name: `t145-pos-b-${posB}` },
+    ]);
+    return {
+      posA,
+      posB,
+      async cleanup() {
+        await db.delete(position).where(eq(position.id, posA));
+        await db.delete(position).where(eq(position.id, posB));
+      },
+    };
+  }
+
+  test("a superadmin's dialog receives the positions of every site", async () => {
+    const fx = await seedWorkAreaFixtures();
+    const pos = await seedPositions(fx);
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const dialog = await renderDialogOptions();
+      const ids = dialog.positions?.map((p) => p.id) ?? [];
+      expect(ids).toContain(pos.posA);
+      expect(ids).toContain(pos.posB);
+    } finally {
+      await pos.cleanup();
+      await fx.cleanup();
+    }
+  });
+
+  test("a ho's dialog receives only their own site's positions", async () => {
+    const fx = await seedWorkAreaFixtures();
+    const pos = await seedPositions(fx);
+    try {
+      actor = makeActor("ho", fx.ids.siteA, null);
+
+      const dialog = await renderDialogOptions();
+      const ids = dialog.positions?.map((p) => p.id) ?? [];
+      expect(ids).toContain(pos.posA);
+      expect(ids).not.toContain(pos.posB);
+    } finally {
+      await pos.cleanup();
+      await fx.cleanup();
+    }
+  });
+
+  test("an admin's dialog receives only their location's site positions", async () => {
+    const fx = await seedWorkAreaFixtures();
+    const pos = await seedPositions(fx);
+    try {
+      actor = makeActor("admin", null, fx.ids.locA1);
+
+      const dialog = await renderDialogOptions();
+      const ids = dialog.positions?.map((p) => p.id) ?? [];
+      expect(ids).toContain(pos.posA);
+      expect(ids).not.toContain(pos.posB);
+    } finally {
+      await pos.cleanup();
       await fx.cleanup();
     }
   });

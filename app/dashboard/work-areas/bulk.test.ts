@@ -4,7 +4,14 @@ import { describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { site, siteLocation, user, workArea } from "@/drizzle/schema";
+import {
+  position,
+  site,
+  siteLocation,
+  user,
+  workArea,
+  workAreaPosition,
+} from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
 // The work-area actions resolve their actor through requireUser — swapped
@@ -157,6 +164,7 @@ describe("work-areas bulk actions", () => {
     const siteA = randomUUID();
     const siteB = randomUUID();
     const locB = randomUUID();
+    const posB = randomUUID();
     const saActor = randomUUID();
 
     try {
@@ -167,6 +175,9 @@ describe("work-areas bulk actions", () => {
       await db
         .insert(siteLocation)
         .values({ id: locB, siteId: siteB, name: "T5 WA XS Loc" });
+      await db
+        .insert(position)
+        .values({ id: posB, siteId: siteB, name: `t5-wa-xs-pos-${posB}` });
 
       actor = {
         id: saActor,
@@ -182,6 +193,7 @@ describe("work-areas bulk actions", () => {
       const result = await createWorkArea({
         siteLocationId: locB,
         name: "T5 WA XS",
+        requiredPositionIds: [posB],
       });
 
       // siteId is never taken from the client: the action derives it from
@@ -194,9 +206,13 @@ describe("work-areas bulk actions", () => {
         .where(eq(workArea.siteLocationId, locB));
       expect(row?.siteId).toBe(siteB);
       if (row) {
+        await db
+          .delete(workAreaPosition)
+          .where(eq(workAreaPosition.workAreaId, row.id));
         await db.delete(workArea).where(eq(workArea.id, row.id));
       }
     } finally {
+      await db.delete(position).where(eq(position.id, posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, locB));
       await db.delete(site).where(eq(site.id, siteA));
       await db.delete(site).where(eq(site.id, siteB));

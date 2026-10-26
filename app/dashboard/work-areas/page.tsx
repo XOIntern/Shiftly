@@ -92,8 +92,8 @@ export default async function WorkAreasPage({
   // Dialog options: the site_locations the actor's scope allows for the
   // location select — filtered to the actor's scope. Site locations shrink
   // to the actor's own bindings, and an unbound actor gets nothing.
-  // Positions ride along for the edit dialog's required-positions picker,
-  // scoped per role exactly like the workers page's catalog (live rows
+  // Positions ride along for the create and edit dialogs' required-positions
+  // picker, scoped per role exactly like the workers page's catalog (live rows
   // only; inactive included so an attached requirement stays visible).
   const [siteLocations, sites, positions, workAreas] = await Promise.all([
     db
@@ -244,6 +244,7 @@ export default async function WorkAreasPage({
           </p>
         </div>
         <CreateWorkAreaButton
+          positions={positions satisfies PositionRow[]}
           siteLocations={siteLocations satisfies SiteLocationOption[]}
           sites={sites satisfies SiteOption[]}
           pinnedLocationName={

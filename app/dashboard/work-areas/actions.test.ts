@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -205,6 +205,136 @@ describe("work-area required positions (C7 data)", () => {
       // The refusal writes nothing: the previous set survives.
       expect(fx.pivotIdsOf()).resolves.toEqual([pa]);
     } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+// Areas created through createWorkArea are not tracked by the fixture:
+// removed child-first by name before fx.cleanup() drops the shared rows.
+async function createdAreasNamed(name: string, siteLocationId: string) {
+  return db
+    .select({ id: workArea.id, siteId: workArea.siteId })
+    .from(workArea)
+    .where(and(eq(workArea.name, name), eq(workArea.siteLocationId, siteLocationId)));
+}
+
+async function dropCreatedAreas(name: string, siteLocationId: string) {
+  for (const area of await createdAreasNamed(name, siteLocationId)) {
+    await db.delete(workAreaPosition).where(eq(workAreaPosition.workAreaId, area.id));
+    await db.delete(workArea).where(eq(workArea.id, area.id));
+  }
+}
+
+describe("createWorkArea required positions", () => {
+  test("writes the area and every pivot row with the area's site and location", async () => {
+    const fx = await seedWorkAreaWithAreaPositions(["pa", "pb"]);
+    const name = `t145-created-${randomUUID()}`;
+
+    try {
+      actor = superadmin;
+
+      const { createWorkArea } = await import("./actions");
+      const result = await createWorkArea({
+        siteLocationId: fx.locA,
+        name,
+        requiredPositionIds: fx.areaPositionIds,
+      });
+
+      expect(result.ok).toBe(true);
+      const [area] = await createdAreasNamed(name, fx.locA);
+      expect(area.siteId).toBe(fx.siteA);
+
+      const pivots = await db
+        .select()
+        .from(workAreaPosition)
+        .where(eq(workAreaPosition.workAreaId, area.id));
+      expect(pivots.map((row) => row.positionId).sort()).toEqual(
+        [...fx.areaPositionIds].sort(),
+      );
+      for (const row of pivots) {
+        expect(row.siteId).toBe(fx.siteA);
+        expect(row.siteLocationId).toBe(fx.locA);
+      }
+    } finally {
+      await dropCreatedAreas(name, fx.locA);
+      await fx.cleanup();
+    }
+  });
+
+  test("a foreign-site position is rejected with a field error and leaves no work area", async () => {
+    const fx = await seedWorkAreaWithAreaPositions(["pa"]);
+    const name = `t145-foreign-${randomUUID()}`;
+
+    try {
+      actor = superadmin;
+
+      const { createWorkArea } = await import("./actions");
+      const result = await createWorkArea({
+        siteLocationId: fx.locA,
+        name,
+        requiredPositionIds: [fx.areaPositionIds[0], fx.foreignPositionId],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.requiredPositionIds).toBe(
+        "Position must be in the same site as the location",
+      );
+      expect(await createdAreasNamed(name, fx.locA)).toEqual([]);
+    } finally {
+      await dropCreatedAreas(name, fx.locA);
+      await fx.cleanup();
+    }
+  });
+
+  test("an empty set is rejected before any write", async () => {
+    const fx = await seedWorkAreaWithAreaPositions(["pa"]);
+    const name = `t145-empty-${randomUUID()}`;
+
+    try {
+      actor = superadmin;
+
+      const { createWorkArea } = await import("./actions");
+      const result = await createWorkArea({
+        siteLocationId: fx.locA,
+        name,
+        requiredPositionIds: [],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.requiredPositionIds).toBeTruthy();
+      expect(await createdAreasNamed(name, fx.locA)).toEqual([]);
+    } finally {
+      await dropCreatedAreas(name, fx.locA);
+      await fx.cleanup();
+    }
+  });
+
+  test("a pinned admin still creates in their own location", async () => {
+    const fx = await seedWorkAreaWithAreaPositions(["pa"]);
+    const name = `t145-admin-${randomUUID()}`;
+
+    try {
+      actor = {
+        ...superadmin,
+        id: randomUUID(),
+        role: "admin",
+        siteId: fx.siteA,
+        siteLocationId: fx.locA,
+      };
+
+      const { createWorkArea } = await import("./actions");
+      const result = await createWorkArea({
+        // Ignored for an admin: the pinned binding wins.
+        siteLocationId: randomUUID(),
+        name,
+        requiredPositionIds: fx.areaPositionIds,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(await createdAreasNamed(name, fx.locA)).toHaveLength(1);
+    } finally {
+      await dropCreatedAreas(name, fx.locA);
       await fx.cleanup();
     }
   });
