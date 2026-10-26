@@ -5,6 +5,8 @@ export type MpRequestLineView = {
   workAreaName: string;
   shiftDefinitionId: string;
   shiftLabel: string;
+  positionId: string;
+  positionName: string;
   date: string;
   headcount: number;
 };
@@ -26,12 +28,21 @@ export type MpRequestRow = {
 };
 
 // Active masters for the request grid (create + edit dialogs): the rows of
-// the grid are the work areas × shifts of ONE location, so both carry the
-// siteLocationId they were scoped to.
+// the grid are the work areas × shifts × required positions of ONE
+// location, so all carry the siteLocationId they were scoped to. An area's
+// positions are its live + active required positions (the
+// work_area_position pivot), name-ascending — areas with none contribute
+// no grid rows.
+export type MpRequestGridPosition = {
+  id: string;
+  name: string;
+};
+
 export type MpRequestGridWorkArea = {
   id: string;
   name: string;
   siteLocationId: string;
+  positions: MpRequestGridPosition[];
 };
 
 export type MpRequestGridShift = {

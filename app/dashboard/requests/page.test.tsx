@@ -8,11 +8,13 @@ import { db } from "@/lib/db";
 import {
   mpRequest,
   mpRequestLine,
+  position,
   shiftDefinition,
   site,
   siteLocation,
   user,
   workArea,
+  workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
@@ -75,6 +77,9 @@ async function seedRequestFixtures() {
   const waA1 = randomUUID();
   const waA2 = randomUUID();
   const waB1 = randomUUID();
+  const posA1 = randomUUID();
+  const posA2 = randomUUID();
+  const posB1 = randomUUID();
   const shA1 = randomUUID();
   const shA2 = randomUUID();
   const shB1 = randomUUID();
@@ -137,6 +142,18 @@ async function seedRequestFixtures() {
       endTime: "16:00",
     },
   ]);
+  // Lines demand a required position of their work area (epic #135):
+  // one pivoted position per area, name-riding on the page's join.
+  await db.insert(position).values([
+    { id: posA1, siteId: siteA, name: `t-rq-pos-a1-${suffix}` },
+    { id: posA2, siteId: siteA, name: `t-rq-pos-a2-${suffix}` },
+    { id: posB1, siteId: siteB, name: `t-rq-pos-b1-${suffix}` },
+  ]);
+  await db.insert(workAreaPosition).values([
+    { workAreaId: waA1, positionId: posA1, siteId: siteA, siteLocationId: locA1 },
+    { workAreaId: waA2, positionId: posA2, siteId: siteA, siteLocationId: locA2 },
+    { workAreaId: waB1, positionId: posB1, siteId: siteB, siteLocationId: locB1 },
+  ]);
   await db.insert(mpRequest).values([
     {
       id: rqA1,
@@ -173,6 +190,7 @@ async function seedRequestFixtures() {
       siteLocationId: locA1,
       workAreaId: waA1,
       shiftDefinitionId: shA1,
+      positionId: posA1,
       date: "2026-01-05",
       headcount: 3,
     },
@@ -182,6 +200,7 @@ async function seedRequestFixtures() {
       siteLocationId: locA1,
       workAreaId: waA1,
       shiftDefinitionId: shA1,
+      positionId: posA1,
       date: "2026-01-06",
       headcount: 2,
     },
@@ -191,6 +210,7 @@ async function seedRequestFixtures() {
       siteLocationId: locA2,
       workAreaId: waA2,
       shiftDefinitionId: shA2,
+      positionId: posA2,
       date: "2026-01-07",
       headcount: 4,
     },
@@ -200,6 +220,7 @@ async function seedRequestFixtures() {
       siteLocationId: locB1,
       workAreaId: waB1,
       shiftDefinitionId: shB1,
+      positionId: posB1,
       date: "2026-01-12",
       headcount: 5,
     },
@@ -216,8 +237,17 @@ async function seedRequestFixtures() {
         await db.delete(mpRequestLine).where(eq(mpRequestLine.requestId, id));
         await db.delete(mpRequest).where(eq(mpRequest.id, id));
       }
+      for (const id of [posA1, posA2, posB1]) {
+        // The pivot RESTRICTs both parents — drop it first.
+        await db
+          .delete(workAreaPosition)
+          .where(eq(workAreaPosition.positionId, id));
+      }
       for (const id of [waA1, waA2, waB1]) {
         await db.delete(workArea).where(eq(workArea.id, id));
+      }
+      for (const id of [posA1, posA2, posB1]) {
+        await db.delete(position).where(eq(position.id, id));
       }
       for (const id of [shA1, shA2, shB1]) {
         await db.delete(shiftDefinition).where(eq(shiftDefinition.id, id));
@@ -347,5 +377,32 @@ describe("requests page SSR (mp-requests Task 8)", () => {
     } finally {
       await fx.cleanup();
     }
+  });
+
+  test("the line payload renders the position in the detail table", async () => {
+    // The row-actions dialog mounts closed, so the page's SSR never shows
+    // line names — the extracted lines table is the stateless surface the
+    // dialog composes, pinned here directly (epic #135).
+    const { RequestLinesTable } = await import("./status-actions");
+    const html = renderToStaticMarkup(
+      <RequestLinesTable
+        lines={[
+          {
+            workAreaId: "wa-1",
+            workAreaName: "PROBE_AREA",
+            shiftDefinitionId: "sh-1",
+            shiftLabel: "PROBE_SHIFT",
+            positionId: "pos-1",
+            positionName: "PROBE_POSITION",
+            date: "2026-01-07",
+            headcount: 3,
+          },
+        ]}
+      />,
+    );
+    expect(html.includes("PROBE_AREA")).toBeTrue();
+    expect(html.includes("PROBE_SHIFT")).toBeTrue();
+    expect(html.includes("PROBE_POSITION")).toBeTrue();
+    expect(html.includes("Position")).toBeTrue();
   });
 });

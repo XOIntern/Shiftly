@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { MpRequestRow } from "@/types/mp-request";
+import type { MpRequestLineView, MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { advanceStatus } from "@/app/dashboard/requests/actions";
 import { Button } from "@/components/ui/button";
@@ -152,7 +152,10 @@ export function MpRequestRowActions({
       </DropdownMenuContent>
       {/* Controlled dialogs live outside the menu popup so the menu can
       close before their layer opens. */}
-      <Dialog open={dialog === "lines"} onOpenChange={(open) => setDialog(open ? "lines" : null)}>
+      <Dialog
+        open={dialog === "lines"}
+        onOpenChange={(open) => setDialog(open ? "lines" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Request lines</DialogTitle>
@@ -162,30 +165,43 @@ export function MpRequestRowActions({
                 : `Date ${request.requestDate}`}
             </DialogDescription>
           </DialogHeader>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Work area</TableHead>
-                <TableHead>Shift</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead className="text-right">Headcount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {request.lines.map((line, index) => (
-                <TableRow key={`${line.workAreaId}|${line.shiftDefinitionId}|${line.date}|${index}`}>
-                  <TableCell>{line.workAreaName}</TableCell>
-                  <TableCell>{line.shiftLabel}</TableCell>
-                  <TableCell className="tabular-nums">{line.date}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {line.headcount}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <RequestLinesTable lines={request.lines} />
         </DialogContent>
       </Dialog>
     </DropdownMenu>
+  );
+}
+
+// The detail dialog's lines table, extracted so the position column (epic
+// #135) renders statelessly — the dialog itself mounts closed and never
+// reaches the server, but this table can be pinned by SSR tests directly.
+export function RequestLinesTable({ lines }: { lines: MpRequestLineView[] }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Work area</TableHead>
+          <TableHead>Shift</TableHead>
+          <TableHead>Position</TableHead>
+          <TableHead>Date</TableHead>
+          <TableHead className="text-right">Headcount</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {lines.map((line, index) => (
+          <TableRow
+            key={`${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}|${index}`}
+          >
+            <TableCell>{line.workAreaName}</TableCell>
+            <TableCell>{line.shiftLabel}</TableCell>
+            <TableCell>{line.positionName}</TableCell>
+            <TableCell className="tabular-nums">{line.date}</TableCell>
+            <TableCell className="text-right tabular-nums">
+              {line.headcount}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
