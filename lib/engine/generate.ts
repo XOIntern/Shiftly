@@ -1,9 +1,6 @@
-import type {
-  EffectiveRules,
-  RosterAssignment,
-} from "@/types/engine";
+import type { EffectiveRules, RosterAssignment } from "@/types/engine";
 import type { WorkerProfile } from "@/types/worker";
-import { dayNumber, mondayOf, monthKey } from "./dates";
+import { dayNumber, mondayOf, monthKey } from "../dates";
 import { validateRoster } from "./validate";
 import { buildWorkersRecord } from "./validate";
 
@@ -41,7 +38,10 @@ export interface Deficit {
 }
 
 // A roster-eligible worker: identity + employee number + profile.
-export type GeneratorWorker = { id: string; employeeId: string } & WorkerProfile;
+export type GeneratorWorker = {
+  id: string;
+  employeeId: string;
+} & WorkerProfile;
 
 export interface GenerateInput {
   requirements: RequirementLine[];
@@ -75,10 +75,19 @@ export function sortKey(
   const own = currentAssignments.filter((a) => a.workerId === worker.id);
   const targetWeek = mondayOf(targetDate);
   const targetMonth = monthKey(targetDate);
-  const week = own.reduce((n, a) => n + (mondayOf(a.date) === targetWeek ? 1 : 0), 0);
-  const month = own.reduce((n, a) => n + (monthKey(a.date) === targetMonth ? 1 : 0), 0);
+  const week = own.reduce(
+    (n, a) => n + (mondayOf(a.date) === targetWeek ? 1 : 0),
+    0,
+  );
+  const month = own.reduce(
+    (n, a) => n + (monthKey(a.date) === targetMonth ? 1 : 0),
+    0,
+  );
   const target = dayNumber(targetDate);
-  const last = own.reduce((max, a) => Math.max(max, dayNumber(a.date)), Number.NEGATIVE_INFINITY);
+  const last = own.reduce(
+    (max, a) => Math.max(max, dayNumber(a.date)),
+    Number.NEGATIVE_INFINITY,
+  );
   const sinceLast = Number.isFinite(last) ? target - last : NEVER_WORKED;
   return [week, month, -sinceLast];
 }
@@ -150,7 +159,14 @@ export function generateDraft(input: GenerateInput): {
   assignments: RosterAssignment[];
   deficits: Deficit[];
 } {
-  const { requirements, workers, shiftOrder, areaRequirements, priorAssignments, rules } = input;
+  const {
+    requirements,
+    workers,
+    shiftOrder,
+    areaRequirements,
+    priorAssignments,
+    rules,
+  } = input;
 
   const workersRecord = buildWorkersRecord(workers);
 
@@ -176,7 +192,9 @@ export function generateDraft(input: GenerateInput): {
 
   for (const req of requirements) {
     const pool = byArea.get(req.workAreaId) ?? [];
-    const qualified = pool.filter((w) => isQualified(w, req.workAreaId, rules, areaRequirements));
+    const qualified = pool.filter((w) =>
+      isQualified(w, req.workAreaId, rules, areaRequirements),
+    );
     // Rank by the merged horizon: prior history + what the draft assigned
     // so far, all grouped by workerId.
     const candidates = rankWorkers(qualified, req.date, horizonByWorker);
@@ -196,7 +214,17 @@ export function generateDraft(input: GenerateInput): {
         workAreaId: req.workAreaId,
       };
 
-      if (admitsCandidate(worker, candidate, own, workersRecord, rules, shiftOrder, areaRequirements)) {
+      if (
+        admitsCandidate(
+          worker,
+          candidate,
+          own,
+          workersRecord,
+          rules,
+          shiftOrder,
+          areaRequirements,
+        )
+      ) {
         own.push(candidate);
         horizonByWorker.set(worker.id, own);
         assignments.push(candidate);
@@ -215,7 +243,9 @@ export function generateDraft(input: GenerateInput): {
         // A qualified pool that never even got rejected (too small, or all
         // filtered by C7) is a qualification problem; otherwise the rules
         // ate the candidates.
-        reason: sawRuleRejection ? "all_rule_limited" : "no_qualified_candidate",
+        reason: sawRuleRejection
+          ? "all_rule_limited"
+          : "no_qualified_candidate",
       });
     }
   }

@@ -1,6 +1,10 @@
 import type { EffectiveRules, RosterAssignment } from "@/types/engine";
-import { mondayOf, monthKey, dayNumber } from "./dates";
-import type { GeneratorWorker, RequirementLine, SuggestedCandidate } from "./generate";
+import { mondayOf, monthKey, dayNumber } from "../dates";
+import type {
+  GeneratorWorker,
+  RequirementLine,
+  SuggestedCandidate,
+} from "./generate";
 import { rankWorkers } from "./generate";
 import { validateRoster } from "./validate";
 import { buildWorkersRecord } from "./validate";
@@ -16,16 +20,22 @@ const NEVER_WORKED = 1_000_000; // mirrors generate.ts sortKey
 // "2 work days this week, 0 in window": week count in the target's
 // Monday-start week, then the month-window work-day count that ranked the
 // candidate (third component is days-since-last, desc — shown via "since").
-function describeLoad(
-  own: RosterAssignment[],
-  targetDate: string,
-): string {
+function describeLoad(own: RosterAssignment[], targetDate: string): string {
   const targetWeek = mondayOf(targetDate);
   const targetMonth = monthKey(targetDate);
-  const week = own.reduce((n, a) => n + (mondayOf(a.date) === targetWeek ? 1 : 0), 0);
-  const month = own.reduce((n, a) => n + (monthKey(a.date) === targetMonth ? 1 : 0), 0);
+  const week = own.reduce(
+    (n, a) => n + (mondayOf(a.date) === targetWeek ? 1 : 0),
+    0,
+  );
+  const month = own.reduce(
+    (n, a) => n + (monthKey(a.date) === targetMonth ? 1 : 0),
+    0,
+  );
   const target = dayNumber(targetDate);
-  const last = own.reduce((max, a) => Math.max(max, dayNumber(a.date)), Number.NEGATIVE_INFINITY);
+  const last = own.reduce(
+    (max, a) => Math.max(max, dayNumber(a.date)),
+    Number.NEGATIVE_INFINITY,
+  );
   const sinceLast = Number.isFinite(last) ? target - last : NEVER_WORKED;
   return sinceLast >= NEVER_WORKED
     ? `${week} work days this week, ${month} in window, no prior shifts`

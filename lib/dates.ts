@@ -8,7 +8,8 @@ export const dayNumber = (date: string): number => {
   return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000);
 };
 
-export const dayFromNumber = (n: number): string => new Date(n * 86_400_000).toISOString().slice(0, 10);
+export const dayFromNumber = (n: number): string =>
+  new Date(n * 86_400_000).toISOString().slice(0, 10);
 
 // 1970-01-05 is the first Monday of the epoch (day-number 4), so this maps
 // any date onto its Monday-start week (architecture: weeks start Monday).

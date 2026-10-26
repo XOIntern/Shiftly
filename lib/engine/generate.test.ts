@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_RULES } from "@/types/engine";
-import type { EffectiveRule, EffectiveRules, RosterAssignment } from "@/types/engine";
-import { dayFromNumber, dayNumber } from "./dates";
+import type {
+  EffectiveRule,
+  EffectiveRules,
+  RosterAssignment,
+} from "@/types/engine";
+import { dayFromNumber, dayNumber } from "../dates";
 import { generateDraft } from "./generate";
 import type { RequirementLine } from "./generate";
 import { validateRoster } from "./validate";
@@ -12,7 +16,8 @@ import { validateRoster } from "./validate";
 // byte-equal (the seeded PRNG here exists only to build the property-suite
 // fixture). No DB, no Next, no clock: everything enters via parameters.
 
-const addDays = (date: string, n: number): string => dayFromNumber(dayNumber(date) + n);
+const addDays = (date: string, n: number): string =>
+  dayFromNumber(dayNumber(date) + n);
 
 type Override = Partial<Record<"c1" | "c2" | "c5" | "c6", number>> &
   Partial<Record<"c3" | "c4" | "c7", boolean>>;
@@ -20,7 +25,8 @@ type Override = Partial<Record<"c1" | "c2" | "c5" | "c6", number>> &
 const rule = <T extends number | boolean>(
   value: T | undefined,
   fallback: EffectiveRule<T>,
-): EffectiveRule<T> => (value === undefined ? fallback : { value, source: "site" });
+): EffectiveRule<T> =>
+  value === undefined ? fallback : { value, source: "site" };
 
 const rules = (over: Override = {}): EffectiveRules => ({
   c1: rule(over.c1, DEFAULT_RULES.c1),
@@ -39,7 +45,8 @@ const assign = (
   workAreaId = "wa-a",
 ): RosterAssignment => ({ workerId, date, shiftDefId, workAreaId });
 
-const mkShift = (order: number): string[] => Array.from({ length: order }, (_, i) => `s${i}`);
+const mkShift = (order: number): string[] =>
+  Array.from({ length: order }, (_, i) => `s${i}`);
 
 const mkWorker = (
   id: string,
@@ -103,7 +110,10 @@ describe("generateDraft (roster-engine task 2)", () => {
       workers: [mkWorker("w1"), mkWorker("w2")],
       shiftOrder: mkShift(3),
       areaRequirements: {},
-      priorAssignments: [assign("w1", "2026-01-05", "s1"), assign("w2", "2026-01-05", "s0")],
+      priorAssignments: [
+        assign("w1", "2026-01-05", "s1"),
+        assign("w2", "2026-01-05", "s0"),
+      ],
       rules: rules(),
     });
 
@@ -115,7 +125,10 @@ describe("generateDraft (roster-engine task 2)", () => {
       workers: [mkWorker("w1"), mkWorker("w2")],
       shiftOrder: mkShift(3),
       areaRequirements: {},
-      priorAssignments: [assign("w1", "2026-01-05", "s1"), assign("w2", "2026-01-05", "s0")],
+      priorAssignments: [
+        assign("w1", "2026-01-05", "s1"),
+        assign("w2", "2026-01-05", "s0"),
+      ],
       rules: rules({ c3: false }),
     });
 
@@ -125,7 +138,10 @@ describe("generateDraft (roster-engine task 2)", () => {
   test("C7 requirement filters candidates → deficit no_qualified_candidate when none", () => {
     const result = generateDraft({
       requirements: [line("2026-01-05", "s0", "wa-a", 2)],
-      workers: [mkWorker("w1", "wa-a", ["pos-paint"]), mkWorker("w2", "wa-a", ["pos-weld"])],
+      workers: [
+        mkWorker("w1", "wa-a", ["pos-paint"]),
+        mkWorker("w2", "wa-a", ["pos-weld"]),
+      ],
       shiftOrder: mkShift(3),
       areaRequirements: { "wa-a": ["pos-weld"] },
       priorAssignments: [],
@@ -152,8 +168,20 @@ describe("generateDraft (roster-engine task 2)", () => {
       shiftOrder: mkShift(3),
       areaRequirements: {},
       priorAssignments: [
-        ...["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09"].map((d) => assign("w1", d)),
-        ...["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09"].map((d) => assign("w2", d)),
+        ...[
+          "2026-01-05",
+          "2026-01-06",
+          "2026-01-07",
+          "2026-01-08",
+          "2026-01-09",
+        ].map((d) => assign("w1", d)),
+        ...[
+          "2026-01-05",
+          "2026-01-06",
+          "2026-01-07",
+          "2026-01-08",
+          "2026-01-09",
+        ].map((d) => assign("w2", d)),
       ],
       rules: rules(),
     });
@@ -201,8 +229,16 @@ describe("generateDraft (roster-engine task 2)", () => {
       const area = areas[i % areaCount];
       // Mostly qualified for their home area; some also extra positions.
       const positions = [`pos-${area}`];
-      if (rand() < 0.25) positions.push(`pos-${areas[Math.floor(rand() * areaCount) === i % areaCount ? (i + 1) % areaCount : i % areaCount]}`);
-      return mkWorker(`w${i}`, area, positions, `e${String(i).padStart(4, "0")}`);
+      if (rand() < 0.25)
+        positions.push(
+          `pos-${areas[Math.floor(rand() * areaCount) === i % areaCount ? (i + 1) % areaCount : i % areaCount]}`,
+        );
+      return mkWorker(
+        `w${i}`,
+        area,
+        positions,
+        `e${String(i).padStart(4, "0")}`,
+      );
     });
 
     const areaRequirements: Record<string, readonly string[]> = {};
@@ -227,9 +263,17 @@ describe("generateDraft (roster-engine task 2)", () => {
     });
 
     // 1. The generated roster validates clean against the same rules.
-    const workersRecord = Object.fromEntries(workers.map((w) => [w.id, w] as const));
+    const workersRecord = Object.fromEntries(
+      workers.map((w) => [w.id, w] as const),
+    );
     expect(
-      validateRoster(result.assignments, workersRecord, effective, shiftOrder, areaRequirements),
+      validateRoster(
+        result.assignments,
+        workersRecord,
+        effective,
+        shiftOrder,
+        areaRequirements,
+      ),
     ).toEqual([]);
 
     // 2. Deficit coverage ≥ 95%.
@@ -273,7 +317,10 @@ describe("generateDraft (roster-engine task 2)", () => {
 
     const start = "2026-03-02";
     const requirements = Array.from({ length: 12 * 7 }, (_, d) =>
-      areas.flatMap((area) => [line(addDays(start, d), "s0", area, 3), line(addDays(start, d), "s1", area, 3)]),
+      areas.flatMap((area) => [
+        line(addDays(start, d), "s0", area, 3),
+        line(addDays(start, d), "s1", area, 3),
+      ]),
     ).flat();
 
     const t0 = performance.now();
