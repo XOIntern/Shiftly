@@ -2,12 +2,16 @@
 
 import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CalendarPlusIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import {
+  CalendarPlusIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import { dayFromNumber, dayNumber } from "@/lib/engine/dates";
+import { dayFromNumber, dayNumber } from "@/lib/dates";
 import { mondayOf } from "@/lib/week";
 import {
   generateRoster,
@@ -34,12 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DailyRequests } from "@/app/dashboard/roster/daily-requests";
 import type { DailyLineRow } from "@/app/dashboard/roster/daily-requests";
 import {
@@ -193,12 +192,17 @@ export function RosterWeekView({
   const [isPending, startTransition] = useTransition();
   const [tab, setTab] = useState("grid");
 
-  const pushWith = (mutate: (params: URLSearchParams) => void, method: "push" | "replace" = "push") => {
+  const pushWith = (
+    mutate: (params: URLSearchParams) => void,
+    method: "push" | "replace" = "push",
+  ) => {
     const params = new URLSearchParams(searchParams.toString());
     mutate(params);
     startTransition(() => {
       const query = params.toString();
-      router[method](`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
+      router[method](`${pathname}${query ? `?${query}` : ""}`, {
+        scroll: false,
+      });
     });
   };
 
@@ -243,9 +247,9 @@ export function RosterWeekView({
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Roster</h1>
           <p className="text-sm text-muted-foreground">
-            Weekly drafts generated from client manpower requirements,
-            validated against rules C1–C7, published only when compliant.
-            Deficits stay explicit, never silently violated.
+            Weekly drafts generated from client manpower requirements, validated
+            against rules C1–C7, published only when compliant. Deficits stay
+            explicit, never silently violated.
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -347,9 +351,7 @@ export function RosterWeekView({
                 <RevisePlanButton planId={plan.id} />
               ) : null}
               {plan && plan.status === "published" && !canGenerate ? (
-                <Badge variant="secondary">
-                  Published v{plan.version}
-                </Badge>
+                <Badge variant="secondary">Published v{plan.version}</Badge>
               ) : null}
             </div>
 
@@ -474,7 +476,9 @@ function GenerateDraftDialog({
     ? (locationId ?? undefined)
     : pinnedLocationId;
   const gate = generateGateText(
-    effectiveLocationId ? (requirementsByLocation[effectiveLocationId] ?? 0) : 0,
+    effectiveLocationId
+      ? (requirementsByLocation[effectiveLocationId] ?? 0)
+      : 0,
   );
   const locationOptions = isSuperadmin
     ? siteId === null
@@ -484,7 +488,10 @@ function GenerateDraftDialog({
   // Fresh object literals fall into base-ui Select's `items` excess-property
   // checks — the entries ride typed variables instead.
   const siteItems: { label: string; value: string }[] = isSuperadmin
-    ? [{ label: "All sites", value: "__all" }, ...sites.map((s) => ({ label: s.name, value: s.id }))]
+    ? [
+        { label: "All sites", value: "__all" },
+        ...sites.map((s) => ({ label: s.name, value: s.id })),
+      ]
     : [];
   const locationItems: { label: string; value: string }[] = locationOptions.map(
     (l) => ({ label: l.name, value: l.id }),
@@ -519,91 +526,103 @@ function GenerateDraftDialog({
       content does not exist while closed) so the page explains the disabled
       step without an interaction. */}
       {!isSuperadmin && gate ? (
-        <p className="max-w-56 text-end text-xs text-muted-foreground">{gate}</p>
+        <p className="max-w-56 text-end text-xs text-muted-foreground">
+          {gate}
+        </p>
       ) : null}
       <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          // An admin's gate is known at page load — a dead week disables the
-          // trigger right away; a superadmin's pick happens in the dialog.
-          <Button disabled={!isSuperadmin && !!gate} />
-        }
-      >
-        <CalendarPlusIcon data-icon="inline-start" />
-        Generate draft
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Generate draft roster</DialogTitle>
-          <DialogDescription>
-            Fills the week of {week} from its received requests, validated
-            against rules C1–C7. Publishing happens after review.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-3">
-          {isSuperadmin ? (
-            <div className="grid grid-cols-2 gap-3">
-              {showSiteSelect ? (
+        <DialogTrigger
+          render={
+            // An admin's gate is known at page load — a dead week disables the
+            // trigger right away; a superadmin's pick happens in the dialog.
+            <Button disabled={!isSuperadmin && !!gate} />
+          }
+        >
+          <CalendarPlusIcon data-icon="inline-start" />
+          Generate draft
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generate draft roster</DialogTitle>
+            <DialogDescription>
+              Fills the week of {week} from its received requests, validated
+              against rules C1–C7. Publishing happens after review.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            {isSuperadmin ? (
+              <div className="grid grid-cols-2 gap-3">
+                {showSiteSelect ? (
+                  <Select
+                    items={siteItems}
+                    value={siteId}
+                    onValueChange={(next) => {
+                      setLocationId(null);
+                      setSiteId(next === "__all" ? null : (next ?? null));
+                    }}
+                  >
+                    <SelectTrigger aria-label="Site" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {siteItems.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                ) : null}
                 <Select
-                  items={siteItems}
-                  value={siteId}
+                  items={locationItems}
+                  value={locationId}
                   onValueChange={(next) => {
-                    setLocationId(null);
-                    setSiteId(next === "__all" ? null : (next ?? null));
+                    if (next && next !== "__none") setLocationId(next);
                   }}
                 >
-                  <SelectTrigger aria-label="Site" className="w-full">
+                  <SelectTrigger aria-label="Location" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {siteItems.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          {s.label}
+                      {locationId === null ? (
+                        <SelectItem value="__none" disabled>
+                          Select a location
+                        </SelectItem>
+                      ) : null}
+                      {locationItems.map((l) => (
+                        <SelectItem key={l.value} value={l.value}>
+                          {l.label}
                         </SelectItem>
                       ))}
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-              ) : null}
-              <Select
-                items={locationItems}
-                value={locationId}
-                onValueChange={(next) => {
-                  if (next && next !== "__none") setLocationId(next);
-                }}
-              >
-                <SelectTrigger aria-label="Location" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {locationId === null ? (
-                      <SelectItem value="__none" disabled>
-                        Select a location
-                      </SelectItem>
-                    ) : null}
-                    {locationItems.map((l) => (
-                      <SelectItem key={l.value} value={l.value}>
-                        {l.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-          ) : (
-            <Input value={pinnedLocationName ?? ""} disabled aria-label="Location" />
-          )}
-          {gate ? <p className="text-sm text-muted-foreground">{gate}</p> : null}
-        </div>
-        <DialogFooter>
-          <Button type="button" onClick={submit} disabled={pending || !!gate || !effectiveLocationId}>
-            {pending ? "Generating…" : "Generate draft"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+              </div>
+            ) : (
+              <Input
+                value={pinnedLocationName ?? ""}
+                disabled
+                aria-label="Location"
+              />
+            )}
+            {gate ? (
+              <p className="text-sm text-muted-foreground">{gate}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={submit}
+              disabled={pending || !!gate || !effectiveLocationId}
+            >
+              {pending ? "Generating…" : "Generate draft"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -49,11 +49,15 @@ const mkLine = (
   shiftDefId = "s0",
   workAreaId = "wa-a",
   headcount = 1,
-): RequirementLine => ({ workAreaId, shiftDefId, date, headcount });
+  positionId = "pos-a",
+): RequirementLine => ({ workAreaId, shiftDefId, date, headcount, positionId });
 
 describe("suggestReplacements (roster-engine task 2)", () => {
   test("returns only validator-clean candidates (week-full worker excluded)", () => {
-    const workers = [mkWorker("w-full"), mkWorker("w-free")];
+    const workers = [
+      mkWorker("w-full", "wa-a", ["pos-a"]),
+      mkWorker("w-free", "wa-a", ["pos-a"]),
+    ];
     const line = mkLine("2026-01-08");
     // w-full has 5 work days in the Mon-start week of 01-05 — one more day
     // would breach C1 = 5, so only w-free may be suggested.
@@ -82,7 +86,10 @@ describe("suggestReplacements (roster-engine task 2)", () => {
   });
 
   test("ranked by load: the least-loaded worker comes first", () => {
-    const workers = [mkWorker("w-busy"), mkWorker("w-light")];
+    const workers = [
+      mkWorker("w-busy", "wa-a", ["pos-a"]),
+      mkWorker("w-light", "wa-a", ["pos-a"]),
+    ];
     const prior: RosterAssignment[] = [
       assign("w-busy", "2026-01-05"),
       assign("w-busy", "2026-01-06"),
@@ -105,7 +112,11 @@ describe("suggestReplacements (roster-engine task 2)", () => {
   });
 
   test("respects the limit", () => {
-    const workers = [mkWorker("w1"), mkWorker("w2"), mkWorker("w3")];
+    const workers = [
+      mkWorker("w1", "wa-a", ["pos-a"]),
+      mkWorker("w2", "wa-a", ["pos-a"]),
+      mkWorker("w3", "wa-a", ["pos-a"]),
+    ];
 
     const result = suggestReplacements(
       mkLine("2026-01-08"),
@@ -122,7 +133,10 @@ describe("suggestReplacements (roster-engine task 2)", () => {
   });
 
   test("a rotation-limited candidate is excluded", () => {
-    const workers = [mkWorker("w-rot"), mkWorker("w-ok")];
+    const workers = [
+      mkWorker("w-rot", "wa-a", ["pos-a"]),
+      mkWorker("w-ok", "wa-a", ["pos-a"]),
+    ];
     // w-rot worked s1 the day before; the line asks for s0 → downshift.
     const prior: RosterAssignment[] = [assign("w-rot", "2026-01-07", "s1")];
 
@@ -141,7 +155,10 @@ describe("suggestReplacements (roster-engine task 2)", () => {
   });
 
   test("candidates whose weekly assignments make them dirty are excluded", () => {
-    const workers = [mkWorker("w1"), mkWorker("w2")];
+    const workers = [
+      mkWorker("w1", "wa-a", ["pos-a"]),
+      mkWorker("w2", "wa-a", ["pos-a"]),
+    ];
     // w1 is at the 5-day week limit in the CURRENT plan week; 01-08 would
     // be the 6th (01-02/01-03 belong to the prior week and don't matter).
     const weekly: RosterAssignment[] = [
@@ -175,7 +192,7 @@ describe("suggestReplacements (roster-engine task 2)", () => {
     ];
 
     const result = suggestReplacements(
-      mkLine("2026-01-08"),
+      mkLine("2026-01-08", "s0", "wa-a", 1, "pos-weld"),
       [],
       [],
       workers,
@@ -188,8 +205,32 @@ describe("suggestReplacements (roster-engine task 2)", () => {
     expect(result.map((c) => c.workerId)).toEqual(["w2"]);
   });
 
+  test("the pool narrows to the line's exact position holder (#143)", () => {
+    const workers = [
+      mkWorker("w-a", "wa-a", ["pos-p1"]),
+      mkWorker("w-b", "wa-a", ["pos-p2"]),
+    ];
+
+    const result = suggestReplacements(
+      mkLine("2026-01-08", "s0", "wa-a", 1, "pos-p2"),
+      [],
+      [],
+      workers,
+      mkShift(3),
+      { "wa-a": ["pos-p1", "pos-p2"] },
+      rules({ c7: true }),
+      5,
+    );
+
+    expect(result.map((c) => c.workerId)).toEqual(["w-b"]);
+  });
+
   test("every returned candidate validates clean against the full ruleset", () => {
-    const workers = [mkWorker("w1"), mkWorker("w2"), mkWorker("w3")];
+    const workers = [
+      mkWorker("w1", "wa-a", ["pos-a"]),
+      mkWorker("w2", "wa-a", ["pos-a"]),
+      mkWorker("w3", "wa-a", ["pos-a"]),
+    ];
     const prior: RosterAssignment[] = [
       assign("w1", "2026-01-05", "s2"),
       assign("w2", "2026-01-05", "s1"),

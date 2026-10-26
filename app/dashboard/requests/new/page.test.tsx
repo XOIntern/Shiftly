@@ -6,10 +6,12 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
+  position,
   shiftDefinition,
   site,
   siteLocation,
   workArea,
+  workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
@@ -52,15 +54,17 @@ async function renderNew(): Promise<string> {
 }
 
 // Fixture: one site with two locations, but only the first (LA) carries an
-// active work area + shift so the pinned-admin render can prove its masters
-// shrink to the binding. No request rows — the create page reads masters
-// and location options only. Child-first cleanup.
+// active work area (+ its required Operator position) + shift so the
+// pinned-admin render can prove its masters shrink to the binding. No
+// request rows — the create page reads masters and location options only.
+// Child-first cleanup (pivot before workArea, position before site).
 async function seedNewFixtures() {
   const siteId = randomUUID();
   const locA = randomUUID();
   const locB = randomUUID();
   const waA = randomUUID();
   const shA = randomUUID();
+  const posA = randomUUID();
   const suffix = randomUUID().slice(0, 8);
   const locNames = {
     a: `t128-new-loc-a-${suffix}`,
@@ -87,13 +91,28 @@ async function seedNewFixtures() {
     startTime: "06:00",
     endTime: "14:00",
   });
+  await db.insert(position).values({
+    id: posA,
+    siteId,
+    name: `t128-new-pos-a-${suffix}`,
+  });
+  await db.insert(workAreaPosition).values({
+    workAreaId: waA,
+    positionId: posA,
+    siteId,
+    siteLocationId: locA,
+  });
 
   return {
     ids: { siteId, locA, locB },
     locNames,
     async cleanup() {
+      await db
+        .delete(workAreaPosition)
+        .where(eq(workAreaPosition.workAreaId, waA));
       await db.delete(shiftDefinition).where(eq(shiftDefinition.id, shA));
       await db.delete(workArea).where(eq(workArea.id, waA));
+      await db.delete(position).where(eq(position.id, posA));
       await db
         .delete(siteLocation)
         .where(eq(siteLocation.id, locA));

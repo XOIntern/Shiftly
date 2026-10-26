@@ -4,16 +4,22 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 
 import {
+  position,
   shiftDefinition,
   site,
   siteLocation,
   workArea,
+  workAreaPosition,
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RequestFormPage } from "@/app/dashboard/requests/request-form";
+import type {
+  MpRequestGridPosition,
+  MpRequestGridWorkArea,
+} from "@/types/mp-request";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 
 // Deliberate block: the page queries master data behind the session check,
@@ -30,7 +36,7 @@ export default async function NewRequestPage() {
   if (actor.role === "ho") notFound();
   const isSuperadmin = actor.role === "superadmin";
 
-  const [siteLocations, sites, activeWorkAreas, activeShifts] =
+  const [siteLocations, sites, activeWorkAreaRows, activeShifts, areaPositionRows] =
     await Promise.all([
       actor.role === "admin"
         ? actor.siteLocationId
@@ -118,7 +124,55 @@ export default async function NewRequestPage() {
           ),
         )
         .orderBy(asc(shiftDefinition.orderIndex)),
+      // Each area's required positions (live + active, name-ascending) —
+      // the grid rows are area × shift × required position (#137). Same
+      // role scope as the sibling master queries.
+      actor.role === "admin"
+        ? actor.siteLocationId
+          ? db
+              .select({
+                workAreaId: workAreaPosition.workAreaId,
+                positionId: position.id,
+                positionName: position.name,
+              })
+              .from(workAreaPosition)
+              .innerJoin(position, eq(workAreaPosition.positionId, position.id))
+              .where(
+                and(
+                  eq(position.isActive, true),
+                  isNull(position.deletedAt),
+                  eq(workAreaPosition.siteLocationId, actor.siteLocationId),
+                ),
+              )
+              .orderBy(asc(position.name))
+          : Promise.resolve([])
+        : db
+            .select({
+              workAreaId: workAreaPosition.workAreaId,
+              positionId: position.id,
+              positionName: position.name,
+            })
+            .from(workAreaPosition)
+            .innerJoin(position, eq(workAreaPosition.positionId, position.id))
+            .where(
+              and(eq(position.isActive, true), isNull(position.deletedAt)),
+            )
+            .orderBy(asc(position.name)),
     ]);
+
+  // Group the pivot rows onto their area masters (order preserved).
+  const positionsByWorkArea = new Map<string, MpRequestGridPosition[]>();
+  for (const row of areaPositionRows) {
+    const list = positionsByWorkArea.get(row.workAreaId) ?? [];
+    list.push({ id: row.positionId, name: row.positionName });
+    positionsByWorkArea.set(row.workAreaId, list);
+  }
+  const activeWorkAreas: MpRequestGridWorkArea[] = activeWorkAreaRows.map(
+    (area) => ({
+      ...area,
+      positions: positionsByWorkArea.get(area.id) ?? [],
+    }),
+  );
 
   const pinnedLocationName =
     actor.role === "admin" ? (siteLocations[0]?.name ?? undefined) : undefined;

@@ -201,17 +201,39 @@ async function createRequest(
 async function addRequestLine(
   fx: BaseFixture,
   requestId: string,
-  args: { workAreaId: string; shiftDefinitionId: string; date: string; headcount?: number },
-): Promise<void> {
+  args: {
+    workAreaId: string;
+    shiftDefinitionId: string;
+    date: string;
+    headcount?: number;
+    // Defaults to a freshly created position, pivoted onto the area — a
+    // line's demanded position must be one of the area's required
+    // positions (#135).
+    positionId?: string;
+  },
+): Promise<string> {
+  const positionId = args.positionId ?? (await createPosition(fx, "auto"));
+  // Idempotent pivot: several lines may demand the same (area, position).
+  await db
+    .insert(workAreaPosition)
+    .values({
+      workAreaId: args.workAreaId,
+      positionId,
+      siteId: fx.siteId,
+      siteLocationId: fx.locationId,
+    })
+    .onConflictDoNothing();
   await db.insert(mpRequestLine).values({
     requestId,
     siteId: fx.siteId,
     siteLocationId: fx.locationId,
     workAreaId: args.workAreaId,
     shiftDefinitionId: args.shiftDefinitionId,
+    positionId,
     date: args.date,
     headcount: args.headcount ?? 1,
   });
+  return positionId;
 }
 
 // Engine-shaped view of the plan's rows, the shape the actions hand to the
@@ -229,7 +251,7 @@ async function readPlanRows(planId: string) {
     .orderBy(rosterAssignment.date, rosterAssignment.workerId);
 }
 
-async function seedWeeklyDemand(fx: BaseFixture, lines: { workAreaId: string; shiftDefinitionId: string; date: string; headcount?: number }[]) {
+async function seedWeeklyDemand(fx: BaseFixture, lines: { workAreaId: string; shiftDefinitionId: string; date: string; headcount?: number; positionId?: string }[]) {
   const requestId = await createRequest(fx, { type: "weekly", weekStart: MON });
   for (const line of lines) await addRequestLine(fx, requestId, line);
   return requestId;
@@ -316,12 +338,16 @@ async function tightenRule(
 describe("roster actions: generateRoster", () => {
   test("admin generate happy: plan + rows + audit present, rulesSnapshot matches the resolved rules", async () => {
     const fx = await createBase(`t6-gh-${randomUUID()}`, "gen-happy");
+    const pos = await createPosition(fx, "gh");
     const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
     const shift = await createShift(fx, 1);
     const w1 = await createWorker(fx, "w1");
     const w2 = await createWorker(fx, "w2");
+    await giveWorkerPosition(fx, w1, pos);
+    await giveWorkerPosition(fx, w2, pos);
     await seedWeeklyDemand(fx, [
-      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 2 },
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 2, positionId: pos },
     ]);
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
@@ -430,8 +456,8 @@ describe("roster actions: generateRoster", () => {
     const wb = await createWorker(fx, "wb");
     await giveWorkerPosition(fx, wb, posB);
     await seedWeeklyDemand(fx, [
-      { workAreaId: areaA, shiftDefinitionId: shiftA, date: MON, headcount: 1 },
-      { workAreaId: areaB, shiftDefinitionId: shiftB, date: TUE, headcount: 1 },
+      { workAreaId: areaA, shiftDefinitionId: shiftA, date: MON, headcount: 1, positionId: posA },
+      { workAreaId: areaB, shiftDefinitionId: shiftB, date: TUE, headcount: 1, positionId: posB },
     ]);
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
@@ -493,23 +519,29 @@ describe("roster actions: generateRoster", () => {
 describe("roster actions: publishRoster", () => {
   async function seedPublishFixture() {
     const fx = await createBase(`t6-p-${randomUUID()}`, "pub");
+    const pos = await createPosition(fx, "p");
     const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
     const shift = await createShift(fx, 1);
     const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
     await seedWeeklyDemand(fx, [
-      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1 },
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos },
     ]);
     return { fx, area, shift, w };
   }
 
   test("publish blocked by a planted downshift: refusal carries the violation, plan stays draft", async () => {
     const fx = await createBase(`t6-p-${randomUUID()}`, "pub-down");
+    const pos = await createPosition(fx, "pd");
     const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
     const shiftLow = await createShift(fx, 1);
     const shiftHigh = await createShift(fx, 2);
     const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
     await seedWeeklyDemand(fx, [
-      { workAreaId: area, shiftDefinitionId: shiftHigh, date: MON, headcount: 1 },
+      { workAreaId: area, shiftDefinitionId: shiftHigh, date: MON, headcount: 1, positionId: pos },
     ]);
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
@@ -766,6 +798,7 @@ describe("roster actions: fillDailyRequest", () => {
         workAreaId: area,
         shiftDefId: shift,
         date: TUE,
+        positionId: randomUUID(),
         workerId: w,
         siteLocationId: fx.locationId,
       });
@@ -789,6 +822,9 @@ describe("roster actions: fillDailyRequest", () => {
     // this fixture — the fill's admission loop must be free to admit TUE.
     await createShift(fx, 2);
     const w = await createWorker(fx, "w");
+    const pos = await createPosition(fx, "d");
+    await requireAreaPosition(fx, area, pos);
+    await giveWorkerPosition(fx, w, pos);
     await seedWeeklyDemand(fx, [
       { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1 },
     ]);
@@ -810,6 +846,7 @@ describe("roster actions: fillDailyRequest", () => {
         workAreaId: area,
         shiftDefId: shift,
         date: TUE,
+        positionId: pos,
         workerId: w,
         siteLocationId: fx.locationId,
       });
@@ -839,7 +876,7 @@ describe("roster actions: fillDailyRequest", () => {
           ),
         );
       expect(audit).toBeDefined();
-      expect(audit.details).toEqual({ requestId, workerId: w, date: TUE });
+      expect(audit.details).toEqual({ requestId, workerId: w, date: TUE, positionId: pos });
     } finally {
       void fx;
     }
@@ -851,6 +888,9 @@ describe("roster actions: fillDailyRequest", () => {
     const shift = await createShift(fx, 1);
     await createShift(fx, 2);
     const w = await createWorker(fx, "w");
+    const pos = await createPosition(fx, "dd");
+    await requireAreaPosition(fx, area, pos);
+    await giveWorkerPosition(fx, w, pos);
     await seedWeeklyDemand(fx, [
       { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1 },
     ]);
@@ -872,6 +912,7 @@ describe("roster actions: fillDailyRequest", () => {
         workAreaId: area,
         shiftDefId: shift,
         date: TUE,
+        positionId: pos,
         workerId: w,
         siteLocationId: fx.locationId,
       };
@@ -894,19 +935,81 @@ describe("roster actions: fillDailyRequest", () => {
       void fx;
     }
   });
+
+  test("fill with a position the worker does not hold: POSITION_MISMATCH, no assignment", async () => {
+    const fx = await createBase(`t6-dm-${randomUUID()}`, "daily-mismatch");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    await createShift(fx, 2);
+    const w = await createWorker(fx, "w");
+    const pos = await createPosition(fx, "dm-held");
+    await requireAreaPosition(fx, area, pos);
+    await giveWorkerPosition(fx, w, pos);
+    // The requested position is genuinely required by the area — the only
+    // thing wrong is that this worker does not hold it.
+    const otherPos = await createPosition(fx, "dm-other");
+    await requireAreaPosition(fx, area, otherPos);
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1 },
+    ]);
+    const requestId = await createRequest(fx, { type: "daily", requestDate: TUE });
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    try {
+      const { generateRoster, publishRoster, fillDailyRequest } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+      const [weeklyPlan] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+      expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
+
+      const result = await fillDailyRequest({
+        requestId,
+        workAreaId: area,
+        shiftDefId: shift,
+        date: TUE,
+        positionId: otherPos,
+        workerId: w,
+        siteLocationId: fx.locationId,
+      });
+      expect(result).toEqual({
+        ok: false,
+        message: "Worker does not hold the requested position",
+      });
+
+      // Nothing landed: no daily plan, therefore no assignment row.
+      const plans = await db
+        .select({ id: rosterPlan.id })
+        .from(rosterPlan)
+        .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.kind, "daily")));
+      expect(plans.length).toBe(0);
+    } finally {
+      void fx;
+    }
+  });
 });
 
 describe("roster actions: suggestReplacementsAction", () => {
   test("clean candidates for an unfilled line; a fully-loaded date yields data: []", async () => {
     const fx = await createBase(`t6-sr-${randomUUID()}`, "suggest");
+    const posA = await createPosition(fx, "sa");
+    const posB = await createPosition(fx, "sb");
     const area = await createWorkArea(fx, "a");
     const shift = await createShift(fx, 1);
     // A higher-order shift keeps C4 (rest after the LAST shift) neutral.
     await createShift(fx, 2);
+    await requireAreaPosition(fx, area, posA);
+    await requireAreaPosition(fx, area, posB);
     const wBusy = await createWorker(fx, "busy");
     const wFree = await createWorker(fx, "free");
+    await giveWorkerPosition(fx, wBusy, posA);
+    await giveWorkerPosition(fx, wFree, posA);
+    const wOnlyB = await createWorker(fx, "onlyb");
+    await giveWorkerPosition(fx, wOnlyB, posB);
     await seedWeeklyDemand(fx, [
-      { workAreaId: area, shiftDefinitionId: shift, date: TUE, headcount: 2 },
+      { workAreaId: area, shiftDefinitionId: shift, date: TUE, headcount: 2, positionId: posA },
     ]);
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
@@ -920,21 +1023,24 @@ describe("roster actions: suggestReplacementsAction", () => {
         .where(eq(rosterPlan.siteLocationId, fx.locationId));
       await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
 
-      // Context = the published week's rows: both workers work TUE, so a
-      // TUE line admits nobody — empty data, still ok.
+      // Context = the published week's rows: both posA holders work TUE, so
+      // a TUE line admits nobody — empty data, still ok.
       const empty = await suggestReplacementsAction({
         workAreaId: area,
         shiftDefId: shift,
         date: TUE,
+        positionId: posA,
       });
       expect(empty).toEqual({ ok: true, data: [] });
 
-      // MON has no rows in the published week: both workers are clean
-      // candidates, each carrying workerId + employeeId + reason.
+      // MON has no rows in the published week: the posA holders are clean
+      // candidates; the posB-only worker is NOT — suggestions respect the
+      // line's requested position.
       const fresh = (await suggestReplacementsAction({
         workAreaId: area,
         shiftDefId: shift,
         date: MON,
+        positionId: posA,
       })) as { ok: true; data: { workerId: string; employeeId: string; reason: string }[] };
       expect(fresh.ok).toBe(true);
       expect(fresh.data.map((c) => c.workerId).sort()).toEqual([wBusy, wFree].sort());
@@ -1011,6 +1117,7 @@ describe("roster actions: session scope", () => {
         workAreaId: foreignArea,
         shiftDefId: foreignShift,
         date: TUE,
+        positionId: randomUUID(),
         siteLocationId: foreign.locationId,
       });
       expect(refused).toEqual({
@@ -1020,13 +1127,17 @@ describe("roster actions: session scope", () => {
 
       // Positive control: the ho's own-site location answers normally
       // (the read grant is site-scoped, not a blanket refusal).
+      const ownPos = await createPosition(own, "op");
       const ownShift = await createShift(own, 1);
       const ownWorker = await createWorker(own, "ow");
       const ownArea = await createWorkArea(own, "oa");
+      await requireAreaPosition(own, ownArea, ownPos);
+      await giveWorkerPosition(own, ownWorker, ownPos);
       const allowed = (await suggestReplacementsAction({
         workAreaId: ownArea,
         shiftDefId: ownShift,
         date: TUE,
+        positionId: ownPos,
         siteLocationId: own.locationId,
       })) as { ok: true; data: { workerId: string }[] };
       expect(allowed.ok).toBe(true);
@@ -1203,13 +1314,17 @@ describe("roster actions: revise guard (decision-7, daily fills)", () => {
 describe("roster actions: versioned prior history (revise-republish dedupe)", () => {
   test("after revise-publish v2, prior history holds one row per worker-day and the next week still generates", async () => {
     const fx = await createBase(`t6-pd-${randomUUID()}`, "prior-dedupe");
+    const pos = await createPosition(fx, "pd");
     const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
     const shift1 = await createShift(fx, 1);
     await createShift(fx, 2); // keeps C4 (rest after the LAST shift) neutral
     const w1 = await createWorker(fx, "w1");
     const w2 = await createWorker(fx, "w2");
+    await giveWorkerPosition(fx, w1, pos);
+    await giveWorkerPosition(fx, w2, pos);
     await seedWeeklyDemand(fx, [
-      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 2 },
+      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 2, positionId: pos },
     ]);
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
@@ -1251,6 +1366,7 @@ describe("roster actions: versioned prior history (revise-republish dedupe)", ()
         shiftDefinitionId: shift1,
         date: NEXT_MON,
         headcount: 1,
+        positionId: pos,
       });
       expect((await generateRoster({ weekStart: NEXT_MON, siteLocationId: fx.locationId })).ok).toBe(true);
       const [nextPlan] = await db
@@ -1276,13 +1392,17 @@ describe("roster actions: versioned prior history (revise-republish dedupe)", ()
 describe("roster actions: publish gate horizon (retroactive tightening)", () => {
   test("prior-dated violations from a tightened rule warn but do not block the publish", async () => {
     const fx = await createBase(`t6-ph-${randomUUID()}`, "prior-horizon");
+    const pos = await createPosition(fx, "ph");
     const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
     const shift1 = await createShift(fx, 1);
     await createShift(fx, 2); // keeps C4 neutral
     const w1 = await createWorker(fx, "w1");
     const w2 = await createWorker(fx, "w2");
+    await giveWorkerPosition(fx, w1, pos);
+    await giveWorkerPosition(fx, w2, pos);
     await seedWeeklyDemand(fx, [
-      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 1 },
+      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 1, positionId: pos },
     ]);
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
@@ -1324,6 +1444,7 @@ describe("roster actions: publish gate horizon (retroactive tightening)", () => 
         shiftDefinitionId: shift1,
         date: NEXT_MON,
         headcount: 1,
+        positionId: pos,
       });
       expect((await generateRoster({ weekStart: NEXT_MON, siteLocationId: fx.locationId })).ok).toBe(true);
       const [nextPlan] = await db

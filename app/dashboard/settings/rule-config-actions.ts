@@ -20,7 +20,7 @@ import {
   upsertRuleRow,
   type RuleScope,
 } from "@/lib/rule-config";
-import { ruleConfigSchema } from "@/validation/rule-config-validators";
+import { ruleConfigSchema } from "@/validation/rule-config";
 
 // Maps a driver error to the action result shape (same convention as the
 // other dashboard actions). The rule-config upsert has no duplicate-key
@@ -161,7 +161,9 @@ export async function updateRuleConfig(input: {
 
   // Parse against the C5 effective at the resolved scope, so the C6 <= C5
   // sanity refine judges the values that will actually apply there.
-  const parsed = ruleConfigSchema(await effectiveC5(scopeResult.scope)).safeParse({
+  const parsed = ruleConfigSchema(
+    await effectiveC5(scopeResult.scope),
+  ).safeParse({
     ruleKey: input.ruleKey,
     scope: input.scope,
     siteLocationId: input.siteLocationId,

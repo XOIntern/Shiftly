@@ -5,6 +5,7 @@ import { CalendarPlusIcon } from "lucide-react";
 import {
   mpRequest,
   mpRequestLine,
+  position,
   site,
   siteLocation,
   workArea,
@@ -145,6 +146,8 @@ export default async function RequestsPage({
           workAreaName: workArea.name,
           shiftDefinitionId: mpRequestLine.shiftDefinitionId,
           shiftLabel: shiftDefinition.label,
+          positionId: mpRequestLine.positionId,
+          positionName: position.name,
           date: mpRequestLine.date,
           headcount: mpRequestLine.headcount,
         })
@@ -154,6 +157,7 @@ export default async function RequestsPage({
           shiftDefinition,
           eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
         )
+        .innerJoin(position, eq(mpRequestLine.positionId, position.id))
         .where(inArray(mpRequestLine.requestId, requestIds))
     : [];
   const linesByRequest = new Map<string, MpRequestLineView[]>();

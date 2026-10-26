@@ -14,7 +14,8 @@ const line = (
   shiftDefId = "s0",
   workAreaId = "wa-a",
   headcount = 1,
-): RequirementLine => ({ workAreaId, shiftDefId, date, headcount });
+  positionId = "pos-a",
+): RequirementLine => ({ workAreaId, shiftDefId, date, headcount, positionId });
 
 const assign = (
   workerId: string,
@@ -68,5 +69,32 @@ describe("computeDeficit (roster-engine task 2)", () => {
 
     expect(computeDeficit(requirements, assignments)).toEqual([]);
     expect(computeDeficit([], assignments)).toEqual([]);
+  });
+
+  test("same-tuple lines demanding different positions pool their demand (#135)", () => {
+    // pos1 and pos2 share the (area, shift, date) tuple; an assignment is a
+    // tuple slot without a position, so 1 fill leaves 1 missing — not zero
+    // because the filled line absorbed it.
+    const requirements = [
+      line("2026-01-05", "s0", "wa-a", 1, "pos-1"),
+      line("2026-01-05", "s0", "wa-a", 1, "pos-2"),
+    ];
+    const assignments = [assign("w1", "2026-01-05", "s0", "wa-a")];
+
+    expect(computeDeficit(requirements, assignments)).toEqual([
+      { workAreaId: "wa-a", shiftDefId: "s0", date: "2026-01-05", missing: 1, reason: "unfilled" },
+    ]);
+  });
+
+  test("same-tuple demand sums across positions and headcounts", () => {
+    const requirements = [
+      line("2026-01-05", "s0", "wa-a", 2, "pos-1"),
+      line("2026-01-05", "s0", "wa-a", 1, "pos-2"),
+    ];
+    const assignments = [assign("w1", "2026-01-05", "s0", "wa-a")];
+
+    expect(computeDeficit(requirements, assignments)).toEqual([
+      { workAreaId: "wa-a", shiftDefId: "s0", date: "2026-01-05", missing: 2, reason: "unfilled" },
+    ]);
   });
 });

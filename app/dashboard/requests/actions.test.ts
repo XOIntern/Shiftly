@@ -8,11 +8,13 @@ import {
   auditLog,
   mpRequest,
   mpRequestLine,
+  position,
   shiftDefinition,
   site,
   siteLocation,
   user,
   workArea,
+  workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 import type {
@@ -123,6 +125,29 @@ async function seedShift(args: {
   return id;
 }
 
+async function seedPosition(args: {
+  siteId: string;
+  isActive?: boolean;
+}) {
+  const id = randomUUID();
+  await db.insert(position).values({
+    id,
+    siteId: args.siteId,
+    name: `t-mp-pos-${id}`,
+    ...(args.isActive === undefined ? {} : { isActive: args.isActive }),
+  });
+  return id;
+}
+
+async function seedPivot(args: {
+  workAreaId: string;
+  positionId: string;
+  siteId: string;
+  siteLocationId: string;
+}) {
+  await db.insert(workAreaPosition).values(args);
+}
+
 async function seedRequest(args: {
   siteId: string;
   siteLocationId: string;
@@ -157,6 +182,7 @@ async function seedLine(args: {
   siteLocationId: string;
   workAreaId: string;
   shiftDefinitionId: string;
+  positionId: string;
   date: string;
   headcount: number;
 }) {
@@ -171,6 +197,7 @@ async function dropAll(fx: {
   userIds: string[];
   workAreaIds?: string[];
   shiftIds?: string[];
+  positionIds?: string[];
   locA1: string;
   locA2: string;
   locB: string;
@@ -183,11 +210,21 @@ async function dropAll(fx: {
   }
   await db.delete(mpRequestLine).where(inArray(mpRequestLine.siteLocationId, locIds));
   await db.delete(mpRequest).where(inArray(mpRequest.siteLocationId, locIds));
+  // The pivot welds RESTRICT on both sides: it must go before the work
+  // areas AND the positions it pairs.
+  if ((fx.workAreaIds ?? []).length > 0) {
+    await db
+      .delete(workAreaPosition)
+      .where(inArray(workAreaPosition.workAreaId, fx.workAreaIds!));
+  }
   for (const workAreaId of fx.workAreaIds ?? []) {
     await db.delete(workArea).where(eq(workArea.id, workAreaId));
   }
   for (const shiftId of fx.shiftIds ?? []) {
     await db.delete(shiftDefinition).where(eq(shiftDefinition.id, shiftId));
+  }
+  for (const positionId of fx.positionIds ?? []) {
+    await db.delete(position).where(eq(position.id, positionId));
   }
   for (const userId of fx.userIds) {
     await db.delete(user).where(eq(user.id, userId));
@@ -216,6 +253,13 @@ describe("request actions: createRequest", () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
 
@@ -226,10 +270,17 @@ describe("request actions: createRequest", () => {
           // A foreign pick is ignored — the admin binding pins the location.
           siteLocationId: fx.locB,
           lines: [
-            { workAreaId: waA1, shiftDefinitionId: shiftA1, date: MONDAY, headcount: 2 },
             {
               workAreaId: waA1,
               shiftDefinitionId: shiftA1,
+              positionId: posA1,
+              date: MONDAY,
+              headcount: 2,
+            },
+            {
+              workAreaId: waA1,
+              shiftDefinitionId: shiftA1,
+              positionId: posA1,
               date: "2026-03-04",
               headcount: 3,
             },
@@ -256,6 +307,8 @@ describe("request actions: createRequest", () => {
         .where(eq(mpRequestLine.requestId, row.id));
       expect(lines.length).toBe(2);
       expect(lines.every((line) => line.siteId === fx.siteA)).toBe(true);
+      // Each line carries its demanded position (#135).
+      expect(lines.every((line) => line.positionId === posA1)).toBe(true);
 
       const [audit] = await db
         .select()
@@ -280,6 +333,7 @@ describe("request actions: createRequest", () => {
         userIds: [actor.id],
         workAreaIds: [waA1],
         shiftIds: [shiftA1],
+        positionIds: [posA1],
         ...fx,
       });
     }
@@ -312,6 +366,13 @@ describe("request actions: createRequest", () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
 
@@ -319,7 +380,13 @@ describe("request actions: createRequest", () => {
       const { createRequest } = await import("./actions");
       const input = weeklyInput({
         lines: [
-          { workAreaId: waA1, shiftDefinitionId: shiftA1, date: MONDAY, headcount: 1 },
+          {
+            workAreaId: waA1,
+            shiftDefinitionId: shiftA1,
+            positionId: posA1,
+            date: MONDAY,
+            headcount: 1,
+          },
         ],
       });
       expect((await createRequest(input)).ok).toBe(true);
@@ -341,6 +408,7 @@ describe("request actions: createRequest", () => {
         userIds: [actor.id],
         workAreaIds: [waA1],
         shiftIds: [shiftA1],
+        positionIds: [posA1],
         ...fx,
       });
     }
@@ -350,6 +418,13 @@ describe("request actions: createRequest", () => {
     const fx = await seedGlobalData();
     const waB = await seedWorkArea({ siteId: fx.siteB, siteLocationId: fx.locB });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posB = await seedPosition({ siteId: fx.siteB });
+    await seedPivot({
+      workAreaId: waB,
+      positionId: posB,
+      siteId: fx.siteB,
+      siteLocationId: fx.locB,
+    });
     actor = makeActor("superadmin", null, null);
     await seedUser(actor);
 
@@ -359,14 +434,20 @@ describe("request actions: createRequest", () => {
         weeklyInput({
           siteLocationId: fx.locA1,
           lines: [
-            { workAreaId: waB, shiftDefinitionId: shiftA1, date: MONDAY, headcount: 1 },
+            {
+              workAreaId: waB,
+              shiftDefinitionId: shiftA1,
+              positionId: posB,
+              date: MONDAY,
+              headcount: 1,
+            },
           ],
         }),
       );
 
       expect(result.ok).toBe(false);
       expect(result.message).toBe(
-        "Selected work area or shift must belong to this request's location",
+        "Selected work area, shift or position must belong to this request's location",
       );
 
       const rows = await db
@@ -379,6 +460,7 @@ describe("request actions: createRequest", () => {
         userIds: [actor.id],
         workAreaIds: [waB],
         shiftIds: [shiftA1],
+        positionIds: [posB],
         ...fx,
       });
     }
@@ -387,6 +469,13 @@ describe("request actions: createRequest", () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
     // Soft-deleted rows still satisfy the weld FKs — liveness is the
     // pre-check's job.
     await db
@@ -402,14 +491,20 @@ describe("request actions: createRequest", () => {
         weeklyInput({
           siteLocationId: fx.locA1,
           lines: [
-            { workAreaId: waA1, shiftDefinitionId: shiftA1, date: MONDAY, headcount: 1 },
+            {
+              workAreaId: waA1,
+              shiftDefinitionId: shiftA1,
+              positionId: posA1,
+              date: MONDAY,
+              headcount: 1,
+            },
           ],
         }),
       );
 
       expect(result).toEqual({
         ok: false,
-        message: "Selected work area or shift no longer exists",
+        message: "Selected work area, shift or position no longer exists",
       });
 
       const rows = await db
@@ -422,6 +517,7 @@ describe("request actions: createRequest", () => {
         userIds: [actor.id],
         workAreaIds: [waA1],
         shiftIds: [shiftA1],
+        positionIds: [posA1],
         ...fx,
       });
     }
@@ -433,6 +529,13 @@ describe("request actions: updateRequestLines", () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
     const requestId = await seedRequest({
@@ -449,6 +552,7 @@ describe("request actions: updateRequestLines", () => {
       siteLocationId: fx.locA1,
       workAreaId: waA1,
       shiftDefinitionId: shiftA1,
+      positionId: posA1,
       date: MONDAY,
       headcount: 1,
     });
@@ -456,7 +560,13 @@ describe("request actions: updateRequestLines", () => {
     try {
       const { updateRequestLines } = await import("./actions");
       const result = await updateRequestLines(requestId, [
-        { workAreaId: waA1, shiftDefinitionId: shiftA1, date: MONDAY, headcount: 9 },
+        {
+          workAreaId: waA1,
+          shiftDefinitionId: shiftA1,
+          positionId: posA1,
+          date: MONDAY,
+          headcount: 9,
+        },
       ]);
 
       expect(result).toEqual({
@@ -475,6 +585,7 @@ describe("request actions: updateRequestLines", () => {
         userIds: [actor.id],
         workAreaIds: [waA1],
         shiftIds: [shiftA1],
+        positionIds: [posA1],
         ...fx,
       });
     }
@@ -484,6 +595,13 @@ describe("request actions: updateRequestLines", () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
     const requestId = await seedRequest({
@@ -496,6 +614,7 @@ describe("request actions: updateRequestLines", () => {
     const keptLine: MpRequestLineInput = {
       workAreaId: waA1,
       shiftDefinitionId: shiftA1,
+      positionId: posA1,
       date: MONDAY,
       headcount: 2,
     };
@@ -546,7 +665,13 @@ describe("request actions: updateRequestLines", () => {
       // Re-adding the inactive shift on a NEW line is refused.
       const reAdd = await updateRequestLines(requestId, [
         keptLine,
-        { workAreaId: waA1, shiftDefinitionId: shiftA1, date: "2026-03-04", headcount: 3 },
+        {
+          workAreaId: waA1,
+          shiftDefinitionId: shiftA1,
+          positionId: posA1,
+          date: "2026-03-04",
+          headcount: 3,
+        },
       ]);
       expect(reAdd.ok).toBe(false);
       expect(reAdd.fieldErrors?.lines).toBeDefined();
@@ -561,6 +686,264 @@ describe("request actions: updateRequestLines", () => {
         userIds: [actor.id],
         workAreaIds: [waA1],
         shiftIds: [shiftA1],
+        positionIds: [posA1],
+        ...fx,
+      });
+    }
+  });
+
+  test("a same-site position outside the area's required set: refused, nothing written", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    // posA1 lives on site A but is NOT pivoted onto waA1 — not a required
+    // position of the area, so the line is refused before any write.
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+
+    try {
+      const { createRequest } = await import("./actions");
+      const result = await createRequest(
+        weeklyInput({
+          lines: [
+            {
+              workAreaId: waA1,
+              shiftDefinitionId: shiftA1,
+              positionId: posA1,
+              date: MONDAY,
+              headcount: 2,
+            },
+          ],
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.lines).toBe(
+        "Position must be a required position of the work area",
+      );
+
+      const rows = await db
+        .select({ id: mpRequest.id })
+        .from(mpRequest)
+        .where(eq(mpRequest.siteLocationId, fx.locA1));
+      expect(rows.length).toBe(0);
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1],
+        ...fx,
+      });
+    }
+  });
+
+  test("a cross-site position: FK message, nothing written", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
+    // A site-B position cannot be pivoted onto waA1 (the weld forbids it),
+    // so the line can only forge the reference — refused on site mismatch.
+    const posB = await seedPosition({ siteId: fx.siteB });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+
+    try {
+      const { createRequest } = await import("./actions");
+      const result = await createRequest(
+        weeklyInput({
+          lines: [
+            {
+              workAreaId: waA1,
+              shiftDefinitionId: shiftA1,
+              positionId: posB,
+              date: MONDAY,
+              headcount: 1,
+            },
+          ],
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toBe(
+        "Selected work area, shift or position must belong to this request's location",
+      );
+
+      const rows = await db
+        .select({ id: mpRequest.id })
+        .from(mpRequest)
+        .where(eq(mpRequest.siteLocationId, fx.locA1));
+      expect(rows.length).toBe(0);
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1, posB],
+        ...fx,
+      });
+    }
+  });
+
+  test("duplicate wa|shift|position|date in one submit: LINE_DUPLICATE, stored lines intact", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+    await seedLine({
+      requestId,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      workAreaId: waA1,
+      shiftDefinitionId: shiftA1,
+      positionId: posA1,
+      date: MONDAY,
+      headcount: 1,
+    });
+
+    try {
+      const { updateRequestLines } = await import("./actions");
+      const duplicate = await updateRequestLines(requestId, [
+        {
+          workAreaId: waA1,
+          shiftDefinitionId: shiftA1,
+          positionId: posA1,
+          date: MONDAY,
+          headcount: 2,
+        },
+        {
+          workAreaId: waA1,
+          shiftDefinitionId: shiftA1,
+          positionId: posA1,
+          date: MONDAY,
+          headcount: 5,
+        },
+      ]);
+
+      expect(duplicate.ok).toBe(false);
+      expect(duplicate.fieldErrors?.lines).toBe(
+        "Duplicate work area, shift, position and date combination",
+      );
+
+      // The refusal rolled back: the stored line survives untouched.
+      const lines = await db
+        .select()
+        .from(mpRequestLine)
+        .where(eq(mpRequestLine.requestId, requestId));
+      expect(lines.length).toBe(1);
+      expect(lines[0].headcount).toBe(1);
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1],
+        ...fx,
+      });
+    }
+  });
+
+  test("inactive-preserve for positions: keeping the line passes, re-adding the inactive position fails", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+    const keptLine: MpRequestLineInput = {
+      workAreaId: waA1,
+      shiftDefinitionId: shiftA1,
+      positionId: posA1,
+      date: MONDAY,
+      headcount: 4,
+    };
+    await seedLine({
+      requestId,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      ...keptLine,
+    });
+
+    // The position dies after the request was entered (pivot intact — the
+    // weld does not follow deactivation).
+    await db.update(position).set({ isActive: false }).where(eq(position.id, posA1));
+
+    try {
+      const { updateRequestLines } = await import("./actions");
+
+      // Keeping the stored line byte-identical survives the deactivation.
+      const keep = await updateRequestLines(requestId, [keptLine]);
+      expect(keep.ok).toBe(true);
+      const linesAfterKeep = await db
+        .select()
+        .from(mpRequestLine)
+        .where(eq(mpRequestLine.requestId, requestId));
+      expect(linesAfterKeep.length).toBe(1);
+      expect(linesAfterKeep[0].headcount).toBe(4);
+
+      // Re-adding the inactive position on a NEW date is refused.
+      const reAdd = await updateRequestLines(requestId, [
+        keptLine,
+        {
+          workAreaId: waA1,
+          shiftDefinitionId: shiftA1,
+          positionId: posA1,
+          date: "2026-03-05",
+          headcount: 2,
+        },
+      ]);
+      expect(reAdd.ok).toBe(false);
+      expect(reAdd.fieldErrors?.lines).toBe(
+        "Inactive positions can only be kept unchanged, not re-added",
+      );
+
+      const linesAfterReAdd = await db
+        .select()
+        .from(mpRequestLine)
+        .where(eq(mpRequestLine.requestId, requestId));
+      expect(linesAfterReAdd.length).toBe(1);
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1],
         ...fx,
       });
     }

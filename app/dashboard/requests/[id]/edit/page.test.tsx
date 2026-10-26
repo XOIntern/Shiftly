@@ -8,11 +8,13 @@ import { db } from "@/lib/db";
 import {
   mpRequest,
   mpRequestLine,
+  position,
   shiftDefinition,
   site,
   siteLocation,
   user,
   workArea,
+  workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 
@@ -78,6 +80,8 @@ async function seedEditFixtures() {
   const shActive = randomUUID();
   const waOld = randomUUID();
   const shOld = randomUUID();
+  const posActive = randomUUID();
+  const posOld = randomUUID();
   const otherSiteId = randomUUID();
   const otherLocId = randomUUID();
   const rqSubmitted = randomUUID();
@@ -91,6 +95,8 @@ async function seedEditFixtures() {
     shActive: `t129-edit-sh-active-${suffix}`,
     waOld: `t129-edit-wa-old-${suffix}`,
     shOld: `t129-edit-sh-old-${suffix}`,
+    posActive: `t129-edit-pos-active-${suffix}`,
+    posOld: `t129-edit-pos-old-${suffix}`,
   };
 
   await db.insert(user).values({
@@ -151,6 +157,16 @@ async function seedEditFixtures() {
       isActive: false,
     },
   ]);
+  await db.insert(position).values([
+    { id: posActive, siteId, name: names.posActive },
+    // Deactivated with its area after the request was filed — the stored
+    // line must still surface as a removable inactive line, never vanish.
+    { id: posOld, siteId, name: names.posOld, isActive: false },
+  ]);
+  await db.insert(workAreaPosition).values([
+    { workAreaId: waActive, positionId: posActive, siteId, siteLocationId: locId },
+    { workAreaId: waOld, positionId: posOld, siteId, siteLocationId: locId },
+  ]);
   await db.insert(mpRequest).values([
     {
       id: rqSubmitted,
@@ -187,6 +203,7 @@ async function seedEditFixtures() {
       siteLocationId: locId,
       workAreaId: waActive,
       shiftDefinitionId: shActive,
+      positionId: posActive,
       date: "2026-01-05",
       headcount: 3,
     },
@@ -196,6 +213,7 @@ async function seedEditFixtures() {
       siteLocationId: locId,
       workAreaId: waOld,
       shiftDefinitionId: shOld,
+      positionId: posOld,
       date: "2026-01-06",
       headcount: 7,
     },
@@ -209,11 +227,20 @@ async function seedEditFixtures() {
         await db.delete(mpRequestLine).where(eq(mpRequestLine.requestId, id));
         await db.delete(mpRequest).where(eq(mpRequest.id, id));
       }
+      await db
+        .delete(workAreaPosition)
+        .where(eq(workAreaPosition.workAreaId, waActive));
+      await db
+        .delete(workAreaPosition)
+        .where(eq(workAreaPosition.workAreaId, waOld));
       for (const id of [waActive, waOld]) {
         await db.delete(workArea).where(eq(workArea.id, id));
       }
       for (const id of [shActive, shOld]) {
         await db.delete(shiftDefinition).where(eq(shiftDefinition.id, id));
+      }
+      for (const id of [posActive, posOld]) {
+        await db.delete(position).where(eq(position.id, id));
       }
       for (const id of [locId, otherLocId]) {
         await db.delete(siteLocation).where(eq(siteLocation.id, id));
@@ -257,7 +284,9 @@ describe("edit request page SSR (requests #129)", () => {
       // The since-deactivated pair still renders — removable, not dropped.
       expect(html.includes("Inactive — keep unchanged or remove")).toBeTrue();
       expect(
-        html.includes(`Remove inactive line ${fx.names.waOld} / ${fx.names.shOld}`),
+        html.includes(
+          `Remove inactive line ${fx.names.waOld} / ${fx.names.shOld} / ${fx.names.posOld}`,
+        ),
       ).toBeTrue();
     } finally {
       await fx.cleanup();

@@ -144,6 +144,7 @@ export async function loadRequirementsForWeek(
     .select({
       workAreaId: mpRequestLine.workAreaId,
       shiftDefId: mpRequestLine.shiftDefinitionId,
+      positionId: mpRequestLine.positionId,
       date: mpRequestLine.date,
       headcount: mpRequestLine.headcount,
     })
