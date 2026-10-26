@@ -17,16 +17,35 @@ const NEXT_MONDAY = "2026-10-26";
 
 const WORK_AREA_ID = "0f6a5c3e-2b1d-4c8a-9f0e-7d6c5b4a3f2e";
 const SHIFT_DEFINITION_ID = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+const POSITION_ID = "c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f";
 const REQUEST_ID = "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01";
 
 const line = (date: string, headcount = 5) => ({
   workAreaId: WORK_AREA_ID,
   shiftDefinitionId: SHIFT_DEFINITION_ID,
+  positionId: POSITION_ID,
   date,
   headcount,
 });
 
 describe("mpRequestLineSchema", () => {
+  test("requires a positionId (per-position demand, epic #135)", () => {
+    const { positionId: _omitted, ...withoutPosition } = line(MONDAY);
+    const result = mpRequestLineSchema.safeParse(withoutPosition);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(["positionId"]);
+    }
+  });
+
+  test("rejects a non-uuid positionId", () => {
+    const result = mpRequestLineSchema.safeParse({
+      ...line(MONDAY),
+      positionId: "not-a-uuid",
+    });
+    expect(result.success).toBe(false);
+  });
+
   test("rejects a non-uuid workAreaId", () => {
     const result = mpRequestLineSchema.safeParse({
       ...line(MONDAY),

@@ -10,6 +10,11 @@ const dateString = z
 export const mpRequestLineSchema = z.object({
   workAreaId: z.uuid(),
   shiftDefinitionId: z.uuid(),
+  // Which position the headcount demands. The schema pins only the uuid
+  // shape — that it is one of the work area's required positions (and on
+  // the request's site) is resolved against live masters in the actions,
+  // same pattern as work areas/shifts.
+  positionId: z.uuid(),
   date: dateString,
   headcount: z.number().int().min(1).max(999),
 });
