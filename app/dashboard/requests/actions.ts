@@ -8,9 +8,11 @@ import {
   mpRequest,
   mpRequestLine,
   mpRequestStatusEnum,
+  position,
   shiftDefinition,
   siteLocation,
   workArea,
+  workAreaPosition,
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { pgErrorConstraint, pgErrorCode } from "@/error/db-errors";
@@ -55,11 +57,16 @@ const ILLEGAL_TRANSITION = "That status change is not allowed";
 const REFERENCE_FK =
   "Selected work area or shift must belong to this request's location";
 const REFERENCE_GONE = "Selected work area or shift no longer exists";
-const LINE_DUPLICATE = "Duplicate work area, shift and date combination";
+const LINE_DUPLICATE =
+  "Duplicate work area, shift and date combination";
 const INACTIVE_WA_KEEP_ONLY =
   "Inactive work areas can only be kept unchanged, not re-added";
 const INACTIVE_SHIFT_KEEP_ONLY =
   "Inactive shifts can only be kept unchanged, not re-added";
+const POSITION_NOT_REQUIRED =
+  "Position must be a required position of the work area";
+const INACTIVE_POSITION_KEEP_ONLY =
+  "Inactive positions can only be kept unchanged, not re-added";
 
 // Manual status machine (spec §4.4): forward-only edges, terminal states
 // stay terminal. The guarded write below still re-checks the CURRENT row
@@ -106,7 +113,10 @@ function requestResult(err: unknown): ActionState {
   const code = pgErrorCode(err);
   if (code === "23505") {
     const constraint = pgErrorConstraint(err);
-    if (constraint === "mp_request_line_request_work_area_shift_date_unique") {
+    if (
+      constraint ===
+      "mp_request_line_request_work_area_shift_position_date_unique"
+    ) {
       return { ok: false, fieldErrors: { lines: LINE_DUPLICATE } };
     }
     return { ok: false, message: DUPLICATE_OPEN_SLOT };
@@ -117,21 +127,26 @@ function requestResult(err: unknown): ActionState {
   return { ok: false, message: GENERIC_ERROR };
 }
 
-// Business check shared by create and update: every referenced work area and
-// shift must be live, belong to the request's location and be active. An
-// inactive reference is acceptable ONLY when the edit keeps that exact line
-// unchanged (spec Review Focus #5: keep-or-remove allowed, re-add
-// forbidden) — `keep` carries the stored line set for that compare; create
-// passes none, so any inactive reference fails there.
+// Business check shared by create and update: every referenced work area,
+// shift and position must be live, belong to the request's site/location
+// and be active — and the position must be a required position of its work
+// area (the work_area_position pivot, #135). An inactive reference is
+// acceptable ONLY when the edit keeps that exact line unchanged (spec
+// Review Focus #5: keep-or-remove allowed, re-add forbidden) — `keep`
+// carries the stored line set for that compare; create passes none, so any
+// inactive reference fails there. The DB's welded FKs back-stop every
+// forged pairing this check screens for.
 async function checkLineReferences(
   lines: MpRequestLineInput[],
   siteLocationId: string,
+  siteId: string,
   keep?: MpRequestLineInput[],
 ): Promise<{ ok: true } | { abort: ActionState }> {
   const waIds = [...new Set(lines.map((line) => line.workAreaId))];
   const shiftIds = [...new Set(lines.map((line) => line.shiftDefinitionId))];
+  const positionIds = [...new Set(lines.map((line) => line.positionId))];
 
-  const [was, shifts] = await Promise.all([
+  const [was, shifts, positions, pivotPairs] = await Promise.all([
     db
       .select({
         id: workArea.id,
@@ -150,9 +165,29 @@ async function checkLineReferences(
       })
       .from(shiftDefinition)
       .where(inArray(shiftDefinition.id, shiftIds)),
+    db
+      .select({
+        id: position.id,
+        siteId: position.siteId,
+        isActive: position.isActive,
+        deletedAt: position.deletedAt,
+      })
+      .from(position)
+      .where(inArray(position.id, positionIds)),
+    db
+      .select({
+        workAreaId: workAreaPosition.workAreaId,
+        positionId: workAreaPosition.positionId,
+      })
+      .from(workAreaPosition)
+      .where(inArray(workAreaPosition.workAreaId, waIds)),
   ]);
   const waById = new Map(was.map((row) => [row.id, row]));
   const shiftById = new Map(shifts.map((row) => [row.id, row]));
+  const positionById = new Map(positions.map((row) => [row.id, row]));
+  const requiredPairs = new Set(
+    pivotPairs.map((pair) => `${pair.workAreaId}|${pair.positionId}`),
+  );
 
   // "Kept unchanged" means the exact tuple survives the edit.
   const keptKeys = new Set(
@@ -162,13 +197,32 @@ async function checkLineReferences(
   for (const line of lines) {
     const wa = waById.get(line.workAreaId);
     const shift = shiftById.get(line.shiftDefinitionId);
+    const pos = positionById.get(line.positionId);
     // The weld FKs match soft-deleted rows too, so liveness is judged here:
     // a deleted reference is as good as a missing one.
-    if (!wa || wa.deletedAt || !shift || shift.deletedAt) {
+    if (
+      !wa ||
+      wa.deletedAt ||
+      !shift ||
+      shift.deletedAt ||
+      !pos ||
+      pos.deletedAt
+    ) {
       return { abort: { ok: false, message: REFERENCE_GONE } };
     }
-    if (wa.siteLocationId !== siteLocationId || shift.siteLocationId !== siteLocationId) {
+    if (
+      wa.siteLocationId !== siteLocationId ||
+      shift.siteLocationId !== siteLocationId ||
+      pos.siteId !== siteId
+    ) {
       return { abort: { ok: false, message: REFERENCE_FK } };
+    }
+    // A position the area does not draw from is refused outright — even
+    // live and same-site (#135).
+    if (!requiredPairs.has(`${line.workAreaId}|${line.positionId}`)) {
+      return {
+        abort: { ok: false, fieldErrors: { lines: POSITION_NOT_REQUIRED } },
+      };
     }
     if (!wa.isActive && !keptKeys.has(lineKey(line))) {
       return { abort: { ok: false, fieldErrors: { lines: INACTIVE_WA_KEEP_ONLY } } };
@@ -176,12 +230,20 @@ async function checkLineReferences(
     if (!shift.isActive && !keptKeys.has(lineKey(line))) {
       return { abort: { ok: false, fieldErrors: { lines: INACTIVE_SHIFT_KEEP_ONLY } } };
     }
+    if (!pos.isActive && !keptKeys.has(lineKey(line))) {
+      return {
+        abort: {
+          ok: false,
+          fieldErrors: { lines: INACTIVE_POSITION_KEEP_ONLY },
+        },
+      };
+    }
   }
   return { ok: true };
 }
 
 const lineKey = (line: MpRequestLineInput) =>
-  `${line.workAreaId}|${line.shiftDefinitionId}|${line.date}|${line.headcount}`;
+  `${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}|${line.date}|${line.headcount}`;
 
 function lineValues(
   requestId: string,
@@ -195,6 +257,7 @@ function lineValues(
     siteLocationId,
     workAreaId: line.workAreaId,
     shiftDefinitionId: line.shiftDefinitionId,
+    positionId: line.positionId,
     date: line.date,
     headcount: line.headcount,
   }));
@@ -236,7 +299,11 @@ export async function createRequest(
   }
 
   // Create has no stored lines: every inactive reference is a fresh add.
-  const references = await checkLineReferences(parsed.data.lines, siteLocationId);
+  const references = await checkLineReferences(
+    parsed.data.lines,
+    siteLocationId,
+    derivedSiteId,
+  );
   if ("abort" in references) return references.abort;
 
   try {
@@ -341,6 +408,7 @@ export async function updateRequestLines(
         .select({
           workAreaId: mpRequestLine.workAreaId,
           shiftDefinitionId: mpRequestLine.shiftDefinitionId,
+          positionId: mpRequestLine.positionId,
           date: mpRequestLine.date,
           headcount: mpRequestLine.headcount,
         })
@@ -350,6 +418,7 @@ export async function updateRequestLines(
       const references = await checkLineReferences(
         parsed.data,
         row.siteLocationId,
+        row.siteId,
         storedLines,
       );
       if ("abort" in references) throw new ActionAbort(references.abort);
