@@ -16,15 +16,16 @@ import {
 
 import { siteLocation } from "./site-schema";
 import { user } from "./auth-schema";
-import { workArea } from "./work-area-schema";
+import { workArea, workAreaPosition } from "./work-area-schema";
+import { position } from "./position-schema";
 import { shiftDefinition } from "./shift-schema";
 
 // MP requests (Module 3, mp-requests epic): the admin-facing demand channel
 // — one weekly (Monday-anchored) or daily requirement per site_location,
-// filled with per-work-area/per-shift/headcount lines. Two open statuses
-// would collide on the same anchor (partial uniques); rejected/fulfilled
-// frees the slot and history stays as new rows. There is no soft delete:
-// rejection is the void path.
+// filled with per-work-area/per-shift/per-position headcount lines. Two
+// open statuses would collide on the same anchor (partial uniques);
+// rejected/fulfilled frees the slot and history stays as new rows. There
+// is no soft delete: rejection is the void path.
 export const mpRequestTypeEnum = pgEnum("mp_request_type", [
   "weekly",
   "daily",
@@ -102,6 +103,7 @@ export const mpRequestLine = pgTable(
     siteId: uuid("site_id").notNull(),
     workAreaId: uuid("work_area_id").notNull(),
     shiftDefinitionId: uuid("shift_definition_id").notNull(),
+    positionId: uuid("position_id").notNull(),
     date: date("date").notNull(),
     headcount: integer("headcount").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -116,10 +118,11 @@ export const mpRequestLine = pgTable(
       "mp_request_line_headcount_range",
       sql`headcount between 1 and 999`,
     ),
-    unique("mp_request_line_request_work_area_shift_date_unique").on(
+    unique("mp_request_line_request_work_area_shift_position_date_unique").on(
       table.requestId,
       table.workAreaId,
       table.shiftDefinitionId,
+      table.positionId,
       table.date,
     ),
     index("mp_request_line_request_id_idx").on(table.requestId),
@@ -140,6 +143,25 @@ export const mpRequestLine = pgTable(
         shiftDefinition.id,
         shiftDefinition.siteLocationId,
         shiftDefinition.siteId,
+      ],
+    }).onDelete("restrict"),
+    // The demanded position must be a position of the SAME site and one of
+    // the work area's required positions — both welds resolve against the
+    // composite uniques/PK (position_id_site_id_unique, the work_area_position
+    // PK), so even a direct SQL insert cannot pair an off-set or cross-site
+    // position (23503). Removing a pivot row still referenced by a line is
+    // blocked (23503) with a readable action error.
+    foreignKey({
+      name: "mp_request_line_position_site_fk",
+      columns: [table.positionId, table.siteId],
+      foreignColumns: [position.id, position.siteId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "mp_request_line_work_area_position_weld_fk",
+      columns: [table.workAreaId, table.positionId],
+      foreignColumns: [
+        workAreaPosition.workAreaId,
+        workAreaPosition.positionId,
       ],
     }).onDelete("restrict"),
   ],
@@ -172,5 +194,9 @@ export const mpRequestLineRelations = relations(mpRequestLine, ({ one }) => ({
   shiftDefinition: one(shiftDefinition, {
     fields: [mpRequestLine.shiftDefinitionId],
     references: [shiftDefinition.id],
+  }),
+  position: one(position, {
+    fields: [mpRequestLine.positionId],
+    references: [position.id],
   }),
 }));
