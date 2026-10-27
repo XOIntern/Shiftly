@@ -38,8 +38,11 @@ import {
 // admin names the audit entry and the clone) and copies the published row
 // into a draft; the UI navigates to it, leaving the published version
 // untouched for attendance.
+// `thrown` marks a failure that came from a thrown error (a network or
+// server failure) rather than one the action returned.
 export type ReviseOutcome =
-  { ok: true; draftPlanId: string } | { ok: false; message: string };
+  | { ok: true; draftPlanId: string }
+  | { ok: false; message: string; thrown?: boolean };
 
 export async function commitRevise(
   planId: string,
@@ -48,8 +51,14 @@ export async function commitRevise(
   try {
     return await run(planId);
   } catch {
-    return { ok: false, message: GENERIC_ERROR };
+    return { ok: false, message: GENERIC_ERROR, thrown: true };
   }
+}
+
+// Only a failure the action returned can mean a stale plan; a thrown one is a
+// network failure, where a refresh cannot help and breaks offline.
+export function shouldRefreshAfterRevise(outcome: ReviseOutcome): boolean {
+  return shouldRefreshAfter(outcome) && !(!outcome.ok && outcome.thrown);
 }
 
 export function buildReviseHref(
@@ -298,7 +307,7 @@ export function RevisePlanButton({ planId }: { planId: string }) {
         const outcome = await commitRevise(planId);
         if (!outcome.ok) {
           toast.error(outcome.message);
-          if (shouldRefreshAfter(outcome)) router.refresh();
+          if (shouldRefreshAfterRevise(outcome)) router.refresh();
           return;
         }
         toast.success("Revision draft created.");

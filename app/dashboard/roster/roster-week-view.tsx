@@ -22,7 +22,11 @@ import type { RosterPlanOption } from "@/app/dashboard/roster/roster-status-bar"
 
 // Kept importable from here: the Revise wiring now lives in
 // roster-plan-actions.tsx and is re-exported through the status bar.
-export { buildReviseHref, commitRevise } from "@/app/dashboard/roster/roster-status-bar";
+export {
+  buildReviseHref,
+  commitRevise,
+  shouldRefreshAfterRevise,
+} from "@/app/dashboard/roster/roster-status-bar";
 export type {
   ReviseOutcome,
   RosterPlanOption,

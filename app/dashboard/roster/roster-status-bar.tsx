@@ -32,6 +32,7 @@ export {
   commitRevise,
   discardDialogCopy,
   publishDialogCopy,
+  shouldRefreshAfterRevise,
 } from "@/app/dashboard/roster/roster-plan-actions";
 export type { ReviseOutcome } from "@/app/dashboard/roster/roster-plan-actions";
 
