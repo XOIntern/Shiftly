@@ -153,6 +153,36 @@ export async function ensureDraftVersion(
   });
 }
 
+// Retroactive rule tightening must not deadlock future publishes: the
+// merged evaluation keeps the prior history, but only violations dated
+// INSIDE the plan's own horizon (its Monday-start week) block — the rows a
+// publish can actually change. Violations on prior (immutable, published)
+// dates are historical: surfaced as warnings, never blocking. Undated
+// violations always block.
+export function splitViolationsByHorizon(
+  violations: Violation[],
+  plan: {
+    kind: "weekly" | "daily";
+    weekStart: string | null;
+    requestDate: string | null;
+  },
+): { blocking: Violation[]; historical: Violation[] } {
+  const horizon = new Set(
+    weekDates(
+      plan.kind === "weekly"
+        ? (plan.weekStart as string)
+        : mondayOf(plan.requestDate as string),
+    ),
+  );
+  const blocking = violations.filter(
+    (v) => v.date === undefined || horizon.has(v.date),
+  );
+  const historical = violations.filter(
+    (v) => v.date !== undefined && !horizon.has(v.date),
+  );
+  return { blocking, historical };
+}
+
 // The plan's rows validated over the merged context: plan rows (the current
 // side) + prior published history strictly before the plan's horizon, rules
 // from the plan's own snapshot (the editor judges by the rules the draft
