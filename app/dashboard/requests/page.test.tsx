@@ -454,10 +454,38 @@ describe("requests list: approval, roster link and filter", () => {
     ).toEqual(["open", "approved", "fulfilled", "rejected"]);
   });
 
+  test("canApproveRequest offers approval only for open weekly requests to an approver", async () => {
+    const { canApproveRequest } = await import("./status-actions");
+    const openDaily = {
+      ...baseRow,
+      type: "daily" as const,
+      weekStart: null,
+      requestDate: "2026-11-03",
+    };
+    expect(canApproveRequest(baseRow, true)).toBeTrue();
+    expect(canApproveRequest(baseRow, false)).toBeFalse();
+    expect(canApproveRequest(openDaily, true)).toBeFalse();
+    expect(
+      canApproveRequest({ ...baseRow, status: "approved" }, true),
+    ).toBeFalse();
+  });
+
   test("ho sees Approve and Reject on an open weekly row and none on an approved row", async () => {
     const fx = await seedRequestFixtures();
+    const dailyId = randomUUID();
     try {
       actor = makeActor("ho", fx.ids.siteA, null);
+      // An OPEN daily request: the only thing keeping it from Approve and
+      // Reject is its type.
+      await db.insert(mpRequest).values({
+        id: dailyId,
+        siteId: fx.ids.siteA,
+        siteLocationId: fx.ids.locA2,
+        type: "daily",
+        status: "open",
+        requestDate: "2026-01-08",
+        createdBy: fx.creator,
+      });
 
       const open = await renderRequests();
       expect(
@@ -466,9 +494,12 @@ describe("requests list: approval, roster link and filter", () => {
       expect(
         open.includes('aria-label="Reject request for week of 2026-01-05"'),
       ).toBeTrue();
-      // The seeded daily request is approved: no approval buttons for it.
-      expect(open.includes("Approve request for date 2026-01-07")).toBeFalse();
+      // The open daily row renders, yet offers no approval buttons.
+      expect(open.includes("2026-01-08")).toBeTrue();
+      expect(open.includes("Approve request for date")).toBeFalse();
+      expect(open.includes("Reject request for date")).toBeFalse();
 
+      await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
       await db
         .update(mpRequest)
         .set({ status: "approved" })
@@ -477,6 +508,7 @@ describe("requests list: approval, roster link and filter", () => {
       expect(approved.includes("Approve request for")).toBeFalse();
       expect(approved.includes("Reject request for")).toBeFalse();
     } finally {
+      await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
       await fx.cleanup();
     }
   });
