@@ -9,6 +9,7 @@ import { GENERIC_ERROR } from "@/lib/action-state";
 import { focusFallbackTarget } from "@/lib/final-focus";
 import { shouldRefreshAfter } from "@/lib/refresh-after";
 import { runExclusive } from "@/lib/run-exclusive";
+import { useFocusRestore } from "@/hooks/use-focus-restore";
 import {
   discardDraft,
   generateRoster,
@@ -118,6 +119,13 @@ export function PublishButton({
   // True only when the dialog closes on a successful publish: this button
   // turns into Revise, so focus goes to the title.
   const succeeded = useRef(false);
+  // After a failure the dialog closes while the refresh still disables this
+  // button; focus comes back to it once that ends.
+  const {
+    openerRef,
+    arm: armFocusRestore,
+    onDialogClosed,
+  } = useFocusRestore(pending);
   const copy = publishDialogCopy(version, totals);
 
   function publish() {
@@ -136,6 +144,7 @@ export function PublishButton({
           }
           // Refusals carry up to five violation messages: surfaced verbatim.
           toast.error(result.message ?? GENERIC_ERROR);
+          armFocusRestore();
           // The plan may have changed elsewhere: re-read it.
           if (shouldRefreshAfter(result)) router.refresh();
         } catch {
@@ -143,6 +152,7 @@ export function PublishButton({
           // plan: a refresh would fail the same way (offline, it falls back
           // to a full page load and the toast is lost).
           toast.error(GENERIC_ERROR);
+          armFocusRestore();
         } finally {
           setOpen(false);
         }
@@ -153,6 +163,7 @@ export function PublishButton({
   return (
     <>
       <Button
+        ref={openerRef}
         type="button"
         className="max-sm:h-10"
         onClick={() => {
@@ -176,6 +187,7 @@ export function PublishButton({
         confirmVariant="default"
         onConfirm={publish}
         finalFocus={() => focusFallbackTarget(succeeded.current)}
+        onCloseComplete={onDialogClosed}
       />
     </>
   );
@@ -206,6 +218,13 @@ export function DiscardDraftButton({
   // True only when the dialog closes on a successful discard: the draft and
   // this trigger are about to leave the page, so focus goes to the title.
   const succeeded = useRef(false);
+  // After a failure the dialog closes while the refresh still disables this
+  // button; focus comes back to it (or to the title if it is gone).
+  const {
+    openerRef,
+    arm: armFocusRestore,
+    onDialogClosed,
+  } = useFocusRestore(pending);
   const copy = discardDialogCopy(version, assignmentCount);
 
   function discard() {
@@ -220,10 +239,12 @@ export function DiscardDraftButton({
             return;
           }
           toast.error(result.message ?? GENERIC_ERROR);
+          armFocusRestore();
           if (shouldRefreshAfter(result)) router.refresh();
         } catch {
           // Not a stale-plan signal: see PublishButton.
           toast.error(GENERIC_ERROR);
+          armFocusRestore();
         } finally {
           setOpen(false);
         }
@@ -234,6 +255,7 @@ export function DiscardDraftButton({
   return (
     <>
       <Button
+        ref={openerRef}
         type="button"
         variant="outline"
         className="max-sm:h-10"
@@ -257,6 +279,7 @@ export function DiscardDraftButton({
         confirmLabel="Discard draft"
         onConfirm={discard}
         finalFocus={() => focusFallbackTarget(succeeded.current)}
+        onCloseComplete={onDialogClosed}
       />
     </>
   );

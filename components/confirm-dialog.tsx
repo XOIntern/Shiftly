@@ -68,6 +68,8 @@ type ConfirmDialogProps = {
   // Passed through to the popup; omitted, Base UI returns focus to the
   // element that was focused before the dialog opened.
   finalFocus?: ComponentProps<typeof AlertDialogContent>["finalFocus"];
+  // Called once the dialog has finished closing (after any exit animation).
+  onCloseComplete?: () => void;
 };
 
 // A controlled confirmation for an irreversible action (destructive-styled
@@ -87,12 +89,16 @@ export function ConfirmDialog({
   onConfirm,
   confirmVariant,
   finalFocus,
+  onCloseComplete,
 }: ConfirmDialogProps) {
   return (
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
         if (guardedOpenChange(pending, next)) onOpenChange(next);
+      }}
+      onOpenChangeComplete={(next) => {
+        if (!next) onCloseComplete?.();
       }}
     >
       <AlertDialogContent finalFocus={finalFocus}>

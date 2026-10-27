@@ -18,6 +18,7 @@ import type { MpRequestLineView, MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { focusFallbackTarget } from "@/lib/final-focus";
 import { runExclusive } from "@/lib/run-exclusive";
+import { useFocusRestore } from "@/hooks/use-focus-restore";
 import {
   advanceStatus,
   withdrawRequest,
@@ -118,13 +119,24 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
   // row stays (as Approved or Rejected) but its inline buttons are removed,
   // so focus goes to the page title.
   const succeeded = useRef(false);
+  // After a failure the dialog closes while the refresh still disables the
+  // buttons; focus goes back to the button that opened it once that ends.
+  const {
+    openerRef,
+    arm: armFocusRestore,
+    onDialogClosed,
+  } = useFocusRestore(pending);
   const period = periodLabel(request);
   const approveCopy = approveDialogCopy();
   const rejectCopy = rejectDialogCopy();
   const focusAfterClose = () => focusFallbackTarget(succeeded.current);
 
-  function confirm(nextStatus: "approved" | "rejected") {
+  function confirm(
+    nextStatus: "approved" | "rejected",
+    opener: HTMLButtonElement,
+  ) {
     succeeded.current = false;
+    openerRef.current = opener;
     setConfirming(nextStatus);
   }
 
@@ -144,8 +156,10 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
             return;
           }
           toast.error(result.message ?? GENERIC_ERROR);
+          armFocusRestore();
         } catch {
           toast.error(GENERIC_ERROR);
+          armFocusRestore();
         } finally {
           setConfirming(null);
         }
@@ -160,7 +174,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         disabled={pending}
         aria-busy={pending && choice === "approved"}
         aria-label={`Approve request for ${period}`}
-        onClick={() => confirm("approved")}
+        onClick={(event) => confirm("approved", event.currentTarget)}
       >
         {pending && choice === "approved" ? (
           <Loader2Icon data-icon="inline-start" className="animate-spin" />
@@ -176,7 +190,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         aria-busy={pending && choice === "rejected"}
         aria-label={`Reject request for ${period}`}
         className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => confirm("rejected")}
+        onClick={(event) => confirm("rejected", event.currentTarget)}
       >
         {pending && choice === "rejected" ? (
           <Loader2Icon data-icon="inline-start" className="animate-spin" />
@@ -196,6 +210,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         confirmVariant="default"
         onConfirm={() => decide("approved")}
         finalFocus={focusAfterClose}
+        onCloseComplete={onDialogClosed}
       />
       <ConfirmDialog
         open={confirming === "rejected"}
@@ -207,6 +222,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         confirmLabel="Reject"
         onConfirm={() => decide("rejected")}
         finalFocus={focusAfterClose}
+        onCloseComplete={onDialogClosed}
       />
     </div>
   );
@@ -230,10 +246,18 @@ export function MpRequestRowActions({
   // and the dialog content unmounts on close, so only this component can
   // guard a second submit.
   const withdrawLock = useRef(false);
+  // The withdrawn row keeps its Actions button, but the dialog closes while
+  // `withdrawing` still disables it; focus goes back once that ends.
+  const {
+    openerRef,
+    arm: armFocusRestore,
+    onDialogClosed,
+  } = useFocusRestore(withdrawing);
   const router = useRouter();
   const withdrawCopy = withdrawDialogCopy(request);
 
   function withdraw() {
+    armFocusRestore();
     startWithdraw(async () => {
       await runExclusive(withdrawLock, async () => {
         try {
@@ -263,6 +287,7 @@ export function MpRequestRowActions({
             <Button
               variant="ghost"
               size="icon-sm"
+              ref={openerRef}
               disabled={withdrawing}
               aria-label={`Actions for request ${request.siteName ?? ""} ${request.locationName}`}
             />
@@ -331,6 +356,7 @@ export function MpRequestRowActions({
             cancelLabel="Keep request"
             confirmLabel="Withdraw"
             onConfirm={withdraw}
+            onCloseComplete={onDialogClosed}
           />
         ) : null}
       </DropdownMenu>
