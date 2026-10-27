@@ -88,7 +88,10 @@ export const withdrawDialogCopy = (request: MpRequestRow): DialogCopy => ({
       : WITHDRAW_BODY,
 });
 
-export const rejectDialogCopy: (request: MpRequestRow) => DialogCopy = () => ({
+// Takes the row like withdrawDialogCopy so both read the same at the call
+// site; the reject copy does not vary by request.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const rejectDialogCopy = (_request: MpRequestRow): DialogCopy => ({
   title: "Reject this request?",
   body: "This cannot be undone. The admin will need to enter a new request.",
 });

@@ -257,10 +257,14 @@ describe("RosterStatusBar", () => {
       }),
     ).not.toContain("Discard draft");
     expect(
-      render({ canDiscard: false, canWrite: false, gate: { action: "none" } }),
+      render({ canDiscard: false, gate: { action: "none" } }),
     ).not.toContain("Discard draft");
     expect(render({ canDiscard: false })).not.toContain("Discard draft");
     expect(render({ selectedPlanId: null })).not.toContain("Discard draft");
+  });
+
+  test("canWrite false hides the primary button on a draft", () => {
+    expect(render({ canWrite: false })).not.toContain("Publish roster");
   });
 });
 

@@ -1593,10 +1593,9 @@ describe("request actions: withdrawRequest", () => {
     try {
       const { withdrawRequest } = await import("./actions");
       // A double-click on the confirm button: both calls start before either
-      // resolves. The actor is set synchronously before each call.
+      // resolves, and both share the actor.
       actor = admin;
       const first = withdrawRequest(requestId);
-      actor = admin;
       const second = withdrawRequest(requestId);
       const results = await Promise.all([first, second]);
 
@@ -1766,7 +1765,7 @@ describe("request actions: loadCopySource", () => {
     return requestId;
   }
 
-  test("returns the latest non-rejected earlier week, skips rejected, returns null when none, and never returns another location's request for an admin", async () => {
+  test("returns the latest earlier week with an open, approved or fulfilled request, skips weeks holding only rejected ones, returns null when none, and never returns another location's request for an admin", async () => {
     const fx = await seedGlobalData();
     const masters = await seedMasters(fx);
     actor = makeActor("admin", null, fx.locA1);
@@ -1897,7 +1896,7 @@ describe("request actions: loadCopySource", () => {
     }
   });
 
-  test("merges every non-rejected request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
+  test("merges every open, approved or fulfilled request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
     const fx = await seedGlobalData();
     const masters = await seedMasters(fx);
     actor = makeActor("admin", null, fx.locA1);

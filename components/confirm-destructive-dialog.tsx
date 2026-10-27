@@ -18,6 +18,7 @@ import {
 // runs every request is ignored, so Escape or an outside click cannot close
 // the dialog under a pending submit.
 export function guardedOpenChange(pending: boolean, next: boolean): boolean {
+  // `next` is deliberately ignored: the answer depends only on `pending`.
   void next;
   return !pending;
 }
