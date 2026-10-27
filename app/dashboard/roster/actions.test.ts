@@ -387,7 +387,7 @@ describe("roster actions: generateRoster", () => {
     }
   });
 
-  test("generate without received requirements for the week: refused, nothing written", async () => {
+  test("generate without approved requirements for the week: refused, nothing written", async () => {
     const fx = await createBase(`t6-gn-${randomUUID()}`, "gen-noreq");
     await createWorkArea(fx, "a");
     await createShift(fx, 1);

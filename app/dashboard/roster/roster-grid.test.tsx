@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { describe, expect, mock, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
 
 // The grid calls the Task 6 server actions from its cell handler; under
 // bun test the actions module is swapped for a recording stub so the real
@@ -27,6 +28,7 @@ mock.module("@/app/dashboard/roster/actions", () => ({
 }));
 
 const {
+  RosterGrid,
   assignmentKey,
   badgeText,
   commitPick,
@@ -43,6 +45,33 @@ const W1 = "aaaaaaaa-1111-4111-8111-111111111111";
 const W2 = "aaaaaaaa-2222-4222-9222-222222222222";
 const SH1 = "dddddddd-1111-4111-8111-111111111111";
 const MON = "2026-01-05";
+
+describe("RosterGrid", () => {
+  test("grid renders only the selected work area's workers", () => {
+    const html = renderToStaticMarkup(
+      <RosterGrid
+        planId={PLAN}
+        canEdit={false}
+        readOnlyReason="Read-only"
+        workAreaId={AREA}
+        workAreaName="Kitchen"
+        shifts={[{ id: SH1, label: "Early", startTime: "06:00", endTime: "14:00" }]}
+        workers={[{ id: W1, employeeId: "EMP-001" }]}
+        dates={[MON]}
+        cells={{ [`${W1}|${MON}`]: SH1 }}
+        rowPage={1}
+        workerTotal={1}
+        onRowPageChange={() => {}}
+      />,
+    );
+    // The selected area names the grid; no area switcher lives in the grid.
+    expect(html).toContain("Kitchen");
+    expect(html).not.toContain('aria-label="Work area"');
+    expect(html).toContain("EMP-001");
+    expect(html).not.toContain("EMP-002");
+    expect(html).toContain("Early");
+  });
+});
 
 describe("assignmentKey", () => {
   test("keys a cell by worker and date", () => {

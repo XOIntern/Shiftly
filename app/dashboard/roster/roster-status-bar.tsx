@@ -24,6 +24,7 @@ import type { RosterGate } from "@/app/dashboard/roster/roster-gate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -42,7 +43,8 @@ import {
 } from "@/components/ui/select";
 
 // The roster page's control strip: the Monday-anchored week navigator, the
-// location (picked, or the admin's pinned one), the plan version picker when
+// location (resolved by the page: a picker when several are in scope, else
+// its name), the plan version picker when
 // the week has more than one plan, a one-line status of the selected plan,
 // and the page's single primary button. Which button, and whether it can be
 // pressed, is decided upstream by rosterGate; this component only renders
@@ -86,24 +88,6 @@ export function buildReviseHref(
   return params.toString();
 }
 
-// The location the bar and the gate act on: an admin's pinned one, else the
-// `locationId` URL pick when it is a location in scope, else the only
-// location in scope, else none yet.
-export function selectedLocationFor({
-  pinnedLocationId,
-  siteLocations,
-  param,
-}: {
-  pinnedLocationId: string | undefined;
-  siteLocations: SiteLocationOption[];
-  param: string | null;
-}): string | null {
-  if (pinnedLocationId) return pinnedLocationId;
-  if (param && siteLocations.some((l) => l.id === param)) return param;
-  if (siteLocations.length === 1) return siteLocations[0].id;
-  return null;
-}
-
 type BarProps = {
   week: string;
   gate: RosterGate;
@@ -114,11 +98,13 @@ type BarProps = {
   totals: { required: number; filled: number } | null;
   violationHead: string[];
   violationCount: number;
-  isSuperadmin: boolean;
   sites: SiteOption[];
+  // The locations in scope (an admin's is their one binding).
   siteLocations: SiteLocationOption[];
-  pinnedLocationName?: string;
-  pinnedLocationId?: string;
+  // The location the page resolved; the gate and Generate act on it.
+  selectedLocationId: string | null;
+  // A navigation started outside the bar (work area, row page) is pending.
+  navigating: boolean;
   canWrite: boolean;
 };
 
@@ -135,11 +121,10 @@ export function RosterStatusBar({
   totals,
   violationHead,
   violationCount,
-  isSuperadmin,
   sites,
   siteLocations,
-  pinnedLocationName,
-  pinnedLocationId,
+  selectedLocationId,
+  navigating,
   canWrite,
 }: BarProps) {
   const router = useRouter();
@@ -165,6 +150,11 @@ export function RosterStatusBar({
     if (!next) return;
     pushWith((params) => {
       params.set("week", mondayOf(next));
+      // Keep the location the page resolved: without it, a week with no
+      // plan would fall back to the first location by name.
+      if (selectedLocationId && siteLocations.length > 1) {
+        params.set("locationId", selectedLocationId);
+      }
       params.delete("planId");
       params.delete("workAreaId");
       params.delete("rowPage");
@@ -189,12 +179,6 @@ export function RosterStatusBar({
     });
   };
 
-  const selectedLocationId = selectedLocationFor({
-    pinnedLocationId,
-    siteLocations,
-    param: searchParams.get("locationId"),
-  });
-
   const siteNameById = new Map(sites.map((s) => [s.id, s.name]));
   const locationItems: { label: string; value: string }[] = siteLocations.map(
     (l) => {
@@ -210,10 +194,9 @@ export function RosterStatusBar({
     value: p.id,
   }));
 
-  const showLocationPicker = !pinnedLocationId && siteLocations.length > 1;
-  const locationText =
-    pinnedLocationName ??
-    (siteLocations.length === 1 ? siteLocations[0].name : null);
+  const showLocationPicker = siteLocations.length > 1;
+  const locationName =
+    siteLocations.find((l) => l.id === selectedLocationId)?.name ?? null;
 
   const showPrimary = canWrite && gate.action !== "none";
   const reason = gate.action === "none" ? null : gate.reason;
@@ -278,10 +261,10 @@ export function RosterStatusBar({
               </SelectGroup>
             </SelectContent>
           </Select>
-        ) : locationText ? (
+        ) : locationName ? (
           <p className="text-sm font-medium">
             <span className="sr-only">Location: </span>
-            {locationText}
+            {locationName}
           </p>
         ) : null}
 
@@ -311,21 +294,23 @@ export function RosterStatusBar({
           </Select>
         ) : null}
 
-        {isPending ? (
-          <span role="status" className="text-sm text-muted-foreground">
-            Loading…
-          </span>
-        ) : null}
+        {/* The page's one loading announcer: always mounted so a screen
+        reader hears it fill, whichever control started the navigation. */}
+        <span role="status" className="text-sm text-muted-foreground">
+          {isPending || navigating ? "Loading…" : ""}
+        </span>
       </div>
 
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <StatusText
-          planStatus={planStatus}
-          planVersion={planVersion}
-          totals={totals}
-          violationHead={violationHead}
-          violationCount={violationCount}
-        />
+        <div aria-live="polite" className="min-w-0">
+          <StatusText
+            planStatus={planStatus}
+            planVersion={planVersion}
+            totals={totals}
+            violationHead={violationHead}
+            violationCount={violationCount}
+          />
+        </div>
         {showPrimary ? (
           <div className="flex min-w-0 max-w-full flex-col gap-1.5 sm:items-end">
             {gate.action === "generate" ? (
@@ -335,11 +320,8 @@ export function RosterStatusBar({
                 enabled={gate.enabled}
                 reason={reason}
                 reasonId={reasonId}
-                isSuperadmin={isSuperadmin}
-                sites={sites}
-                siteLocations={siteLocations}
-                pinnedLocationName={pinnedLocationName}
-                effectiveLocationId={selectedLocationId}
+                locationId={selectedLocationId}
+                locationName={locationName}
               />
             ) : null}
             {gate.action === "publish" && selectedPlanId ? (
@@ -352,25 +334,26 @@ export function RosterStatusBar({
             {gate.action === "revise" && selectedPlanId ? (
               <RevisePlanButton planId={selectedPlanId} />
             ) : null}
-            {reason ? (
-              <p
-                id={reasonId}
-                className="text-xs text-muted-foreground sm:text-end"
-              >
-                {reason}
-                {gate.action === "generate" && !gate.enabled ? (
-                  <>
-                    {" "}
-                    <Link
-                      href="/dashboard/requests"
-                      className="inline-block rounded-sm py-1.5 font-medium text-foreground underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                    >
-                      Go to requests
-                    </Link>
-                  </>
-                ) : null}
-              </p>
-            ) : null}
+            {/* Always mounted while a button shows, so a reason that
+            appears after publish/revise/generate is announced. */}
+            <p
+              id={reasonId}
+              aria-live="polite"
+              className="text-xs text-muted-foreground sm:text-end"
+            >
+              {reason}
+              {reason && gate.action === "generate" && !gate.enabled ? (
+                <>
+                  {" "}
+                  <Link
+                    href="/dashboard/requests"
+                    className="inline-block rounded-sm py-1.5 font-medium text-foreground underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                  >
+                    Go to requests
+                  </Link>
+                </>
+              ) : null}
+            </p>
           </div>
         ) : null}
       </div>
@@ -538,53 +521,26 @@ function GenerateDraftDialog({
   enabled,
   reason,
   reasonId,
-  isSuperadmin,
-  sites,
-  siteLocations,
-  pinnedLocationName,
-  effectiveLocationId: barLocationId,
+  locationId,
+  locationName,
 }: {
   week: string;
   enabled: boolean;
   reason: string | null;
   reasonId: string;
-  isSuperadmin: boolean;
-  sites: SiteOption[];
-  siteLocations: SiteLocationOption[];
-  pinnedLocationName?: string;
-  // The location the bar acts on; a superadmin may still change it here.
-  effectiveLocationId: string | null;
+  // The location the page resolved: the same one the gate counted.
+  locationId: string | null;
+  locationName: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [siteId, setSiteId] = useState<string | null>(null);
-  const [locationId, setLocationId] = useState<string | null>(barLocationId);
   const [pending, startTransition] = useTransition();
 
-  // An admin is pinned server-side; a superadmin's pick lives in the dialog.
-  const effectiveLocationId = isSuperadmin ? locationId : barLocationId;
-  const locationOptions = isSuperadmin
-    ? siteId === null
-      ? siteLocations
-      : siteLocations.filter((option) => option.siteId === siteId)
-    : siteLocations;
-  // Fresh object literals fall into base-ui Select's `items` excess-property
-  // checks, so the entries ride typed variables instead.
-  const siteItems: { label: string; value: string }[] = isSuperadmin
-    ? [
-        { label: "All sites", value: "__all" },
-        ...sites.map((s) => ({ label: s.name, value: s.id })),
-      ]
-    : [];
-  const locationItems: { label: string; value: string }[] = locationOptions.map(
-    (l) => ({ label: l.name, value: l.id }),
-  );
-
   function submit() {
-    if (!effectiveLocationId || pending) return;
+    if (!locationId || pending) return;
     startTransition(async () => {
       const result = await generateRoster({
         weekStart: week,
-        siteLocationId: effectiveLocationId,
+        siteLocationId: locationId,
       });
       if (result.ok) {
         toast.success("Draft roster generated.");
@@ -600,15 +556,13 @@ function GenerateDraftDialog({
     });
   }
 
-  const showSiteSelect = isSuperadmin && sites.length > 1;
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
           <Button
             className="max-sm:h-10"
-            disabled={!enabled}
+            disabled={!enabled || !locationId}
             aria-describedby={enabled ? undefined : reasonId}
           />
         }
@@ -620,78 +574,23 @@ function GenerateDraftDialog({
         <DialogHeader>
           <DialogTitle>Generate draft roster</DialogTitle>
           <DialogDescription>
-            Fills the week of {week} from its approved requests, validated
-            against rules C1-C7. Publishing happens after review.
+            Fills the week of {week}
+            {locationName ? ` at ${locationName}` : ""} from its approved
+            requests, validated against rules C1-C7. Publishing happens after
+            review.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
-          {isSuperadmin ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {showSiteSelect ? (
-                <Select
-                  items={siteItems}
-                  value={siteId}
-                  onValueChange={(next) => {
-                    setLocationId(null);
-                    setSiteId(next === "__all" ? null : (next ?? null));
-                  }}
-                >
-                  <SelectTrigger aria-label="Site" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {siteItems.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          {s.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              ) : null}
-              <Select
-                items={locationItems}
-                value={locationId}
-                onValueChange={(next) => {
-                  if (next && next !== "__none") setLocationId(next);
-                }}
-              >
-                <SelectTrigger aria-label="Location" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {locationId === null ? (
-                      <SelectItem value="__none" disabled>
-                        Select a location
-                      </SelectItem>
-                    ) : null}
-                    {locationItems.map((l) => (
-                      <SelectItem key={l.value} value={l.value}>
-                        {l.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-          ) : (
-            <Input
-              value={pinnedLocationName ?? ""}
-              disabled
-              aria-label="Location"
-            />
-          )}
-          {reason ? (
-            <p className="text-sm text-muted-foreground">{reason}</p>
-          ) : null}
-        </div>
+        {reason ? (
+          <p className="text-sm text-muted-foreground">{reason}</p>
+        ) : null}
         <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" />}>
+            Cancel
+          </DialogClose>
           <Button
             type="button"
             onClick={submit}
-            disabled={pending || !enabled || !effectiveLocationId}
+            disabled={pending || !enabled || !locationId}
           >
             {pending ? "Generating…" : "Generate draft"}
           </Button>

@@ -1,9 +1,10 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import {
   mpRequest,
   mpRequestLine,
   position,
+  rosterAssignment,
   rosterPlan,
   shiftDefinition,
   site,
@@ -11,28 +12,32 @@ import {
   workArea,
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
-import {
-  PAGE_SIZE_OPTIONS,
-  ilikePattern,
-  parseTableSearchParams,
-} from "@/lib/table-params";
 import { requireUser } from "@/lib/session";
 import { mpRequestListWhere } from "@/lib/mp-request-scope";
 import { mondayOf, weekDates } from "@/lib/week";
-import { computeDeficit } from "@/lib/engine/deficit";
-import type { EffectiveRules } from "@/types/engine";
+import { computeCoverage, coverageTotals } from "@/lib/engine/coverage";
+import type { CoverageRequirement, CoverageRow } from "@/lib/engine/coverage";
+import type { EffectiveRules, RosterAssignment } from "@/types/engine";
 import {
+  loadDailyRequirements,
   loadPlanWithRows,
   loadRequirementsForWeek,
   loadWorkerProfiles,
 } from "@/lib/roster-data";
-import { planViolations } from "@/lib/roster-plan-mutations";
+import {
+  planViolations,
+  splitViolationsByHorizon,
+} from "@/lib/roster-plan-mutations";
+import { rosterGate } from "@/app/dashboard/roster/roster-gate";
+import {
+  pickPlan,
+  selectedLocationFor,
+} from "@/app/dashboard/roster/roster-location";
 import { RosterWeekView } from "@/app/dashboard/roster/roster-week-view";
 import type {
   GridPlanView,
   RosterPlanOption,
 } from "@/app/dashboard/roster/roster-week-view";
-import type { DailyLineRow } from "@/app/dashboard/roster/daily-requests";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 
 // Deliberate block: the page queries roster data behind the session check,
@@ -40,10 +45,9 @@ import type { SiteLocationOption, SiteOption } from "@/types/site";
 // https://nextjs.org/docs/messages/blocking-prerender-dynamic
 export const instant = false;
 
-// Grid rows (workers per work-area card) are sliced SERVER-SIDE — there is
-// no unpaginated fetch anywhere on this page. The slice rides its own URL
-// param (`rowPage`) because `page` belongs to the shared DataTable that
-// backs the daily-requests list.
+// Grid rows (workers of the selected work area) are sliced SERVER-SIDE:
+// there is no unpaginated fetch anywhere on this page. The slice rides its
+// own URL param (`rowPage`).
 const ROWS_PER_PAGE = 50;
 
 // Single-string URL params with a whitelist, Cycle A style
@@ -68,10 +72,12 @@ const isRowPage = (value: string): boolean => {
   return Number.isInteger(n) && n >= 1 && String(n) === value;
 };
 
-// Roster-plan scoping for the weekly list: superadmin unbounded, an admin
-// pinned to their own site_location, an ho reading their site's plans (the
-// roster scope's read grant — lib/roster-scope, spec decision 6).
-function planListWhere(actor: Awaited<ReturnType<typeof requireUser>>) {
+type Actor = Awaited<ReturnType<typeof requireUser>>;
+
+// Roster-plan scoping: superadmin unbounded, an admin pinned to their own
+// site_location, an ho reading their site's plans (the roster scope's read
+// grant, lib/roster-scope).
+function planListWhere(actor: Actor) {
   if (actor.role === "superadmin") return undefined;
   if (actor.role === "admin") {
     return actor.siteLocationId
@@ -81,29 +87,63 @@ function planListWhere(actor: Awaited<ReturnType<typeof requireUser>>) {
   return actor.siteId ? eq(rosterPlan.siteId, actor.siteId) : sql`false`;
 }
 
+// The locations the actor may view on this page, the same three-way shape.
+function locationListWhere(actor: Actor) {
+  const live = isNull(siteLocation.deletedAt);
+  if (actor.role === "superadmin") return live;
+  if (actor.role === "admin") {
+    return actor.siteLocationId
+      ? and(live, eq(siteLocation.id, actor.siteLocationId))
+      : sql`false`;
+  }
+  return actor.siteId
+    ? and(live, eq(siteLocation.siteId, actor.siteId))
+    : sql`false`;
+}
+
 export default async function RosterPage({
   searchParams,
 }: PageProps<"/dashboard/roster">) {
   const actor = await requireUser();
   const raw = await searchParams;
-  const { q, page, pageSize } = parseTableSearchParams(raw, PAGE_SIZE_OPTIONS);
 
   // The week anchor: a whitelisted `week` param snapped to its Monday, else
-  // the running week (lib/week's mondayOf — the request-form precedent).
+  // the running week (lib/week's mondayOf, the request-form precedent).
   const today = new Date().toISOString().slice(0, 10);
   const weekParam = whitelistParam(raw, "week", isDateShape);
   const week = mondayOf(weekParam ?? today);
   const planIdParam = whitelistParam(raw, "planId", isUuid);
+  const locationParam = whitelistParam(raw, "locationId", isUuid);
   const workAreaParam = whitelistParam(raw, "workAreaId", isUuid);
   const rowPageParam = whitelistParam(raw, "rowPage", isRowPage);
 
-  const canGenerate = actor.role !== "ho";
-  const isSuperadmin = actor.role === "superadmin";
+  const canWrite = actor.role !== "ho";
   const dates = weekDates(week);
 
-  // The location's plan list for the week (newest version first) with the
-  // names the picker shows.
-  const planRows = await db
+  // Locations in scope (name-ordered) and, for a superadmin, the sites that
+  // prefix them in the picker.
+  const [siteLocations, sites]: [SiteLocationOption[], SiteOption[]] =
+    await Promise.all([
+      db
+        .select({
+          id: siteLocation.id,
+          name: siteLocation.name,
+          siteId: siteLocation.siteId,
+        })
+        .from(siteLocation)
+        .where(locationListWhere(actor))
+        .orderBy(asc(siteLocation.name)),
+      actor.role === "superadmin"
+        ? db
+            .select({ id: site.id, name: site.name })
+            .from(site)
+            .where(isNull(site.deletedAt))
+            .orderBy(asc(site.name))
+        : Promise.resolve([]),
+    ]);
+
+  // The week's weekly plans in scope, newest version first.
+  const weekPlans = await db
     .select({
       id: rosterPlan.id,
       status: rosterPlan.status,
@@ -124,53 +164,38 @@ export default async function RosterPage({
     )
     .orderBy(desc(rosterPlan.version), asc(siteLocation.name));
 
-  // The URL's pick wins; otherwise the week's draft, else the newest plan.
-  const requested = planIdParam
-    ? planRows.find((p) => p.id === planIdParam)
-    : undefined;
-  const chosen =
-    requested ??
-    planRows.find((p) => p.status === "draft") ??
-    planRows[0] ??
-    null;
+  // One location for everything below: the admin's binding, else the URL
+  // pick, else the plan the page would show, else the first by name.
+  const locationId = selectedLocationFor({
+    pinnedLocationId: actor.role === "admin" ? actor.siteLocationId : null,
+    siteLocations,
+    param: locationParam,
+    planLocationId: pickPlan(weekPlans, planIdParam)?.siteLocationId,
+  });
+  const planRows = weekPlans.filter((p) => p.siteLocationId === locationId);
+  const chosen = pickPlan(planRows, planIdParam);
+  const bundle = chosen ? await loadPlanWithRows(chosen.id) : null;
 
-  // The generate gate's server truth: approved weekly line
-  // counts per location for the week (an ho never sees the button; the
-  // counts still scope to their site for consistency).
-  const gateRows = await db
-    .select({
-      siteLocationId: mpRequest.siteLocationId,
-      lines: count(),
-    })
-    .from(mpRequestLine)
-    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
-    .where(
-      and(
-        eq(mpRequest.type, "weekly"),
-        eq(mpRequest.weekStart, week),
-        inArray(mpRequest.status, ["approved"]),
-        mpRequestListWhere(actor),
-      ),
-    )
-    .groupBy(mpRequest.siteLocationId);
-  const requirementsByLocation = Object.fromEntries(
-    gateRows.map((row) => [row.siteLocationId, row.lines]),
-  );
-
-  // The editor bundle for the chosen plan: rows, work areas, shifts, the
-  // worker slice, and the publish gate's violation/deficit summary.
-  let planView: GridPlanView | null = null;
-  if (chosen) {
-    const bundle = await loadPlanWithRows(chosen.id);
-    if (bundle) {
-      const [areaRows, shiftRows] = await Promise.all([
+  // Demand, coverage inputs and display masters of the resolved location.
+  const [
+    weeklyLines,
+    dailyLines,
+    dailyAssignments,
+    approved,
+    areaRows,
+    shiftRows,
+  ] = locationId
+    ? await Promise.all([
+        loadRequirementsForWeek(locationId, week),
+        loadDailyRequirements(locationId, dates[0], dates[dates.length - 1]),
+        loadDailyAssignments(actor, locationId, dates),
+        countApproved(actor, locationId, week),
         db
           .select({ id: workArea.id, name: workArea.name })
           .from(workArea)
           .where(
             and(
-              eq(workArea.siteLocationId, chosen.siteLocationId),
-              eq(workArea.isActive, true),
+              eq(workArea.siteLocationId, locationId),
               isNull(workArea.deletedAt),
             ),
           )
@@ -181,210 +206,135 @@ export default async function RosterPage({
             label: shiftDefinition.label,
             startTime: shiftDefinition.startTime,
             endTime: shiftDefinition.endTime,
+            orderIndex: shiftDefinition.orderIndex,
+            isActive: shiftDefinition.isActive,
           })
           .from(shiftDefinition)
           .where(
             and(
-              eq(shiftDefinition.siteLocationId, chosen.siteLocationId),
-              eq(shiftDefinition.isActive, true),
+              eq(shiftDefinition.siteLocationId, locationId),
               isNull(shiftDefinition.deletedAt),
             ),
           )
           .orderBy(asc(shiftDefinition.orderIndex)),
-      ]);
+      ])
+    : [[], [], [], { requests: 0, lines: 0 }, [], []];
 
-      const workAreaId =
-        workAreaParam && areaRows.some((a) => a.id === workAreaParam)
-          ? workAreaParam
-          : (areaRows[0]?.id ?? "");
+  const requirements: CoverageRequirement[] = [
+    ...weeklyLines.map((line) => ({ ...line, source: "weekly" as const })),
+    ...dailyLines.map((line) => ({ ...line, source: "daily" as const })),
+  ];
+  const areaNames = Object.fromEntries(areaRows.map((a) => [a.id, a.name]));
+  const shiftLabels = Object.fromEntries(shiftRows.map((s) => [s.id, s.label]));
+  const shiftOrder = new Map(shiftRows.map((s) => [s.id, s.orderIndex]));
+  const positionIds = [...new Set(requirements.map((r) => r.positionId))];
+  const positionRows = positionIds.length
+    ? await db
+        .select({ id: position.id, name: position.name })
+        .from(position)
+        .where(inArray(position.id, positionIds))
+    : [];
 
-      // Distinct eligible workers for the card, then the one server slice.
-      const distinct = new Map<string, { id: string; employeeId: string }>();
-      for (const pair of workAreaId
-        ? await loadWorkerProfiles(chosen.siteLocationId, workAreaId)
-        : []) {
-        if (!distinct.has(pair.id)) {
-          distinct.set(pair.id, { id: pair.id, employeeId: pair.employeeId });
-        }
-      }
-      const allWorkers = [...distinct.values()].sort(
-        (a, b) =>
-          a.employeeId.localeCompare(b.employeeId) || a.id.localeCompare(b.id),
-      );
-      const workerTotal = allWorkers.length;
-      const pageCount = Math.max(1, Math.ceil(workerTotal / ROWS_PER_PAGE));
-      const rowPage = Math.min(
-        Number.parseInt(rowPageParam ?? "1", 10),
-        pageCount,
-      );
-      const workers = allWorkers.slice(
-        (rowPage - 1) * ROWS_PER_PAGE,
-        rowPage * ROWS_PER_PAGE,
-      );
-
-      // This card's cells only: a worker holds at most one assignment per
-      // day (the plan-level unique), and a row of ANOTHER area must not
-      // leak into this card.
-      const cells: Record<string, string> = {};
-      for (const row of bundle.rows) {
-        if (row.workAreaId !== workAreaId) continue;
-        cells[`${row.workerId}|${row.date}`] = row.shiftDefinitionId;
-      }
-
-      // The publish gate's numbers, recomputed per render from the same
-      // pieces the actions use (planViolations + computeDeficit). After an
-      // edit the action revalidates this path, refreshing both.
-      const [violations, requirements] = await Promise.all([
-        planViolations(
-          chosen.siteLocationId,
-          bundle.plan.rulesSnapshot as EffectiveRules,
-          bundle.assignments,
-        ),
-        loadRequirementsForWeek(chosen.siteLocationId, week),
-      ]);
-      const deficitCount = computeDeficit(requirements, bundle.assignments).length;
-
-      planView = {
-        id: chosen.id,
-        status: chosen.status,
-        version: chosen.version,
-        canEdit: canGenerate && chosen.status === "draft",
-        readOnlyReason: canGenerate
-          ? "Published — locked; revise to open the next draft."
-          : "Read-only — rosters are managed by admins.",
-        workAreas: areaRows,
-        workAreaId,
-        shifts: shiftRows,
-        workers,
-        workerTotal,
-        rowPage,
-        dates,
-        cells,
-        violationCount: violations.length,
-        violationHead: violations
-          .slice(0, 3)
-          .map((v) => `${v.rule} · ${v.message}`),
-        deficitCount,
-      };
-    }
-  }
-
-  // The daily tab's outstanding lines: open daily requests
-  // dated within the running week, honoring the shared table's q search
-  // (work area, shift, position, location names) and page/pageSize URL state.
-  const pattern = ilikePattern(q);
-  const dailyWhere = and(
-    eq(mpRequest.type, "daily"),
-    inArray(mpRequest.status, ["open"]),
-    gte(mpRequestLine.date, dates[0]),
-    lte(mpRequestLine.date, dates[dates.length - 1]),
-    mpRequestListWhere(actor),
-    ...(pattern
-      ? [
-          or(
-            ilike(workArea.name, pattern),
-            ilike(shiftDefinition.label, pattern),
-            ilike(position.name, pattern),
-            ilike(siteLocation.name, pattern),
-          ),
-        ]
-      : []),
+  // Panel order: weekly rows, then daily; by area name, shift order, date.
+  const rows: CoverageRow[] = computeCoverage(
+    requirements,
+    bundle?.assignments ?? [],
+    dailyAssignments,
+  ).sort(
+    (a, b) =>
+      Number(a.source === "daily") - Number(b.source === "daily") ||
+      (areaNames[a.workAreaId] ?? "").localeCompare(areaNames[b.workAreaId] ?? "") ||
+      (shiftOrder.get(a.shiftDefId) ?? 0) - (shiftOrder.get(b.shiftDefId) ?? 0) ||
+      (a.date ?? "").localeCompare(b.date ?? ""),
   );
 
-  const [{ count: dailyTotal }] = await db
-    .select({ count: count() })
-    .from(mpRequestLine)
-    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
-    .innerJoin(workArea, eq(mpRequestLine.workAreaId, workArea.id))
-    .innerJoin(
-      shiftDefinition,
-      eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
-    )
-    .innerJoin(position, eq(mpRequestLine.positionId, position.id))
-    .innerJoin(siteLocation, eq(mpRequest.siteLocationId, siteLocation.id))
-    .where(dailyWhere);
-  const dailyPageCount = Math.max(1, Math.ceil(dailyTotal / pageSize));
-  const dailyPage = Math.min(page, dailyPageCount);
+  // The selected work area: a URL pick of this location's areas, else the
+  // first area with weekly demand, else the first area by name.
+  const workAreaId =
+    workAreaParam && areaRows.some((a) => a.id === workAreaParam)
+      ? workAreaParam
+      : (rows.find((r) => r.source === "weekly")?.workAreaId ??
+        areaRows[0]?.id ??
+        "");
 
-  const dailyLines: DailyLineRow[] = await db
-    .select({
-      id: mpRequestLine.id,
-      requestId: mpRequestLine.requestId,
-      requestStatus: mpRequest.status,
-      date: mpRequestLine.date,
-      headcount: mpRequestLine.headcount,
-      workAreaId: mpRequestLine.workAreaId,
-      workAreaName: workArea.name,
-      shiftDefinitionId: mpRequestLine.shiftDefinitionId,
-      shiftLabel: shiftDefinition.label,
-      positionId: mpRequestLine.positionId,
-      positionName: position.name,
-      siteLocationId: mpRequest.siteLocationId,
-      locationName: siteLocation.name,
-      siteName: site.name,
-    })
-    .from(mpRequestLine)
-    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
-    .innerJoin(workArea, eq(mpRequestLine.workAreaId, workArea.id))
-    .innerJoin(
-      shiftDefinition,
-      eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
-    )
-    .innerJoin(position, eq(mpRequestLine.positionId, position.id))
-    .innerJoin(siteLocation, eq(mpRequest.siteLocationId, siteLocation.id))
-    .innerJoin(site, eq(mpRequest.siteId, site.id))
-    .where(dailyWhere)
-    .orderBy(asc(mpRequestLine.date), asc(workArea.name))
-    .limit(pageSize)
-    .offset((dailyPage - 1) * pageSize);
+  // The chosen plan's rule check: every violation is listed, only those
+  // inside the plan's own week block publishing (history cannot change).
+  const violations = bundle
+    ? await planViolations(
+        bundle.plan.siteLocationId,
+        bundle.plan.rulesSnapshot as EffectiveRules,
+        bundle.assignments,
+      )
+    : [];
+  const blockingViolationCount = bundle
+    ? splitViolationsByHorizon(violations, bundle.plan).blocking.length
+    : 0;
 
-  // The generate dialog's masters: only writers load them. A superadmin
-  // picks site+location (the action re-pins an admin's binding server-side).
-  let sites: SiteOption[] = [];
-  let siteLocations: SiteLocationOption[] = [];
-  if (canGenerate) {
-    if (isSuperadmin) {
-      [siteLocations, sites] = await Promise.all([
-        db
-          .select({
-            id: siteLocation.id,
-            name: siteLocation.name,
-            siteId: siteLocation.siteId,
-          })
-          .from(siteLocation)
-          .where(isNull(siteLocation.deletedAt))
-          .orderBy(asc(siteLocation.name)),
-        db
-          .selectDistinct({ id: site.id, name: site.name })
-          .from(site)
-          .where(isNull(site.deletedAt))
-          .orderBy(asc(site.name)),
-      ]);
-    } else if (actor.siteLocationId) {
-      const [pinned] = await db
-        .select({
-          id: siteLocation.id,
-          name: siteLocation.name,
-          siteId: siteLocation.siteId,
-        })
-        .from(siteLocation)
-        .where(
-          and(
-            eq(siteLocation.id, actor.siteLocationId),
-            isNull(siteLocation.deletedAt),
-          ),
-        )
-        .limit(1);
-      if (pinned) {
-        siteLocations = [pinned];
-        sites = [];
+  const gate = rosterGate({
+    canWrite,
+    planStatus: chosen?.status ?? null,
+    approvedRequestCount: approved.requests,
+    approvedSlotCount: approved.lines,
+    blockingViolationCount,
+  });
+
+  let planView: GridPlanView | null = null;
+  if (chosen && bundle) {
+    // Distinct eligible workers for the selected area, then the one slice.
+    const distinct = new Map<string, { id: string; employeeId: string }>();
+    for (const pair of workAreaId
+      ? await loadWorkerProfiles(chosen.siteLocationId, workAreaId)
+      : []) {
+      if (!distinct.has(pair.id)) {
+        distinct.set(pair.id, { id: pair.id, employeeId: pair.employeeId });
       }
     }
+    const allWorkers = [...distinct.values()].sort(
+      (a, b) =>
+        a.employeeId.localeCompare(b.employeeId) || a.id.localeCompare(b.id),
+    );
+    const workerTotal = allWorkers.length;
+    const pageCount = Math.max(1, Math.ceil(workerTotal / ROWS_PER_PAGE));
+    const rowPage = Math.min(
+      Number.parseInt(rowPageParam ?? "1", 10),
+      pageCount,
+    );
+
+    // This area's cells only: a worker holds at most one assignment per
+    // day (the plan-level unique), and a row of ANOTHER area must not leak
+    // into this card.
+    const cells: Record<string, string> = {};
+    for (const row of bundle.rows) {
+      if (row.workAreaId !== workAreaId) continue;
+      cells[`${row.workerId}|${row.date}`] = row.shiftDefinitionId;
+    }
+
+    planView = {
+      id: chosen.id,
+      status: chosen.status,
+      version: chosen.version,
+      canEdit: canWrite && chosen.status === "draft",
+      readOnlyReason: canWrite
+        ? "Published — locked; revise to open the next draft."
+        : "Read-only — rosters are managed by admins.",
+      shifts: shiftRows
+        .filter((s) => s.isActive)
+        .map(({ id, label, startTime, endTime }) => ({
+          id,
+          label,
+          startTime,
+          endTime,
+        })),
+      workers: allWorkers.slice(
+        (rowPage - 1) * ROWS_PER_PAGE,
+        rowPage * ROWS_PER_PAGE,
+      ),
+      workerTotal,
+      rowPage,
+      dates,
+      cells,
+    };
   }
-  const pinnedLocationName =
-    actor.role === "admin" ? (siteLocations[0]?.name ?? undefined) : undefined;
-  const pinnedLocationId =
-    actor.role === "admin" ? (siteLocations[0]?.id ?? undefined) : undefined;
 
   const plans: RosterPlanOption[] = planRows.map((row) => ({
     id: row.id,
@@ -397,24 +347,82 @@ export default async function RosterPage({
   return (
     <RosterWeekView
       week={week}
-      canGenerate={canGenerate}
-      isSuperadmin={isSuperadmin}
+      canWrite={canWrite}
       sites={sites}
       siteLocations={siteLocations}
-      pinnedLocationName={pinnedLocationName}
-      pinnedLocationId={pinnedLocationId}
-      requirementsByLocation={requirementsByLocation}
+      locationId={locationId}
       plans={plans}
       selectedPlanId={chosen?.id ?? null}
       plan={planView}
-      daily={{
-        lines: dailyLines,
-        pageCount: dailyPageCount,
-        total: dailyTotal,
-        canFill: canGenerate,
-        showLocation: actor.role !== "admin",
-        showSite: isSuperadmin,
+      gate={gate}
+      totals={rows.length > 0 ? coverageTotals(rows) : null}
+      violationHead={violations
+        .slice(0, 3)
+        .map((v) => `${v.rule} · ${v.message}`)}
+      violationCount={violations.length}
+      requirements={{
+        rows,
+        areaNames,
+        shiftLabels,
+        positionNames: Object.fromEntries(
+          positionRows.map((p) => [p.id, p.name]),
+        ),
       }}
+      workAreaId={workAreaId}
     />
   );
+}
+
+// The generate gate's server truth: approved weekly requests of the week
+// and location, and their line count.
+async function countApproved(
+  actor: Actor,
+  locationId: string,
+  week: string,
+): Promise<{ requests: number; lines: number }> {
+  const [row] = await db
+    .select({
+      requests: countDistinct(mpRequest.id),
+      lines: count(mpRequestLine.id),
+    })
+    .from(mpRequest)
+    .leftJoin(mpRequestLine, eq(mpRequestLine.requestId, mpRequest.id))
+    .where(
+      and(
+        eq(mpRequest.type, "weekly"),
+        eq(mpRequest.weekStart, week),
+        eq(mpRequest.status, "approved"),
+        eq(mpRequest.siteLocationId, locationId),
+        mpRequestListWhere(actor),
+      ),
+    );
+  return { requests: row?.requests ?? 0, lines: row?.lines ?? 0 };
+}
+
+// Assignments of the location's daily plans dated inside the week: the
+// filled side of the daily coverage rows.
+async function loadDailyAssignments(
+  actor: Actor,
+  locationId: string,
+  dates: string[],
+): Promise<RosterAssignment[]> {
+  const rows = await db
+    .select({
+      workerId: rosterAssignment.workerId,
+      date: rosterAssignment.date,
+      shiftDefId: rosterAssignment.shiftDefinitionId,
+      workAreaId: rosterAssignment.workAreaId,
+    })
+    .from(rosterAssignment)
+    .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
+    .where(
+      and(
+        eq(rosterPlan.kind, "daily"),
+        eq(rosterPlan.siteLocationId, locationId),
+        gte(rosterPlan.requestDate, dates[0]),
+        lte(rosterPlan.requestDate, dates[dates.length - 1]),
+        planListWhere(actor),
+      ),
+    );
+  return rows;
 }

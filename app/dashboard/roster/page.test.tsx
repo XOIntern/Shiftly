@@ -57,6 +57,9 @@ mock.module("next/cache", () => ({
   revalidatePath: () => {},
 }));
 
+// Visible text only: tags (and React's text-node comments) stripped.
+const text = (html: string): string => html.replace(/<[^>]+>/g, "");
+
 async function renderRoster(
   searchParams: Record<string, string | string[] | undefined> = {},
 ): Promise<string> {
@@ -86,12 +89,19 @@ async function seedRosterFixtures() {
   const shL2 = randomUUID();
   const reqWeekly = randomUUID();
   const reqDaily = randomUUID();
+  const reqDailyDone = randomUUID();
+  const reqOpenWeek = randomUUID();
+  const reqApprovedWeek = randomUUID();
+  const reqLate = randomUUID();
+  const publishedLate = randomUUID();
   const draftL1 = randomUUID();
   const draftL2 = randomUUID();
   const publishedL1 = randomUUID();
   const creator = `t-roster-creator-${randomUUID().slice(0, 8)}`;
   const MONDAY = "2026-01-05"; // a Monday
-  const EMPTY_MONDAY = "2026-01-12"; // the following week
+  const OPEN_MONDAY = "2026-01-12"; // only an open (unapproved) request, no plan
+  const APPROVED_MONDAY = "2026-01-19"; // an approved request, no plan yet
+  const LATE_MONDAY = "2026-01-26"; // published plan, then a late approval
 
   const workerIds = Array.from({ length: 55 }, () => randomUUID());
   const employeeId = (n: number): string =>
@@ -186,6 +196,64 @@ async function seedRosterFixtures() {
       requestDate: "2026-01-07",
       createdBy: creator,
     },
+    {
+      id: reqDailyDone,
+      siteId: siteS,
+      siteLocationId: locL1,
+      type: "daily",
+      status: "fulfilled",
+      requestDate: "2026-01-08",
+      createdBy: creator,
+    },
+    {
+      id: reqOpenWeek,
+      siteId: siteS,
+      siteLocationId: locL1,
+      type: "weekly",
+      status: "open",
+      weekStart: OPEN_MONDAY,
+      createdBy: creator,
+    },
+    {
+      id: reqApprovedWeek,
+      siteId: siteS,
+      siteLocationId: locL1,
+      type: "weekly",
+      status: "approved",
+      weekStart: APPROVED_MONDAY,
+      createdBy: creator,
+    },
+    {
+      id: reqLate,
+      siteId: siteS,
+      siteLocationId: locL1,
+      type: "weekly",
+      status: "approved",
+      weekStart: LATE_MONDAY,
+      createdBy: creator,
+    },
+  ]);
+  const line = (
+    requestId: string,
+    date: string,
+    headcount: number,
+  ) => ({
+    requestId,
+    siteId: siteS,
+    siteLocationId: locL1,
+    workAreaId: waOne,
+    shiftDefinitionId: shEarly,
+    positionId: posOne,
+    date,
+    headcount,
+  });
+  await db.insert(mpRequestLine).values([
+    line(reqDailyDone, "2026-01-08", 1),
+    line(reqOpenWeek, OPEN_MONDAY, 1),
+    line(reqApprovedWeek, "2026-01-19", 1),
+    line(reqApprovedWeek, "2026-01-20", 1),
+    line(reqApprovedWeek, "2026-01-21", 1),
+    line(reqLate, LATE_MONDAY, 2),
   ]);
   await db.insert(mpRequestLine).values([
     {
@@ -279,6 +347,27 @@ async function seedRosterFixtures() {
       publishedBy: creator,
       generatedBy: creator,
     },
+    {
+      id: publishedLate,
+      siteId: siteS,
+      siteLocationId: locL1,
+      kind: "weekly",
+      weekStart: LATE_MONDAY,
+      status: "published",
+      version: 1,
+      rulesSnapshot: {
+        c1: { value: 6, source: "default" },
+        c2: { value: 20, source: "default" },
+        c3: { value: false, source: "default" },
+        c4: { value: false, source: "default" },
+        c5: { value: 6, source: "default" },
+        c6: { value: 1, source: "default" },
+        c7: { value: false, source: "default" },
+      },
+      publishedAt: new Date(),
+      publishedBy: creator,
+      generatedBy: creator,
+    },
   ]);
   await db.insert(rosterAssignment).values({
     planId: draftL1,
@@ -302,13 +391,22 @@ async function seedRosterFixtures() {
     },
     employeeId,
     MONDAY,
-    EMPTY_MONDAY,
+    OPEN_MONDAY,
+    APPROVED_MONDAY,
+    LATE_MONDAY,
     async cleanup() {
       await db.delete(rosterAssignment).where(eq(rosterAssignment.planId, draftL1));
-      for (const id of [draftL1, draftL2, publishedL1]) {
+      for (const id of [draftL1, draftL2, publishedL1, publishedLate]) {
         await db.delete(rosterPlan).where(eq(rosterPlan.id, id));
       }
-      for (const id of [reqWeekly, reqDaily]) {
+      for (const id of [
+        reqWeekly,
+        reqDaily,
+        reqDailyDone,
+        reqOpenWeek,
+        reqApprovedWeek,
+        reqLate,
+      ]) {
         await db.delete(mpRequestLine).where(eq(mpRequestLine.requestId, id));
         await db.delete(mpRequest).where(eq(mpRequest.id, id));
       }
@@ -396,12 +494,12 @@ describe("roster page SSR (roster-engine Task 7)", () => {
     }
   });
 
-  test("an empty-requirement week explains the disabled generate step", async () => {
+  test("generate is disabled with the HO reason when the week has only open requests", async () => {
     const fx = await seedRosterFixtures();
     try {
       actor = makeActor("admin", null, fx.ids.locL1);
 
-      const html = await renderRoster({ week: fx.EMPTY_MONDAY });
+      const html = await renderRoster({ week: fx.OPEN_MONDAY });
 
       expect(html.includes("Generate draft")).toBeTrue();
       expect(
@@ -413,6 +511,118 @@ describe("roster page SSR (roster-engine Task 7)", () => {
       expect(html.slice(Math.max(0, trigger - 3000), trigger)).toContain(
         'disabled=""',
       );
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test('generate is enabled with "N slots from M requests" when an approved request exists', async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("admin", null, fx.ids.locL1);
+
+      const html = await renderRoster({ week: fx.APPROVED_MONDAY });
+
+      expect(text(html)).toContain("3 slots from 1 request");
+      expect(html.includes("No request approved by HO")).toBeFalse();
+      const trigger = html.indexOf("Generate draft");
+      expect(trigger).toBeGreaterThan(-1);
+      expect(html.slice(Math.max(0, trigger - 3000), trigger)).not.toContain(
+        'disabled=""',
+      );
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("draft week shows the filled/required totals and the requirements rows", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("admin", null, fx.ids.locL1);
+
+      const page = text(await renderRoster({ week: fx.MONDAY }));
+
+      // Weekly demand 2+2 with one assignment, plus the open daily slot of 2.
+      expect(page).toContain("Draft v1 · 1/6 filled");
+      expect(page).toContain(`${fx.labels.areaOne} · ${fx.labels.shiftEarly}`);
+      expect(page).toContain("1/4");
+      expect(page).toContain("3 short");
+      expect(page).toContain(`${fx.labels.posOne} 4`);
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("daily open slot appears in the panel, fulfilled daily request does not", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("admin", null, fx.ids.locL1);
+
+      const html = await renderRoster({ week: fx.MONDAY });
+      const page = text(html);
+
+      expect(page).toContain("daily · 2026-01-07");
+      expect(page).not.toContain("daily · 2026-01-08");
+      expect(page).toContain("Suggest replacements");
+      // The old daily table is gone.
+      expect(page).not.toContain("Daily requests");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("ho sees no primary button", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("ho", fx.ids.siteS, null);
+
+      const page = text(await renderRoster({ week: fx.MONDAY }));
+
+      expect(page).toContain("Draft v1");
+      for (const label of [
+        "Generate draft",
+        "Publish roster",
+        "Revise plan",
+        "Suggest replacements",
+      ]) {
+        expect(page).not.toContain(label);
+      }
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("late approved request after a published plan shows as unfilled demand and a Revise action", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("admin", null, fx.ids.locL1);
+
+      const page = text(await renderRoster({ week: fx.LATE_MONDAY }));
+
+      expect(page).toContain("Published v1 · 0/2 filled");
+      expect(page).toContain(`${fx.labels.areaOne} · ${fx.labels.shiftEarly}`);
+      expect(page).toContain("2 short");
+      expect(page).toContain("Revise plan");
+      expect(page).not.toContain("Publish roster");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("a superadmin's locationId param scopes the plan and requirements to that location", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      const page = text(
+        await renderRoster({ week: fx.MONDAY, locationId: fx.ids.locL2 }),
+      );
+
+      // L2's draft is chosen and L1's demand does not leak into the panel.
+      expect(page).toContain(fx.labels.loc2);
+      expect(page).toContain("Draft v1");
+      expect(page).not.toContain(fx.labels.areaOne);
+      expect(page).toContain("No approved requests for this week");
     } finally {
       await fx.cleanup();
     }
@@ -488,23 +698,6 @@ describe("roster page SSR (roster-engine Task 7)", () => {
 
       expect(html.includes("Revise plan")).toBeFalse();
       expect(html.includes("Read-only")).toBeTrue();
-    } finally {
-      await fx.cleanup();
-    }
-  });
-
-  test("the daily-requests tab lists the week's outstanding daily lines", async () => {
-    const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const html = await renderRoster({ week: fx.MONDAY });
-
-      expect(html.includes("Daily requests")).toBeTrue();
-      expect(html.includes("2026-01-07")).toBeTrue();
-      expect(html.includes("Suggest replacements")).toBeTrue();
-      // The daily line's demanded position rides its own column.
-      expect(html.includes(fx.labels.posOne)).toBeTrue();
     } finally {
       await fx.cleanup();
     }

@@ -2,26 +2,18 @@ import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as realNavigation from "next/navigation";
 
-// The bar reads navigation hooks and imports the roster server actions; under
-// bun test there is no Next request context, so both are stubbed. The real
-// navigation module is spread back in because bun's module mocks are
-// process-wide.
+// The bar reads navigation hooks; under bun test there is no Next request
+// context, so they are stubbed. The real navigation module is spread back in
+// because bun's module mocks are process-wide. The server actions module is
+// imported for real: rendering never calls it.
 mock.module("next/navigation", () => ({
   ...realNavigation,
   useRouter: () => ({ push: () => {}, replace: () => {} }),
   usePathname: () => "/dashboard/roster",
   useSearchParams: () => new URLSearchParams(),
 }));
-mock.module("@/app/dashboard/roster/actions", () => ({
-  setAssignment: async () => ({ ok: true, data: { violations: [] } }),
-  generateRoster: async () => ({ ok: true }),
-  publishRoster: async () => ({ ok: true }),
-  revisePlan: async () => ({ ok: true, draftPlanId: "x" }),
-  suggestReplacementsAction: async () => ({ ok: true, data: [] }),
-  fillDailyRequest: async () => ({ ok: true }),
-}));
 
-const { RosterStatusBar, selectedLocationFor } = await import(
+const { RosterStatusBar } = await import(
   "./roster-status-bar"
 );
 type BarProps = Parameters<typeof RosterStatusBar>[0];
@@ -51,11 +43,10 @@ const base: BarProps = {
   totals: { required: 48, filled: 44 },
   violationHead: ["Worker 7 works 6 days"],
   violationCount: 2,
-  isSuperadmin: false,
   sites: [],
   siteLocations: [{ id: LOC_1, name: "Canteen North", siteId: SITE }],
-  pinnedLocationName: "Canteen North",
-  pinnedLocationId: LOC_1,
+  selectedLocationId: LOC_1,
+  navigating: false,
   canWrite: true,
 };
 
@@ -206,11 +197,8 @@ describe("RosterStatusBar", () => {
     expect(html).not.toContain('aria-label="Location"');
   });
 
-  test("a superadmin gets a location picker", () => {
+  test("several locations in scope get a location picker", () => {
     const html = render({
-      isSuperadmin: true,
-      pinnedLocationName: undefined,
-      pinnedLocationId: undefined,
       sites: [{ id: SITE, name: "Nestle Pilot" }],
       siteLocations: [
         { id: LOC_1, name: "Canteen North", siteId: SITE },
@@ -220,68 +208,36 @@ describe("RosterStatusBar", () => {
     expect(html).toContain('aria-label="Location"');
   });
 
+  test("exactly one status live region is mounted, idle or navigating", () => {
+    const idle = render();
+    expect(idle.match(/role="status"/g)?.length).toBe(1);
+    const busy = render({ navigating: true });
+    expect(busy.match(/role="status"/g)?.length).toBe(1);
+    expect(busy).toContain("Loading");
+  });
+
+  test("the status text and the reason are polite live regions", () => {
+    const html = render({
+      gate: {
+        action: "publish",
+        enabled: false,
+        reason: "2 rule warnings must be resolved before publishing",
+      },
+    });
+    const live = html.match(/aria-live="polite"[^>]*>/g) ?? [];
+    expect(live.length).toBeGreaterThanOrEqual(2);
+    const reasonAt = html.indexOf("2 rule warnings must be resolved");
+    const before = html.slice(0, reasonAt);
+    expect(before.lastIndexOf('aria-live="polite"')).toBeGreaterThan(
+      before.lastIndexOf("Publish roster"),
+    );
+  });
+
   test("the week navigator is labelled and the previous/next buttons are named", () => {
     const html = render();
     expect(html).toContain('aria-label="Previous week"');
     expect(html).toContain('aria-label="Next week"');
     expect(html).toContain('aria-label="Week start"');
     expect(html).toContain('value="2026-01-05"');
-  });
-});
-
-describe("selectedLocationFor", () => {
-  const locations = [
-    { id: LOC_1, name: "A", siteId: SITE },
-    { id: LOC_2, name: "B", siteId: SITE },
-  ];
-
-  test("an admin's pinned location always wins", () => {
-    expect(
-      selectedLocationFor({
-        pinnedLocationId: LOC_1,
-        siteLocations: locations,
-        param: LOC_2,
-      }),
-    ).toBe(LOC_1);
-  });
-
-  test("a picked location in scope is used", () => {
-    expect(
-      selectedLocationFor({
-        pinnedLocationId: undefined,
-        siteLocations: locations,
-        param: LOC_2,
-      }),
-    ).toBe(LOC_2);
-  });
-
-  test("a param outside the scope is ignored", () => {
-    expect(
-      selectedLocationFor({
-        pinnedLocationId: undefined,
-        siteLocations: locations,
-        param: "cccccccc-1111-4111-8111-111111111111",
-      }),
-    ).toBeNull();
-  });
-
-  test("a single in-scope location is selected by default", () => {
-    expect(
-      selectedLocationFor({
-        pinnedLocationId: undefined,
-        siteLocations: [locations[0]],
-        param: null,
-      }),
-    ).toBe(LOC_1);
-  });
-
-  test("several locations and no pick selects nothing", () => {
-    expect(
-      selectedLocationFor({
-        pinnedLocationId: undefined,
-        siteLocations: locations,
-        param: null,
-      }),
-    ).toBeNull();
   });
 });

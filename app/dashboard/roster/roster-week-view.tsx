@@ -1,27 +1,24 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DailyRequests } from "@/app/dashboard/roster/daily-requests";
-import type { DailyLineRow } from "@/app/dashboard/roster/daily-requests";
-import { rosterGate } from "@/app/dashboard/roster/roster-gate";
+import type { CoverageRow } from "@/lib/engine/coverage";
+import type { RosterGate } from "@/app/dashboard/roster/roster-gate";
+import { RequirementsPanel } from "@/app/dashboard/roster/requirements-panel";
 import { RosterGrid } from "@/app/dashboard/roster/roster-grid";
 import type {
   GridWorker,
   RosterShiftOption,
 } from "@/app/dashboard/roster/roster-grid";
-import {
-  RosterStatusBar,
-  selectedLocationFor,
-} from "@/app/dashboard/roster/roster-status-bar";
+import { RosterStatusBar } from "@/app/dashboard/roster/roster-status-bar";
 import type { RosterPlanOption } from "@/app/dashboard/roster/roster-status-bar";
 
 // The roster page's client shell: the status bar (week navigator, location,
-// plan picker, status and the one primary button) above the grid/daily tabs.
-// Grid rows and the daily list stay server-paginated; this component only
-// reads and pushes URL state, like the shared data-table pattern.
+// plan picker, status and the one primary button) above the requirements
+// panel and the grid of the selected work area. Everything it shows is
+// computed server-side (gate, coverage, totals); this component only reads
+// and pushes URL state, like the shared data-table pattern.
 
 // Kept importable from here: the Revise wiring now lives with the status bar.
 export { buildReviseHref, commitRevise } from "@/app/dashboard/roster/roster-status-bar";
@@ -36,62 +33,59 @@ export type GridPlanView = {
   version: number;
   canEdit: boolean;
   readOnlyReason: string;
-  workAreas: { id: string; name: string }[];
-  workAreaId: string;
   shifts: RosterShiftOption[];
   workers: GridWorker[];
   workerTotal: number;
   rowPage: number;
   dates: string[];
   cells: Record<string, string>;
-  violationCount: number;
-  violationHead: string[];
-  deficitCount: number;
+};
+
+export type RequirementsView = {
+  rows: CoverageRow[];
+  areaNames: Record<string, string>;
+  shiftLabels: Record<string, string>;
+  positionNames: Record<string, string>;
 };
 
 export function RosterWeekView({
   week,
-  canGenerate,
-  isSuperadmin,
+  canWrite,
   sites,
   siteLocations,
-  pinnedLocationName,
-  pinnedLocationId,
-  requirementsByLocation,
+  locationId,
   plans,
   selectedPlanId,
   plan,
-  daily,
+  gate,
+  totals,
+  violationHead,
+  violationCount,
+  requirements,
+  workAreaId,
 }: {
   week: string;
   // Admin + superadmin; an ho never sees the write surface.
-  canGenerate: boolean;
-  isSuperadmin: boolean;
+  canWrite: boolean;
   sites: SiteOption[];
   siteLocations: SiteLocationOption[];
-  // An admin's pinned location (their binding decides server-side).
-  pinnedLocationName?: string;
-  pinnedLocationId?: string;
-  // Approved weekly line counts per location id: the generate gate's
-  // server-side truth.
-  requirementsByLocation: Record<string, number>;
+  // The location the page resolved (null only when none is in scope).
+  locationId: string | null;
   plans: RosterPlanOption[];
   selectedPlanId: string | null;
   plan: GridPlanView | null;
-  daily: {
-    lines: DailyLineRow[];
-    pageCount: number;
-    total: number;
-    canFill: boolean;
-    showLocation: boolean;
-    showSite: boolean;
-  };
+  gate: RosterGate;
+  totals: { required: number; filled: number } | null;
+  violationHead: string[];
+  violationCount: number;
+  requirements: RequirementsView;
+  // The selected work area: the panel highlights it, the grid shows it.
+  workAreaId: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
-  const [tab, setTab] = useState("grid");
 
   const pushWith = (
     mutate: (params: URLSearchParams) => void,
@@ -107,28 +101,9 @@ export function RosterWeekView({
     });
   };
 
-  // Interim gate inputs: the per-location approved line count is an imprecise
-  // stand-in for both the approved request count and the slot count until the
-  // page supplies the real numbers.
-  const selectedLocationId = selectedLocationFor({
-    pinnedLocationId,
-    siteLocations,
-    param: searchParams.get("locationId"),
-  });
-  const approvedCount = selectedLocationId
-    ? (requirementsByLocation[selectedLocationId] ?? 0)
-    : 0;
-  const gate = rosterGate({
-    canWrite: canGenerate,
-    planStatus: plan?.status ?? null,
-    approvedRequestCount: approvedCount,
-    approvedSlotCount: approvedCount,
-    blockingViolationCount: plan?.violationCount ?? 0,
-  });
-
-  const setWorkArea = (workAreaId: string) => {
+  const setWorkArea = (id: string) => {
     pushWith((params) => {
-      params.set("workAreaId", workAreaId);
+      params.set("workAreaId", id);
       params.delete("rowPage");
     });
   };
@@ -139,14 +114,17 @@ export function RosterWeekView({
     }, "replace");
   };
 
+  const workAreaName =
+    requirements.areaNames[workAreaId] ?? "Work area";
+
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
+    <div className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-col gap-1">
         <h1 className="page-title">Roster</h1>
-        <p className="text-sm text-muted-foreground">
-          Weekly drafts generated from client manpower requirements, validated
-          against rules C1–C7, published only when compliant. Deficits stay
-          explicit, never silently violated.
+        <p className="max-w-prose text-sm text-muted-foreground">
+          Weekly drafts generated from approved manpower requests, validated
+          against rules C1-C7 and published only when compliant. Unfilled
+          demand stays visible per work area and shift.
         </p>
       </div>
 
@@ -157,70 +135,58 @@ export function RosterWeekView({
         selectedPlanId={selectedPlanId}
         planStatus={plan?.status ?? null}
         planVersion={plan?.version ?? null}
-        totals={null}
-        violationHead={plan?.violationHead ?? []}
-        violationCount={plan?.violationCount ?? 0}
-        isSuperadmin={isSuperadmin}
+        totals={totals}
+        violationHead={violationHead}
+        violationCount={violationCount}
         sites={sites}
         siteLocations={siteLocations}
-        pinnedLocationName={pinnedLocationName}
-        pinnedLocationId={pinnedLocationId}
-        canWrite={canGenerate}
+        selectedLocationId={locationId}
+        navigating={isPending}
+        canWrite={canWrite}
       />
 
-      {isPending ? (
-        <span role="status" className="text-sm text-muted-foreground">
-          Loading…
-        </span>
-      ) : null}
-
-      <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
-        <TabsList>
-          <TabsTrigger value="grid">Weekly plan</TabsTrigger>
-          <TabsTrigger value="daily">Daily requests</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="grid">
-          <div className="flex flex-col gap-4">
-            {plan ? (
-              <RosterGrid
-                planId={plan.id}
-                canEdit={plan.canEdit}
-                readOnlyReason={plan.readOnlyReason}
-                workAreas={plan.workAreas}
-                workAreaId={plan.workAreaId}
-                onWorkAreaChange={setWorkArea}
-                shifts={plan.shifts}
-                workers={plan.workers}
-                dates={plan.dates}
-                cells={plan.cells}
-                rowPage={plan.rowPage}
-                workerTotal={plan.workerTotal}
-                onRowPageChange={setRowPage}
-              />
-            ) : (
-              <p className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
-                {canGenerate
-                  ? "No roster plan for this week yet. Generate a draft once a request is approved."
-                  : "No roster plan for this week."}
-              </p>
-            )}
-          </div>
-        </TabsContent>
-
-        {/* keepMounted: the daily list's SSR markup must exist server-side
-        even while the grid tab is the active one. */}
-        <TabsContent value="daily" keepMounted>
-          <DailyRequests
-            lines={daily.lines}
-            pageCount={daily.pageCount}
-            total={daily.total}
-            canFill={daily.canFill}
-            showLocation={daily.showLocation}
-            showSite={daily.showSite}
+      {/* Panel first in source order: it stacks above the grid on narrow
+      screens and sits in the left column from lg up. */}
+      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-2 lg:border-e lg:pe-4">
+          <h2 className="text-sm font-medium">Requirements</h2>
+          <RequirementsPanel
+            rows={requirements.rows}
+            areaNames={requirements.areaNames}
+            shiftLabels={requirements.shiftLabels}
+            positionNames={requirements.positionNames}
+            selectedWorkAreaId={workAreaId}
+            onSelectWorkArea={setWorkArea}
+            canFill={canWrite}
+            siteLocationId={locationId ?? ""}
           />
-        </TabsContent>
-      </Tabs>
+        </div>
+
+        <div className="min-w-0">
+          {plan ? (
+            <RosterGrid
+              planId={plan.id}
+              canEdit={plan.canEdit}
+              readOnlyReason={plan.readOnlyReason}
+              workAreaId={workAreaId}
+              workAreaName={workAreaName}
+              shifts={plan.shifts}
+              workers={plan.workers}
+              dates={plan.dates}
+              cells={plan.cells}
+              rowPage={plan.rowPage}
+              workerTotal={plan.workerTotal}
+              onRowPageChange={setRowPage}
+            />
+          ) : (
+            <p className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+              {canWrite
+                ? "No roster plan for this week yet. Generate a draft once a request is approved."
+                : "No roster plan for this week."}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
