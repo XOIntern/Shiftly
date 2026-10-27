@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import {
   mpRequest,
+  mpRequestLine,
   rosterAssignment,
   rosterPlan,
   shiftDefinition,
@@ -708,11 +709,18 @@ export async function fillDailyRequest(
     .select({
       id: mpRequest.id,
       siteLocationId: mpRequest.siteLocationId,
+      type: mpRequest.type,
+      status: mpRequest.status,
     })
     .from(mpRequest)
     .where(eq(mpRequest.id, input.requestId))
     .limit(1);
-  if (!request || request.siteLocationId !== siteLocationId) {
+  if (
+    !request ||
+    request.siteLocationId !== siteLocationId ||
+    request.type !== "daily" ||
+    request.status !== "open"
+  ) {
     return { ok: false, message: REQUEST_GONE };
   }
 
@@ -893,6 +901,64 @@ export async function fillDailyRequest(
           positionId: input.positionId,
         },
       });
+
+      // A daily request has no approval step: it is fulfilled the moment
+      // every one of its lines has its full headcount. Assignments carry no
+      // position, so the check is per (area, shift, date).
+      const lineRows = await tx
+        .select({
+          workAreaId: mpRequestLine.workAreaId,
+          shiftDefId: mpRequestLine.shiftDefinitionId,
+          positionId: mpRequestLine.positionId,
+          date: mpRequestLine.date,
+          headcount: mpRequestLine.headcount,
+        })
+        .from(mpRequestLine)
+        .where(eq(mpRequestLine.requestId, input.requestId));
+      const filledRows = await tx
+        .select({
+          workerId: rosterAssignment.workerId,
+          date: rosterAssignment.date,
+          shiftDefinitionId: rosterAssignment.shiftDefinitionId,
+          workAreaId: rosterAssignment.workAreaId,
+        })
+        .from(rosterAssignment)
+        .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
+        .where(
+          and(
+            eq(rosterPlan.siteLocationId, siteLocationId),
+            eq(rosterPlan.kind, "daily"),
+            eq(rosterPlan.requestDate, input.date),
+          ),
+        );
+      const remaining = computeDeficit(lineRows, filledRows.map(engineShape));
+      if (remaining.length === 0) {
+        const fulfilled = await tx
+          .update(mpRequest)
+          .set({ status: "fulfilled", updatedAt: new Date() })
+          .where(
+            and(
+              eq(mpRequest.id, input.requestId),
+              eq(mpRequest.status, "open"),
+            ),
+          )
+          .returning({ id: mpRequest.id });
+        if (fulfilled.length > 0) {
+          await recordMpRequestAudit(tx, {
+            actorId: actor.id,
+            action: "mp_request.status_change",
+            siteId: weekly.siteId,
+            siteLocationId,
+            details: {
+              requestId: input.requestId,
+              type: "daily",
+              oldValue: "open",
+              newValue: "fulfilled",
+              auto: true,
+            },
+          });
+        }
+      }
     });
   } catch (err) {
     const code = pgErrorCode(err);

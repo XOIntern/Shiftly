@@ -269,13 +269,13 @@ export default async function RosterPage({
     }
   }
 
-  // The daily tab's outstanding lines: approved daily requests
+  // The daily tab's outstanding lines: open daily requests
   // dated within the running week, honoring the shared table's q search
   // (work area, shift, position, location names) and page/pageSize URL state.
   const pattern = ilikePattern(q);
   const dailyWhere = and(
     eq(mpRequest.type, "daily"),
-    inArray(mpRequest.status, ["approved"]),
+    inArray(mpRequest.status, ["open"]),
     gte(mpRequestLine.date, dates[0]),
     lte(mpRequestLine.date, dates[dates.length - 1]),
     mpRequestListWhere(actor),

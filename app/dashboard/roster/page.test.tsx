@@ -182,7 +182,7 @@ async function seedRosterFixtures() {
       siteId: siteS,
       siteLocationId: locL1,
       type: "daily",
-      status: "approved",
+      status: "open",
       requestDate: "2026-01-07",
       createdBy: creator,
     },
