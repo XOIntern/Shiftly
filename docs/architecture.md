@@ -125,7 +125,7 @@ graph TB
 |---|---|---|---|
 | 1 | Auth & RBAC | Login sessions, 3 roles (Superadmin, HO, Admin), binding users to sites/locations | All |
 | 2 | Master Data | Site, site_location (location/city), work_area, shift definitions, worker (qualifications, PKWT/PKWTT, active status), user accounts per scope, CSV/Excel import | Superadmin (sites, HO accounts), HO (locations, Admin accounts), Admin (workers) |
-| 3 | Request Management | Weekly & daily MP requirements entered by the admin on behalf of the client, request status | Admin, HO |
+| 3 | Request Management | Weekly & daily MP requirements entered by the admin on behalf of the client; weekly requests approved or rejected by HO, status follows the roster | Admin, HO |
 | 4 | Rules & Configuration | Global roster rule parameters (C1–C7) + per-site overrides, change history | HO |
 | 5 | Roster Engine | Auto-generate drafts, real-time validation, block publishing while violations exist, explicit deficits, publish auditing | Admin |
 | 6 | Attendance | Daily per-shift attendance input (present/leave/sick/absent), bulk input, corrections with a trail, attendance without a roster as an exception | Admin |
@@ -314,7 +314,8 @@ per-worker override  →  location rate  →  site rate  →  global default
 
 ```mermaid
 flowchart LR
-    A["Admin inputs weekly<br/>MP requirements (from client)"] --> B["Admin<br/>generates draft roster"]
+    A["Admin inputs weekly<br/>MP requirements (from client)"] --> A2["HO approves<br/>the request"]
+    A2 --> B["Admin<br/>generates draft roster"]
     B --> C["Edit + real-time validation"]
     C -->|violations remain| C
     C -->|valid| D["Publish roster<br/>(audit trail)"]
@@ -325,6 +326,8 @@ flowchart LR
     H["Client's daily request<br/>(entered by Admin)"] -.->|same validation| D
     I["Force majeure:<br/>worker suddenly absent"] -.->|"valid replacement candidate<br/>(qualified, lowest load)"| D
 ```
+
+Request lifecycle: a weekly request is `open` until HO approves or rejects it, and only an `open` request can be edited. An `approved` request is the basis for that week's roster; publishing the roster marks it `fulfilled`. A daily request needs no approval and becomes `fulfilled` when its slot is filled.
 
 Two side paths (daily requests, force majeure) modify the running-day roster and **must pass the same validator** as the weekly roster, then are recorded in the audit trail.
 
