@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { seedAdmin } from "./seed-admin";
 import { auth } from "../lib/auth";
@@ -13,6 +13,10 @@ const TEST_ENV = {
 async function cleanup() {
   await db.delete(user).where(eq(user.email, TEST_ENV.email));
 }
+
+// Runs after every test, passed or failed, so no test leaves the seeded user
+// (and its credential account, which cascades) behind for the next one.
+afterEach(cleanup);
 
 describe("seedAdmin", () => {
   test("fails fast when ADMIN_EMAIL is missing", async () => {
@@ -54,6 +58,10 @@ describe("seedAdmin", () => {
   });
 
   test("is idempotent: second run skips", async () => {
+    // Its own first run: the test must not rely on the create test having
+    // run just before it (bun test --randomize reorders tests in a file).
+    await cleanup();
+    await seedAdmin(TEST_ENV);
     const result = await seedAdmin(TEST_ENV);
     expect(result).toBe("exists");
     const rows = await db
@@ -61,6 +69,5 @@ describe("seedAdmin", () => {
       .from(user)
       .where(eq(user.email, TEST_ENV.email));
     expect(rows.length).toBe(1);
-    await cleanup();
   });
 });
