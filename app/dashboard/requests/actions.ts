@@ -47,7 +47,7 @@ class ActionAbort extends Error {
 
 type MpRequestStatus = (typeof mpRequestStatusEnum.enumValues)[number];
 
-// Messages pinned by the plan — the tests assert them verbatim.
+// Messages the tests assert verbatim.
 const HO_CREATE_MESSAGE = "Only admins enter requests";
 const DUPLICATE_OPEN_SLOT =
   "An open request for this week/date already exists";

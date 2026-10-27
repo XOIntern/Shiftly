@@ -940,7 +940,7 @@ describe("RequestForm markup", () => {
   });
 });
 
-// Task 13: the grouped form. Static markup only (bun test has no DOM), so
+// The grouped form. Static markup only (bun test has no DOM), so
 // the post-choice states are seeded through the form's default* props.
 describe("grouped form markup", () => {
   const areaNoPositions: MpRequestGridWorkArea = {
