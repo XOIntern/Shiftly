@@ -4,6 +4,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 // The table renders client-side URL state (search/sort/filters) behind
 // next/navigation hooks; Marko SSR only needs them to exist, not to navigate.
 mock.module("next/navigation", () => ({
+  redirect: () => {
+    throw new Error("redirect");
+  },
+  // Pages under test may call notFound(); every stub in the repo carries it
+  // because bun's module mocks are process-wide and the last registration
+  // wins across suites.
+  notFound: () => {
+    throw new Error("not-found");
+  },
   useRouter: () => ({ push: () => {}, replace: () => {} }),
   usePathname: () => "/dashboard/workers",
   useSearchParams: () => new URLSearchParams(),
