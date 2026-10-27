@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useTransition } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -25,8 +26,8 @@ const STATUS_BADGE: Record<
   MpRequestRow["status"],
   { label: string; variant: "default" | "secondary" | "outline" | "success" | "destructive" }
 > = {
-  open: { label: "Open", variant: "default" },
-  approved: { label: "Approved", variant: "secondary" },
+  open: { label: "Open", variant: "outline" },
+  approved: { label: "Approved", variant: "default" },
   fulfilled: { label: "Fulfilled", variant: "success" },
   rejected: { label: "Rejected", variant: "destructive" },
 };
@@ -41,7 +42,7 @@ export function RequestStatusBadge({ status }: { status: MpRequestRow["status"] 
 export const requestAnchor = (request: MpRequestRow): string =>
   request.type === "weekly" ? (request.weekStart ?? "") : (request.requestDate ?? "");
 
-const STATUS_OPTIONS = [
+export const STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
   { value: "open", label: "Open" },
   { value: "approved", label: "Approved" },
@@ -152,6 +153,14 @@ export function RequestTypeFilter() {
   );
 }
 
+// A weekly request that was approved or fulfilled has a roster week to open;
+// locationId lands superadmin and HO on the request's own location.
+export const rosterHrefFor = (request: MpRequestRow): string | null =>
+  request.type === "weekly" &&
+  (request.status === "approved" || request.status === "fulfilled")
+    ? `/dashboard/roster?week=${request.weekStart}&locationId=${request.siteLocationId}`
+    : null;
+
 // Deterministic stamp for the server-rendered updatedAt Date (ISO string
 // once serialized) — UTC, so markup matches across timezones.
 const formatStamp = (iso: string) =>
@@ -160,6 +169,7 @@ const formatStamp = (iso: string) =>
 export function RequestsTable({
   requests,
   canWrite,
+  canApprove,
   showSite,
   showLocation,
   pageCount,
@@ -167,8 +177,10 @@ export function RequestsTable({
 }: {
   requests: MpRequestRow[];
   // May the actor write lines (admin + superadmin)? Only the row actions'
-  // edit entry switches on this — an ho keeps the view + status menu.
+  // edit entry switches on this.
   canWrite: boolean;
+  // May the actor approve or reject open weekly requests (ho + superadmin)?
+  canApprove: boolean;
   // Site/location columns only carry information where the actor's scope
   // spans more than one of them: location for ho/superadmin, site for
   // superadmin alone.
@@ -231,6 +243,26 @@ export function RequestsTable({
           ),
         }),
         helper.display({
+          id: "roster",
+          header: "Roster",
+          meta: { thClassName: "min-w-[140px]" },
+          cell: (info) => {
+            const href = rosterHrefFor(info.row.original);
+            return href ? (
+              <Link
+                href={href}
+                className="text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                View in roster →
+              </Link>
+            ) : (
+              <span className="text-muted-foreground">
+                -<span className="sr-only">No roster yet</span>
+              </span>
+            );
+          },
+        }),
+        helper.display({
           id: "actions",
           header: "Actions",
           meta: {
@@ -238,11 +270,15 @@ export function RequestsTable({
             tdClassName: "text-right",
           },
           cell: (info) => (
-            <MpRequestRowActions request={info.row.original} canWrite={canWrite} />
+            <MpRequestRowActions
+              request={info.row.original}
+              canWrite={canWrite}
+              canApprove={canApprove}
+            />
           ),
         }),
       ]),
-    [canWrite, showSite, showLocation],
+    [canWrite, canApprove, showSite, showLocation],
   );
 
   return (

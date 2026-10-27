@@ -88,6 +88,8 @@ export default async function RequestsPage({
   const isSuperadmin = actor.role === "superadmin";
   // An ho views only: the create/edit writes never extend to them.
   const canWrite = actor.role !== "ho";
+  // Approving or rejecting an open weekly request is HO and superadmin work.
+  const canApprove = actor.role === "ho" || actor.role === "superadmin";
 
   // Scope comes straight from the shared scope module (superadmin
   // unbounded, ho by their site, admin by their site_location; a null
@@ -101,6 +103,23 @@ export default async function RequestsPage({
     ...(type ? [eq(mpRequest.type, type)] : []),
     ...(scope ? [scope] : []),
   );
+
+  // HO's work queue: open weekly requests inside their scope. Same scope
+  // helper as the list, so nothing outside the actor's site is counted.
+  let awaitingApproval = 0;
+  if (actor.role === "ho") {
+    const [{ count: awaiting }] = await db
+      .select({ count: count() })
+      .from(mpRequest)
+      .where(
+        and(
+          eq(mpRequest.status, "open"),
+          eq(mpRequest.type, "weekly"),
+          ...(scope ? [scope] : []),
+        ),
+      );
+    awaitingApproval = awaiting;
+  }
 
   const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
@@ -178,9 +197,19 @@ export default async function RequestsPage({
         <div className="flex flex-col gap-1">
           <h1 className="page-title">Requests</h1>
           <p className="text-sm text-muted-foreground">
-            Weekly and daily manpower requests per location, moving through
-            open → approved → fulfilled/rejected.
+            Open requests wait for HO approval; approved requests become
+            fulfilled when the week&apos;s roster is published.
           </p>
+          {awaitingApproval > 0 ? (
+            <Link
+              href="/dashboard/requests?status=open&type=weekly"
+              className="w-fit text-sm font-medium underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              {awaitingApproval === 1
+                ? "1 request awaiting approval"
+                : `${awaitingApproval} requests awaiting approval`}
+            </Link>
+          ) : null}
         </div>
         {canWrite ? (
           <Button
@@ -197,6 +226,7 @@ export default async function RequestsPage({
           <RequestsTable
             requests={requests}
             canWrite={canWrite}
+            canApprove={canApprove}
             showSite={isSuperadmin}
             showLocation={actor.role !== "admin"}
             pageCount={pageCount}

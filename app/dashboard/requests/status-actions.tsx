@@ -3,11 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRightIcon,
   CheckIcon,
   EllipsisIcon,
   ListIcon,
+  Loader2Icon,
   PencilIcon,
+  XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,8 +28,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -40,35 +39,37 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// Manual status machine (mirror of the actions' LEGAL_TRANSITIONS — the
-// two MUST stay in step): the menu renders ONLY these next statuses, so a
-// terminal request shows no advance items at all.
-type AdvanceItem = {
-  status: "approved" | "rejected";
-  label: string;
-};
+// Approval is HO/superadmin work on weekly requests that are still open;
+// the server action enforces the same rule, this only decides what to offer.
+export const canApproveRequest = (
+  request: MpRequestRow,
+  canApprove: boolean,
+): boolean =>
+  canApprove && request.type === "weekly" && request.status === "open";
 
-const NEXT_STATUSES: Record<MpRequestRow["status"], AdvanceItem[]> = {
-  open: [
-    { status: "approved", label: "Approve" },
-    { status: "rejected", label: "Reject" },
-  ],
-  approved: [],
-  fulfilled: [],
-  rejected: [],
-};
+// Only an open request can be edited, and only by roles that write lines.
+export const canEditRequest = (
+  request: MpRequestRow,
+  canWrite: boolean,
+): boolean => canWrite && request.status === "open";
 
-function AdvanceMenu({ request }: { request: MpRequestRow }) {
+const periodLabel = (request: MpRequestRow): string =>
+  request.type === "weekly"
+    ? `week of ${request.weekStart}`
+    : `date ${request.requestDate}`;
+
+export function RowApproval({ request }: { request: MpRequestRow }) {
   const [pending, startTransition] = useTransition();
+  const [choice, setChoice] = useState<"approved" | "rejected" | null>(null);
+  const period = periodLabel(request);
 
-  function advance(nextStatus: "approved" | "rejected") {
+  function decide(nextStatus: "approved" | "rejected") {
+    setChoice(nextStatus);
     startTransition(async () => {
       const result = await advanceStatus(request.id, nextStatus);
       if (result.ok) {
         toast.success(
-          nextStatus === "approved"
-            ? "Request approved."
-            : "Request rejected.",
+          nextStatus === "approved" ? "Request approved." : "Request rejected.",
         );
         return;
       }
@@ -76,94 +77,112 @@ function AdvanceMenu({ request }: { request: MpRequestRow }) {
     });
   }
 
-  const items = NEXT_STATUSES[request.status];
-
   return (
-    <>
-      {items.map((item) => (
-        <DropdownMenuItem
-          key={item.status}
-          disabled={pending}
-          variant={item.status === "rejected" ? "destructive" : undefined}
-          onClick={() => advance(item.status)}
-        >
-          {item.status === "rejected" ? <ArrowRightIcon /> : <CheckIcon />}
-          {item.label}
-        </DropdownMenuItem>
-      ))}
-    </>
+    <div className="flex items-center gap-2">
+      <Button
+        size="sm"
+        disabled={pending}
+        aria-busy={pending && choice === "approved"}
+        aria-label={`Approve request for ${period}`}
+        onClick={() => decide("approved")}
+      >
+        {pending && choice === "approved" ? (
+          <Loader2Icon data-icon="inline-start" className="animate-spin" />
+        ) : (
+          <CheckIcon data-icon="inline-start" />
+        )}
+        Approve
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        aria-busy={pending && choice === "rejected"}
+        aria-label={`Reject request for ${period}`}
+        className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={() => decide("rejected")}
+      >
+        {pending && choice === "rejected" ? (
+          <Loader2Icon data-icon="inline-start" className="animate-spin" />
+        ) : (
+          <XIcon data-icon="inline-start" />
+        )}
+        Reject
+      </Button>
+    </div>
   );
 }
 
 export function MpRequestRowActions({
   request,
   canWrite,
+  canApprove,
 }: {
   request: MpRequestRow;
   // May the actor write request lines? Admin (own location) and superadmin
-  // only — an ho carries the view + status menu alone.
+  // only: an ho carries approval and the view entry alone.
   canWrite: boolean;
+  // May the actor approve or reject? HO and superadmin.
+  canApprove: boolean;
 }) {
   const [dialog, setDialog] = useState<"lines" | null>(null);
   const router = useRouter();
 
-  const canEdit = canWrite && request.status === "open";
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Actions for request ${request.siteName ?? ""} ${request.locationName}`}
-          />
-        }
-      >
-        <EllipsisIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => setDialog("lines")}>
-            <ListIcon />
-            View lines
-          </DropdownMenuItem>
-          {canEdit ? (
-            <DropdownMenuItem
-              onClick={() => router.push(`/dashboard/requests/${request.id}/edit`)}
-            >
-              <PencilIcon />
-              Edit lines
-            </DropdownMenuItem>
-          ) : null}
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        {NEXT_STATUSES[request.status].length > 0 ? (
+    <div className="flex items-center justify-end gap-2">
+      {canApproveRequest(request, canApprove) ? (
+        <RowApproval request={request} />
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Actions for request ${request.siteName ?? ""} ${request.locationName}`}
+            />
+          }
+        >
+          <EllipsisIcon />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
           <DropdownMenuGroup>
-            <DropdownMenuLabel>Set status</DropdownMenuLabel>
-            <AdvanceMenu request={request} />
+            <DropdownMenuItem onClick={() => setDialog("lines")}>
+              <ListIcon />
+              View lines
+            </DropdownMenuItem>
+            {canEditRequest(request, canWrite) ? (
+              <DropdownMenuItem
+                onClick={() =>
+                  router.push(`/dashboard/requests/${request.id}/edit`)
+                }
+              >
+                <PencilIcon />
+                Edit lines
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuGroup>
-        ) : null}
-      </DropdownMenuContent>
-      {/* Controlled dialogs live outside the menu popup so the menu can
-      close before their layer opens. */}
-      <Dialog
-        open={dialog === "lines"}
-        onOpenChange={(open) => setDialog(open ? "lines" : null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Request lines</DialogTitle>
-            <DialogDescription>
-              {request.type === "weekly"
-                ? `Week of ${request.weekStart}`
-                : `Date ${request.requestDate}`}
-            </DialogDescription>
-          </DialogHeader>
-          <RequestLinesTable lines={request.lines} />
-        </DialogContent>
-      </Dialog>
-    </DropdownMenu>
+        </DropdownMenuContent>
+        {/* Controlled dialogs live outside the menu popup so the menu can
+        close before their layer opens. */}
+        <Dialog
+          open={dialog === "lines"}
+          onOpenChange={(open) => setDialog(open ? "lines" : null)}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Request lines</DialogTitle>
+              <DialogDescription>
+                {request.type === "weekly"
+                  ? `Week of ${request.weekStart}`
+                  : `Date ${request.requestDate}`}
+              </DialogDescription>
+            </DialogHeader>
+            <RequestLinesTable lines={request.lines} />
+          </DialogContent>
+        </Dialog>
+      </DropdownMenu>
+    </div>
   );
 }
 
