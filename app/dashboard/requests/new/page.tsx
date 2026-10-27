@@ -190,7 +190,7 @@ export default async function NewRequestPage() {
           <ArrowLeftIcon data-icon="inline-start" />
           Back to requests
         </Button>
-        <h1 className="text-2xl font-semibold tracking-tight">New request</h1>
+        <h1 className="page-title">New request</h1>
         <p className="text-sm text-muted-foreground">
           Weekly requests anchor on a Monday and carry one line per work
           area, shift and day; daily requests target a single date.

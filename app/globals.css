@@ -5,10 +5,11 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Shiftly design-system tokens (v2.0.0 brand palette).
+ * Shiftly design-system tokens (v3.0.0, Notion-style workspace).
  * Brand: blue #3246C8 (primary), teal #1EBEB4 (secondary accent, decorative only),
- * neutral ink #171717 on white/zinc surfaces. Raw teal is decorative/chart-only
- * and must never appear as text or icon stroke on light backgrounds.
+ * warm charcoal ink #37352F on white and warm-grey surfaces. Raw teal is
+ * decorative/chart-only and must never appear as text or icon stroke on light
+ * backgrounds.
  */
 
 @theme inline {
@@ -48,6 +49,8 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-border-strong: var(--border-strong);
+  --color-border-input: var(--input);
+  --color-hover: var(--hover);
   --color-focus: var(--focus);
   --color-foreground-secondary: var(--foreground-secondary);
   --color-foreground-muted: var(--foreground-muted);
@@ -87,60 +90,69 @@
   --color-accent-teal-800: var(--accent-teal-800);
   --color-accent-teal-900: var(--accent-teal-900);
 
-  /* Radius scale, pinned (§5.1). Tailwind steps → spec values:
-     sm/xs accents 4/6px, buttons and inputs 8px, cards and dialogs 16px,
-     major containers 20px, large sections 24px, badges 6px (not pills). */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
+  /* Radius scale, pinned (§5.1). Tailwind steps map to spec values:
+     checkboxes 3px, tags 4px, buttons/inputs/menu items 6px, cards and
+     popovers 8px, dialogs 10px. Nothing larger except avatars/switches
+     (rounded-full). */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
   --radius-lg: 8px;
-  --radius-xl: 16px;
-  --radius-2xl: 20px;
-  --radius-3xl: 24px;
-  --radius-4xl: 6px;
+  --radius-xl: 10px;
+  --radius-2xl: 10px;
+  --radius-3xl: 10px;
+  --radius-4xl: 4px;
 }
 
-/* Elevation tinted toward the brand blue hue; motion easing. */
+/* Elevation (§5.3): in-page surfaces are flat, only floating layers cast a
+   shadow. xs/sm are off so cards and the sidebar stay hairline-only. */
 @theme {
-  --shadow-xs: 0 1px 2px rgb(23 35 90 / 0.04);
-  --shadow-sm: 0 2px 6px rgb(23 35 90 / 0.06);
-  --shadow-md: 0 6px 18px rgb(23 35 90 / 0.08);
-  --shadow-lg: 0 12px 32px rgb(23 35 90 / 0.1);
-  --shadow-xl: 0 20px 48px rgb(23 35 90 / 0.12);
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md:
+    0 0 0 1px rgb(55 53 47 / 0.09), 0 3px 6px rgb(55 53 47 / 0.1),
+    0 9px 24px rgb(55 53 47 / 0.12);
+  --shadow-lg:
+    0 0 0 1px rgb(55 53 47 / 0.09), 0 8px 24px rgb(55 53 47 / 0.14),
+    0 24px 56px rgb(55 53 47 / 0.14);
+  --shadow-xl:
+    0 0 0 1px rgb(55 53 47 / 0.09), 0 8px 24px rgb(55 53 47 / 0.14),
+    0 24px 56px rgb(55 53 47 / 0.14);
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 :root {
   /* Canvas, ink, and interactive anchor (§2.2, §2.7) */
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #37352f;
   --card: #ffffff;
-  --card-foreground: #171717;
+  --card-foreground: #37352f;
   --popover: #ffffff;
-  --popover-foreground: #171717;
+  --popover-foreground: #37352f;
   --primary: #3246c8;
   --primary-foreground: #ffffff;
   --primary-hover: #2a3bb8;
   --primary-active: #232fa5;
   --secondary: #f3f4fc;
-  --secondary-foreground: #171717;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --accent: #f3f4fc;
-  --accent-foreground: #171717;
+  --secondary-foreground: #37352f;
+  --muted: #f1f1ef;
+  --muted-foreground: #6b6a66;
+  --accent: #f1f1ef;
+  --accent-foreground: #37352f;
   --destructive: #a52d3d;
-  --border: #e4e4e7;
-  --input: #d4d4d8;
+  --border: #e9e9e7;
+  --input: #8f8e8a;
   --ring: #3246c8;
 
   /* Surfaces and text beyond the shadcn slots (§2.2) */
-  --background-alt: #f4f4f5;
+  --background-alt: #f7f7f5;
   --surface: #ffffff;
-  --surface-muted: #f4f4f5;
-  --foreground-secondary: #52525b;
-  --foreground-muted: #71717a;
+  --surface-muted: #f7f7f5;
+  --foreground-secondary: #5f5e5b;
+  --foreground-muted: #6b6a66;
   --foreground-inverse: #ffffff;
-  --border-strong: #d4d4d8;
+  --border-strong: #d3d1cb;
+  --hover: #f1f1ef;
   --focus: #3246c8;
 
   /* Blue scale (§2.3), anchored at #3246C8 */
@@ -183,22 +195,22 @@
   --chart-2: #1ebeb4;
   --chart-3: #8490de;
   --chart-4: #147a72;
-  --chart-5: #a1a1aa;
+  --chart-5: #9b9a97;
 
   /* Sidebar (§6.10) */
-  --sidebar: #ffffff;
-  --sidebar-foreground: #52525b;
+  --sidebar: #f7f7f5;
+  --sidebar-foreground: #5f5e5b;
   --sidebar-primary: #3246c8;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f3f4fc;
-  --sidebar-accent-foreground: #171717;
-  --sidebar-border: #e4e4e7;
+  --sidebar-accent: #e6e9f8;
+  --sidebar-accent-foreground: #37352f;
+  --sidebar-border: #e9e9e7;
   --sidebar-ring: #3246c8;
 
   /* Layout (§11.1) */
   --container-max: 1440px;
-  --topbar-height: 72px;
-  --sidebar-width: 256px;
+  --topbar-height: 48px;
+  --sidebar-width: 240px;
   --sidebar-collapsed-width: 72px;
 
   /* Motion (§8) */
@@ -206,17 +218,6 @@
   --duration-base: 180ms;
   --duration-medium: 240ms;
   --duration-slow: 320ms;
-
-  /* The one sanctioned gradient — hero/empty states only (§2.8). Stops
-     strengthened 2026-10-22 (user feedback: too faint) so the glass
-     surfaces have real color to refract — the old near-white middle
-     read as a flat page. */
-  --gradient-hero: linear-gradient(
-    110deg,
-    #d6ddf8 0%,
-    #eef1fc 45%,
-    #d3f4ef 100%
-  );
 }
 
 /*
@@ -244,6 +245,7 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: #8490de;
+  --hover: var(--muted);
 
   --chart-1: #8490de;
   --chart-2: #1ebeb4;
@@ -384,11 +386,12 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+/* Page title (§3.2): 28px on phones up to 32px, bold, tight tracking. */
 @utility page-title {
-  font-size: clamp(2.125rem, 4vw, 3.5rem);
-  line-height: 1.15;
-  letter-spacing: -0.03em;
-  font-weight: 600;
+  font-size: clamp(1.75rem, 3vw, 2rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 700;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -421,41 +424,4 @@
   @variant 2xl {
     padding-inline: 6rem;
   }
-}
-
-/*
- * Glass fallback (design rule: glassmorphism ships with a solid fill).
- * [data-glass] marks every glass surface; --glass-fill lets a surface pin
- * its own solid color (e.g. the hero's primary-900 anchor card — its white
- * text must never land on --card). Unlayered, so it wins over the bg and
- * backdrop utilities without !important.
- */
-@media (prefers-reduced-transparency: reduce) {
-  [data-glass] {
-    background-color: var(--glass-fill, var(--card));
-    backdrop-filter: none;
-  }
-}
-
-/*
- * Ambient drift for the hero color fields: the glass panes refract slowly
- * moving color, so the glassmorphism reads as always on, not hover-only.
- * Transform-only (GPU-composited). The prefers-reduced-motion block above
- * flattens this to nothing (animation-duration !important), and each blob
- * varies duration/delay inline so the three never sync.
- */
-@keyframes blob-drift {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(2.5rem, -1.75rem, 0) scale(1.08);
-  }
-  100% {
-    transform: translate3d(-2rem, 1.5rem, 0) scale(0.94);
-  }
-}
-
-.animate-blob-drift {
-  animation: blob-drift 42s ease-in-out infinite alternate;
 }

@@ -219,25 +219,25 @@ export default async function DashboardLayout({
     <SidebarProvider
       style={
         {
-          "--sidebar-width": "calc(var(--spacing) * 72)",
+          "--sidebar-width": "calc(var(--spacing) * 60)",
           "--header-height": "calc(var(--spacing) * 12)",
         } as React.CSSProperties
       }
     >
-      <Sidebar variant="inset" collapsible="offcanvas">
+      <Sidebar variant="sidebar" collapsible="offcanvas">
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                className="data-[slot=sidebar-menu-button]:p-1.5!"
+                size="lg"
                 render={<Link href="/dashboard" />}
               >
                 <Image
                   src="/logo.webp"
                   alt="Shiftly logo"
-                  width={20}
-                  height={20}
-                  className="size-5!"
+                  width={25}
+                  height={28}
+                  className="h-7 w-auto"
                 />
                 <span className="text-base font-semibold">Shiftly</span>
               </SidebarMenuButton>

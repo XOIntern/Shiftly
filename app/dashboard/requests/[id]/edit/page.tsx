@@ -168,7 +168,7 @@ export default async function EditRequestPage({
           <ArrowLeftIcon data-icon="inline-start" />
           Back to requests
         </Button>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="page-title">
           Edit request lines
         </h1>
         <p className="text-sm text-muted-foreground">

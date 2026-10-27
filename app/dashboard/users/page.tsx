@@ -187,7 +187,7 @@ export default async function UsersPage({
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
+          <h1 className="page-title">Users</h1>
           <p className="text-sm text-muted-foreground">
             Head-office, admin, and superadmin accounts. Admins only access the
             site location they are bound to.

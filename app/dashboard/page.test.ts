@@ -75,6 +75,23 @@ describe("dashboard home (issue #123)", () => {
     expect(html.includes("Recent rosters")).toBeFalse();
   });
 
+  test("cards are flat and the page names itself with one h1", async () => {
+    actor = {
+      id: "t3-dash-flat",
+      name: "Dashboard Flat",
+      email: "t3-dash-flat@shiftly.test",
+      role: "superadmin",
+      siteId: null,
+      siteLocationId: null,
+      isActive: true,
+    };
+    const html = await renderDashboard();
+
+    expect(html.includes("bg-linear")).toBeFalse();
+    expect(html.match(/<h1/g)?.length).toBe(1);
+    expect(html.includes("page-title")).toBeTrue();
+  });
+
   test("an admin sees three cards — Active locations is absent", async () => {
     actor = {
       id: "t3-dash-admin",

@@ -67,7 +67,7 @@ export default async function SitesPage({
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Sites</h1>
+          <h1 className="page-title">Sites</h1>
           <p className="text-sm text-muted-foreground">
             Site master data. Locations hang off sites here, and queries are
             scoped at the data level.

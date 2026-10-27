@@ -2,10 +2,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { getUser } from "@/lib/session";
 import { Button } from "@/components/ui/button";
-import { GlassNav } from "./glass-nav";
+import { NavBar } from "./nav-bar";
 
-// The landing nav stays a floating bar rather than a full-width strip, per
-// the approved reference. No menu items: the only public pages are / and
+// A flat full-width bar, Notion-style: logo and wordmark on the left, one
+// action on the right. No menu items: the only public pages are / and
 // /login, and nav links to unbuilt sections are dead links. The CTA is
 // auth-aware (user decision, 2026-10-22): signed-out visitors get
 // Sign in → /login; a signed-in user of any role gets Dashboard →
@@ -16,30 +16,28 @@ export async function Header() {
   const user = await getUser();
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 pt-4">
-      <div className="container">
-        <GlassNav>
+    <header className="fixed inset-x-0 top-0 z-50">
+      <NavBar>
+        <div className="container flex h-14 items-center justify-between">
           <Link
             href="/"
-            className="flex items-center gap-2 font-semibold tracking-tight"
+            className="flex items-center gap-2 rounded-md text-base font-semibold tracking-tight"
           >
             <Image
               src="/logo.webp"
               alt="Shiftly logo"
-              width={24}
-              height={24}
-              className="size-6"
+              width={25}
+              height={28}
+              className="h-7 w-auto"
               priority
             />
             Shiftly
           </Link>
-          {/* Scaled down from the 44px touch target to h-9 (user decision,
-              2026-10-22): inside the 56px nav the 44px CTA read oversized. */}
           {user ? (
             <Button
               render={<Link href="/dashboard" />}
               nativeButton={false}
-              className="h-9 px-4"
+              className="h-9 rounded-md px-4"
             >
               Dashboard
             </Button>
@@ -47,13 +45,13 @@ export async function Header() {
             <Button
               render={<Link href="/login" />}
               nativeButton={false}
-              className="h-9 px-4"
+              className="h-9 rounded-md px-4"
             >
               Sign in
             </Button>
           )}
-        </GlassNav>
-      </div>
+        </div>
+      </NavBar>
     </header>
   );
 }

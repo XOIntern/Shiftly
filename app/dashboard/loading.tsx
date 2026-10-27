@@ -10,7 +10,7 @@ export default function DashboardLoading() {
     <div className="flex flex-1 flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-2">
-          <Skeleton className="h-7 w-40" />
+          <Skeleton className="h-8 w-40" />
           <Skeleton className="h-4 w-64" />
         </div>
         <Skeleton className="h-9 w-28" />
@@ -22,7 +22,7 @@ export default function DashboardLoading() {
       <div className="flex flex-col gap-2">
         <Skeleton className="h-10 w-full" />
         {Array.from({ length: 8 }, (_, i) => (
-          <Skeleton key={i} className="h-11 w-full" />
+          <Skeleton key={i} className="h-9 w-full" />
         ))}
       </div>
     </div>
