@@ -25,12 +25,10 @@ mock.module("@/lib/session", () => ({
 mock.module("next/cache", () => ({
   revalidatePath: () => {},
 }));
-// bun loads every test file (running its top-level code) before any test
-// runs, so a stub registered at the top level would be what a later file
-// captures as "real". The real module is captured at load, the stub goes in
-// for this file only (beforeAll) and the real module is put back after it
-// (afterAll) — mock.module is process-wide and would otherwise leak into every
-// suite that runs afterwards.
+// mock.module is process-wide and patches the loaded module in place: the
+// real exports are snapshotted by spread at load, the stub goes in only while
+// this file runs (beforeAll), and the real ones are put back (afterAll) so
+// later files see the real module.
 const realCredentialStore = { ...(await import("@/lib/credential-store")) };
 beforeAll(() => {
   mock.module("@/lib/credential-store", () => ({

@@ -61,7 +61,7 @@ describe("seedAdmin", () => {
     // Its own first run: the test must not rely on the create test having
     // run just before it (bun test --randomize reorders tests in a file).
     await cleanup();
-    await seedAdmin(TEST_ENV);
+    expect(await seedAdmin(TEST_ENV)).toBe("created");
     const result = await seedAdmin(TEST_ENV);
     expect(result).toBe("exists");
     const rows = await db
