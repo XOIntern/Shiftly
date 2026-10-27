@@ -35,16 +35,21 @@ const {
   areasWithoutPositions,
   buildCreateInput,
   collectLines,
+  copyWeekValues,
+  dayTotals,
   dropRowValues,
   gridDates,
   gridRows,
   inactiveLinePairs,
+  groupByArea,
   initialAddedKeys,
+  initialAreaIds,
   normalizeHeadcount,
   pruneValues,
   quickFillCells,
   fieldErrorsSummary,
   refusalToast,
+  removeAreaValues,
   rowPickerOptions,
   visibleRows,
 } = await import("./request-form");
@@ -1153,5 +1158,127 @@ describe("RequestForm markup", () => {
 
     expect(html.includes("Week start must be a Monday")).toBeTrue();
     expect(html.includes('id="request-week-start"')).toBeTrue();
+  });
+});
+
+describe("grouped-by-area form model", () => {
+  const areaOne: MpRequestGridWorkArea = {
+    id: WA_A1,
+    name: "Zone One",
+    siteLocationId: LOC_A1,
+    positions: [
+      { id: POS_A1, name: "Operator" },
+      { id: POS_A2, name: "Technician" },
+    ],
+  };
+  const areaTwo: MpRequestGridWorkArea = {
+    id: WA_A2,
+    name: "Zone Two",
+    siteLocationId: LOC_A1,
+    positions: [{ id: POS_A2, name: "Technician" }],
+  };
+  const catalog = gridRows([areaOne, areaTwo], activeShifts, LOC_A1);
+  const cell = (wa: string, sh: string, pos: string, date: string) =>
+    `${wa}|${sh}|${pos}|${date}`;
+  const lineView = (
+    wa: string,
+    sh: string,
+    pos: string,
+    date: string,
+    headcount: number,
+  ): MpRequestLineView => ({
+    workAreaId: wa,
+    workAreaName: "n",
+    shiftDefinitionId: sh,
+    shiftLabel: "s",
+    positionId: pos,
+    positionName: "p",
+    date,
+    headcount,
+  });
+
+  test("groupByArea returns one group per added area in catalog order with all that area's shift×position rows", () => {
+    const groups = groupByArea(catalog, new Set([WA_A2, WA_A1]));
+
+    expect(groups.map((g) => [g.workAreaId, g.workAreaName])).toEqual([
+      [WA_A1, "Zone One"],
+      [WA_A2, "Zone Two"],
+    ]);
+    expect(groups[0].rows).toEqual(catalog.filter((r) => r.workAreaId === WA_A1));
+    expect(groups[0].rows).toHaveLength(4);
+    expect(groups[1].rows).toHaveLength(2);
+    expect(groupByArea(catalog, new Set([WA_A2])).map((g) => g.workAreaId)).toEqual([WA_A2]);
+    expect(groupByArea(catalog, new Set())).toEqual([]);
+  });
+
+  test("initialAreaIds derives the areas of stored lines", () => {
+    const lines = [
+      lineView(WA_A1, SH_A1, POS_A1, "2026-01-05", 2),
+      lineView(WA_A1, SH_A2, POS_A2, "2026-01-06", 1),
+    ];
+    expect([...initialAreaIds(catalog, lines)]).toEqual([WA_A1]);
+    // A line whose triple left the catalog contributes no area.
+    const stale = [lineView(WA_A2, SH_A1, POS_A1, "2026-01-05", 2)];
+    expect(initialAreaIds(catalog, stale).size).toBe(0);
+  });
+
+  test("removeAreaValues deletes only that area's cells", () => {
+    const values = {
+      [cell(WA_A1, SH_A1, POS_A1, "2026-01-05")]: "3",
+      [cell(WA_A1, SH_A2, POS_A2, "2026-01-06")]: "1",
+      [cell(WA_A2, SH_A1, POS_A2, "2026-01-05")]: "4",
+    };
+    expect(removeAreaValues(values, WA_A1)).toEqual({
+      [cell(WA_A2, SH_A1, POS_A2, "2026-01-05")]: "4",
+    });
+  });
+
+  test("dayTotals sums headcounts per date and treats blanks as 0", () => {
+    const dates = gridDates("weekly", MONDAY);
+    const rows = catalog.filter((r) => r.workAreaId === WA_A1);
+    const values = {
+      [cell(WA_A1, SH_A1, POS_A1, dates[0])]: "3",
+      [cell(WA_A1, SH_A2, POS_A2, dates[0])]: "2",
+      [cell(WA_A1, SH_A1, POS_A2, dates[1])]: "",
+      [cell(WA_A1, SH_A1, POS_A1, dates[2])]: "x",
+      // Another area's cell is outside the given rows.
+      [cell(WA_A2, SH_A1, POS_A2, dates[0])]: "9",
+    };
+    expect(dayTotals(values, rows, dates)).toEqual([5, 0, 0, 0, 0, 0, 0]);
+  });
+
+  test("copyWeekValues shifts a Monday-anchored week by +7 days and keeps headcounts", () => {
+    const lines = [
+      lineView(WA_A1, SH_A1, POS_A1, "2025-12-29", 3),
+      lineView(WA_A1, SH_A1, POS_A1, "2026-01-04", 2),
+      lineView(WA_A2, SH_A2, POS_A2, "2025-12-31", 5),
+    ];
+    const { values, areaIds } = copyWeekValues(lines, "2025-12-29", "2026-01-05", catalog);
+
+    expect(values).toEqual({
+      [cell(WA_A1, SH_A1, POS_A1, "2026-01-05")]: "3",
+      [cell(WA_A1, SH_A1, POS_A1, "2026-01-11")]: "2",
+      [cell(WA_A2, SH_A2, POS_A2, "2026-01-07")]: "5",
+    });
+    expect([...areaIds].sort()).toEqual([WA_A1, WA_A2].sort());
+  });
+
+  test("copyWeekValues drops lines whose area, shift or position left the catalog (deactivated) and does not add their area", () => {
+    const GONE = "ffff1111-1111-4111-8111-111111111111";
+    const lines = [
+      lineView(WA_A1, SH_A1, POS_A1, "2026-01-05", 3),
+      // Position not required by Zone Two in the catalog.
+      lineView(WA_A2, SH_A1, POS_A1, "2026-01-05", 4),
+      // Shift left the catalog.
+      lineView(WA_A1, GONE, POS_A1, "2026-01-06", 2),
+      // Area left the catalog.
+      lineView(GONE, SH_A1, POS_A1, "2026-01-06", 1),
+    ];
+    const { values, areaIds } = copyWeekValues(lines, "2026-01-05", "2026-01-12", catalog);
+
+    expect(values).toEqual({
+      [cell(WA_A1, SH_A1, POS_A1, "2026-01-12")]: "3",
+    });
+    expect([...areaIds]).toEqual([WA_A1]);
   });
 });

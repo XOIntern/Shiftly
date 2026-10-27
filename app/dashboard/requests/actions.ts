@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -19,9 +19,13 @@ import { pgErrorConstraint, pgErrorCode } from "@/error/db-errors";
 import { requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
+import type { MpRequestLineView } from "@/types/mp-request";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { weekDates } from "@/lib/week";
-import { mpRequestMutationWhere } from "@/lib/mp-request-scope";
+import {
+  mpRequestListWhere,
+  mpRequestMutationWhere,
+} from "@/lib/mp-request-scope";
 import { recordMpRequestAudit } from "@/lib/mp-request-audit";
 import {
   advanceStatusSchema,
@@ -539,4 +543,60 @@ export async function advanceStatus(
     if (err instanceof ActionAbort) return err.state;
     return { ok: false, message: GENERIC_ERROR };
   }
+}
+
+// Read-only lookup behind "copy from last week": the actor's most recent
+// weekly request at that location before the given week, ignoring rejected
+// ones. Network-reachable, so it authenticates and scopes like the writes;
+// anything malformed or out of scope is simply "no source".
+export async function loadCopySource(
+  siteLocationId: string,
+  beforeWeekStart: string,
+): Promise<{ weekStart: string; lines: MpRequestLineView[] } | null> {
+  const actor = await requireUser();
+
+  if (
+    !z.uuid().safeParse(siteLocationId).success ||
+    !z.iso.date().safeParse(beforeWeekStart).success
+  ) {
+    return null;
+  }
+
+  const [source] = await db
+    .select({ id: mpRequest.id, weekStart: mpRequest.weekStart })
+    .from(mpRequest)
+    .where(
+      and(
+        mpRequestListWhere(actor),
+        eq(mpRequest.siteLocationId, siteLocationId),
+        eq(mpRequest.type, "weekly"),
+        ne(mpRequest.status, "rejected"),
+        lt(mpRequest.weekStart, beforeWeekStart),
+      ),
+    )
+    .orderBy(desc(mpRequest.weekStart))
+    .limit(1);
+  if (!source?.weekStart) return null;
+
+  const lines: MpRequestLineView[] = await db
+    .select({
+      workAreaId: mpRequestLine.workAreaId,
+      workAreaName: workArea.name,
+      shiftDefinitionId: mpRequestLine.shiftDefinitionId,
+      shiftLabel: shiftDefinition.label,
+      positionId: mpRequestLine.positionId,
+      positionName: position.name,
+      date: mpRequestLine.date,
+      headcount: mpRequestLine.headcount,
+    })
+    .from(mpRequestLine)
+    .innerJoin(workArea, eq(mpRequestLine.workAreaId, workArea.id))
+    .innerJoin(
+      shiftDefinition,
+      eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
+    )
+    .innerJoin(position, eq(mpRequestLine.positionId, position.id))
+    .where(eq(mpRequestLine.requestId, source.id));
+
+  return { weekStart: source.weekStart, lines };
 }

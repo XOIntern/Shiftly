@@ -1174,3 +1174,140 @@ describe("request actions: advanceStatus", () => {
     }
   });
 });
+
+describe("request actions: loadCopySource", () => {
+  const WEEK_1 = "2026-02-02";
+  const WEEK_2 = "2026-02-09";
+  const WEEK_3 = "2026-02-16";
+
+  async function seedMasters(
+    fx: Awaited<ReturnType<typeof seedGlobalData>>,
+    siteLocationId: string = fx.locA1,
+  ) {
+    const workAreaId = await seedWorkArea({ siteId: fx.siteA, siteLocationId });
+    const shiftId = await seedShift({ siteId: fx.siteA, siteLocationId });
+    const positionId = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId,
+      positionId,
+      siteId: fx.siteA,
+      siteLocationId,
+    });
+    return { workAreaId, shiftId, positionId };
+  }
+
+  async function seedWeek(
+    fx: Awaited<ReturnType<typeof seedGlobalData>>,
+    masters: Awaited<ReturnType<typeof seedMasters>>,
+    args: {
+      createdBy: string;
+      weekStart: string;
+      headcount: number;
+      status?: "open" | "approved" | "fulfilled" | "rejected";
+      siteLocationId?: string;
+    },
+  ) {
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: args.siteLocationId ?? fx.locA1,
+      createdBy: args.createdBy,
+      type: "weekly",
+      weekStart: args.weekStart,
+      status: args.status,
+    });
+    await seedLine({
+      requestId,
+      siteId: fx.siteA,
+      siteLocationId: args.siteLocationId ?? fx.locA1,
+      workAreaId: masters.workAreaId,
+      shiftDefinitionId: masters.shiftId,
+      positionId: masters.positionId,
+      date: args.weekStart,
+      headcount: args.headcount,
+    });
+    return requestId;
+  }
+
+  test("returns the latest non-rejected earlier week, skips rejected, returns null when none, and never returns another location's request for an admin", async () => {
+    const fx = await seedGlobalData();
+    const masters = await seedMasters(fx);
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const otherAdmin = makeActor("admin", null, fx.locA2);
+    await seedUser(otherAdmin);
+    let otherMasters: Awaited<ReturnType<typeof seedMasters>> | undefined;
+
+    try {
+      const { loadCopySource } = await import("./actions");
+
+      // Nothing yet.
+      expect(await loadCopySource(fx.locA1, WEEK_3)).toBeNull();
+
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 2,
+        status: "approved",
+      });
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_2,
+        headcount: 7,
+        status: "rejected",
+      });
+
+      // The newer rejected week is skipped for the older approved one.
+      const skipped = await loadCopySource(fx.locA1, WEEK_3);
+      expect(skipped?.weekStart).toBe(WEEK_1);
+      expect(skipped?.lines).toHaveLength(1);
+      expect(skipped?.lines[0]).toMatchObject({
+        workAreaId: masters.workAreaId,
+        workAreaName: `t-mp-wa-${masters.workAreaId}`,
+        shiftDefinitionId: masters.shiftId,
+        shiftLabel: `t-mp-shift-${masters.shiftId}`,
+        positionId: masters.positionId,
+        positionName: `t-mp-pos-${masters.positionId}`,
+        date: WEEK_1,
+        headcount: 2,
+      });
+
+      // An open later week wins; only weeks strictly before the anchor count.
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_3,
+        headcount: 9,
+        status: "open",
+      });
+      const latest = await loadCopySource(fx.locA1, "2026-02-23");
+      expect(latest?.weekStart).toBe(WEEK_3);
+      expect(latest?.lines[0].headcount).toBe(9);
+      expect((await loadCopySource(fx.locA1, WEEK_3))?.weekStart).toBe(WEEK_1);
+      expect(await loadCopySource(fx.locA1, WEEK_1)).toBeNull();
+
+      // Another location's request never leaks to an admin.
+      const mastersA2 = await seedMasters(fx, fx.locA2);
+      otherMasters = mastersA2;
+      await seedWeek(fx, mastersA2, {
+        createdBy: otherAdmin.id,
+        weekStart: WEEK_2,
+        headcount: 4,
+        status: "approved",
+        siteLocationId: fx.locA2,
+      });
+      expect(await loadCopySource(fx.locA2, "2026-03-02")).toBeNull();
+      expect((await loadCopySource(fx.locA1, "2026-03-02"))?.weekStart).toBe(WEEK_3);
+
+      // Malformed input fails closed.
+      expect(await loadCopySource("not-a-uuid", WEEK_3)).toBeNull();
+      expect(await loadCopySource(fx.locA1, "soon")).toBeNull();
+    } finally {
+      await dropAll({
+        userIds: [actor.id, otherAdmin.id],
+        workAreaIds: [masters.workAreaId, ...(otherMasters ? [otherMasters.workAreaId] : [])],
+        shiftIds: [masters.shiftId, ...(otherMasters ? [otherMasters.shiftId] : [])],
+        positionIds: [masters.positionId, ...(otherMasters ? [otherMasters.positionId] : [])],
+        ...fx,
+      });
+    }
+  });
+});

@@ -13,6 +13,7 @@ import type {
 } from "@/types/mp-request";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 import { GENERIC_ERROR } from "@/lib/action-state";
+import { dayFromNumber, dayNumber } from "@/lib/dates";
 import { mondayOf, weekDates } from "@/lib/week";
 import {
   createRequest,
@@ -215,6 +216,104 @@ export function areasWithoutPositions(
         workArea.positions.length === 0,
     )
     .map((workArea) => workArea.name);
+}
+
+// ---------------------------------------------------------------------------
+// Grouped-by-area form model: the grid renders one section per added work
+// area, each holding all of that area's shift × required-position rows.
+// ---------------------------------------------------------------------------
+
+export type AreaGroup = {
+  workAreaId: string;
+  workAreaName: string;
+  rows: GridRow[];
+};
+
+// One group per added area, in catalog order (first appearance of the area),
+// each with every catalog row of that area.
+export function groupByArea(
+  catalog: GridRow[],
+  areaIds: ReadonlySet<string>,
+): AreaGroup[] {
+  const groups = new Map<string, AreaGroup>();
+  for (const row of catalog) {
+    if (!areaIds.has(row.workAreaId)) continue;
+    const group = groups.get(row.workAreaId);
+    if (group) {
+      group.rows.push(row);
+    } else {
+      groups.set(row.workAreaId, {
+        workAreaId: row.workAreaId,
+        workAreaName: row.workAreaName,
+        rows: [row],
+      });
+    }
+  }
+  return [...groups.values()];
+}
+
+// Edit seeds the sections from the stored lines whose triple is in the
+// catalog; an area whose lines all left the catalog is not seeded.
+export function initialAreaIds(
+  catalog: GridRow[],
+  lines: MpRequestLineView[],
+): Set<string> {
+  const catalogKeys = new Set(catalog.map((row) => row.key));
+  const areaIds = new Set<string>();
+  for (const line of lines) {
+    const key = `${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}`;
+    if (catalogKeys.has(key)) areaIds.add(line.workAreaId);
+  }
+  return areaIds;
+}
+
+// Removing an area section deletes its cells, so re-adding it starts blank.
+export function removeAreaValues(
+  values: GridValues,
+  workAreaId: string,
+): GridValues {
+  return Object.fromEntries(
+    Object.entries(values).filter(([cell]) => cell.split("|")[0] !== workAreaId),
+  );
+}
+
+// Per-date headcount total across the given rows. Blank, missing and
+// non-numeric cells count as 0.
+export function dayTotals(
+  values: GridValues,
+  rows: GridRow[],
+  dates: string[],
+): number[] {
+  return dates.map((date) =>
+    rows.reduce((sum, row) => {
+      const count = Number(values[`${row.key}|${date}`]);
+      return sum + (Number.isFinite(count) ? count : 0);
+    }, 0),
+  );
+}
+
+// Copy-from-last-week: re-dates the source lines by the whole-day offset
+// between the two Mondays. Lines whose area, shift or position left the
+// catalog (deactivated) are dropped, and an area only comes along when one of
+// its lines is kept — nothing silently reappears.
+export function copyWeekValues(
+  lines: MpRequestLineView[],
+  fromWeekStart: string,
+  toWeekStart: string,
+  catalog: GridRow[],
+): { values: GridValues; areaIds: Set<string> } {
+  const offset = dayNumber(toWeekStart) - dayNumber(fromWeekStart);
+  const catalogKeys = new Set(catalog.map((row) => row.key));
+  const values: GridValues = {};
+  const areaIds = new Set<string>();
+  for (const line of lines) {
+    const rowKey = `${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}`;
+    if (!catalogKeys.has(rowKey)) continue;
+    const date = dayFromNumber(dayNumber(line.date) + offset);
+    values[`${rowKey}|${date}`] = String(line.headcount);
+    areaIds.add(line.workAreaId);
+  }
+  return { values, areaIds };
 }
 
 // Per-row "same all days": one value spread over the row's day cells. An
