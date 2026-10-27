@@ -84,6 +84,7 @@ const LEGAL_TRANSITIONS: Record<MpRequestStatus, readonly string[]> = {
   approved: [],
   fulfilled: [],
   rejected: [],
+  withdrawn: [],
 };
 
 // Admin actors are pinned to their own site_location — anything the client

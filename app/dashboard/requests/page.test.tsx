@@ -351,6 +351,39 @@ describe("requests page SSR (mp-requests Task 8)", () => {
     }
   });
 
+  test("?status=withdrawn shows only withdrawn rows and their badge reads Withdrawn", async () => {
+    const fx = await seedRequestFixtures();
+    const withdrawnId = randomUUID();
+    const withdrawnMonday = "2026-02-02"; // a Monday no seeded row uses
+    try {
+      await db.insert(mpRequest).values({
+        id: withdrawnId,
+        siteId: fx.ids.siteA,
+        siteLocationId: fx.ids.locA1,
+        type: "weekly",
+        status: "withdrawn",
+        weekStart: withdrawnMonday,
+        createdBy: fx.creator,
+      });
+      actor = makeActor("ho", fx.ids.siteA, null);
+
+      const html = await renderRequests({ status: "withdrawn" });
+      expect(html.includes(withdrawnMonday)).toBeTrue();
+      expect(html.includes(fx.anchors.rqA1)).toBeFalse();
+      expect(html.includes(fx.anchors.rqA2)).toBeFalse();
+
+      const { RequestStatusBadge } = await import("./request-status");
+      expect(
+        renderToStaticMarkup(<RequestStatusBadge status="withdrawn" />).includes(
+          "Withdrawn",
+        ),
+      ).toBeTrue();
+    } finally {
+      await db.delete(mpRequest).where(eq(mpRequest.id, withdrawnId));
+      await fx.cleanup();
+    }
+  });
+
   test("the type URL filter narrows to matching types", async () => {
     const fx = await seedRequestFixtures();
     try {
@@ -422,13 +455,14 @@ const baseRow = {
 };
 
 describe("requests list: approval, roster link and filter", () => {
-  test("rosterHrefFor returns the roster link for approved and fulfilled weekly requests and null for open, rejected and daily", async () => {
+  test("rosterHrefFor returns the roster link for approved and fulfilled weekly requests and null for open, rejected, withdrawn and daily", async () => {
     const { rosterHrefFor } = await import("./requests-table");
     const expected = "/dashboard/roster?week=2026-11-02&locationId=loc-1";
     expect(rosterHrefFor({ ...baseRow, status: "approved" })).toBe(expected);
     expect(rosterHrefFor({ ...baseRow, status: "fulfilled" })).toBe(expected);
     expect(rosterHrefFor({ ...baseRow, status: "open" })).toBeNull();
     expect(rosterHrefFor({ ...baseRow, status: "rejected" })).toBeNull();
+    expect(rosterHrefFor({ ...baseRow, status: "withdrawn" })).toBeNull();
     expect(
       rosterHrefFor({
         ...baseRow,
@@ -461,7 +495,7 @@ describe("requests list: approval, roster link and filter", () => {
     expect(open.includes("View in roster")).toBeFalse();
   });
 
-  test("the status filter lists exactly Open, Approved, Fulfilled, Rejected", async () => {
+  test("the status filter lists exactly Open, Approved, Fulfilled, Rejected, Withdrawn", async () => {
     const { STATUS_OPTIONS } = await import("./requests-table");
     expect(STATUS_OPTIONS.map((option) => option.label)).toEqual([
       "All statuses",
@@ -469,10 +503,11 @@ describe("requests list: approval, roster link and filter", () => {
       "Approved",
       "Fulfilled",
       "Rejected",
+      "Withdrawn",
     ]);
     expect(
       STATUS_OPTIONS.filter((o) => o.value !== "all").map((o) => o.value),
-    ).toEqual(["open", "approved", "fulfilled", "rejected"]);
+    ).toEqual(["open", "approved", "fulfilled", "rejected", "withdrawn"]);
   });
 
   test("canApproveRequest offers approval only for open weekly requests to an approver", async () => {

@@ -17,7 +17,7 @@ export type MpRequestLineView = {
 export type MpRequestRow = {
   id: string;
   type: "weekly" | "daily";
-  status: "open" | "approved" | "fulfilled" | "rejected";
+  status: "open" | "approved" | "fulfilled" | "rejected" | "withdrawn";
   weekStart: string | null;
   requestDate: string | null;
   siteLocationId: string;

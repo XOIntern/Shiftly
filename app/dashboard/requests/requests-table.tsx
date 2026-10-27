@@ -39,11 +39,12 @@ export const STATUS_OPTIONS = [
   { value: "approved", label: "Approved" },
   { value: "fulfilled", label: "Fulfilled" },
   { value: "rejected", label: "Rejected" },
+  { value: "withdrawn", label: "Withdrawn" },
 ];
 
 // Toolbar filter for the request-status column — the same URL contract as
 // the shared isActive StatusFilter, but over the request-status enum
-// (?status=open|approved|fulfilled|rejected).
+// (?status=open|approved|fulfilled|rejected|withdrawn).
 export function RequestStatusFilter() {
   const router = useRouter();
   const pathname = usePathname();
@@ -55,7 +56,8 @@ export function RequestStatusFilter() {
     candidate === "open" ||
     candidate === "approved" ||
     candidate === "fulfilled" ||
-    candidate === "rejected";
+    candidate === "rejected" ||
+    candidate === "withdrawn";
   const value = allowed(raw) ? raw : "all";
 
   const change = (next: string | null) => {

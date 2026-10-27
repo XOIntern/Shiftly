@@ -25,8 +25,9 @@ import { shiftDefinition } from "./shift-schema";
 // filled with per-work-area/per-shift/per-position headcount lines. Two
 // slot-holding statuses (open, approved) would collide on the same anchor
 // (partial uniques);
-// rejected/fulfilled frees the slot and history stays as new rows. There
-// is no soft delete: rejection is the void path.
+// rejected/fulfilled/withdrawn frees the slot and history stays as new
+// rows. There is no soft delete: rejection (by HO) and withdrawal (by the
+// requester, while still open) are the void paths.
 export const mpRequestTypeEnum = pgEnum("mp_request_type", [
   "weekly",
   "daily",
@@ -37,6 +38,7 @@ export const mpRequestStatusEnum = pgEnum("mp_request_status", [
   "approved",
   "fulfilled",
   "rejected",
+  "withdrawn",
 ]);
 
 // The statuses that hold the anchor slot; mirrored in the partial uniques.
