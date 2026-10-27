@@ -33,12 +33,6 @@ export type RosterShiftOption = {
 
 export type GridWorker = { id: string; employeeId: string };
 
-// The disabled-generate explanation: null when the week's demand is
-// covered (the button is enabled), the copy otherwise. Pinned by tests.
-export function generateGateText(requirementCount: number): string | null {
-  return requirementCount === 0 ? "No received requests cover this week." : null;
-}
-
 // A cell is keyed by worker + date; the card's area rides the request.
 export function assignmentKey(workerId: string, date: string): string {
   return `${workerId}|${date}`;

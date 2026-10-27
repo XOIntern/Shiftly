@@ -30,7 +30,6 @@ const {
   assignmentKey,
   badgeText,
   commitPick,
-  generateGateText,
   violationSummary,
   violationsByWorker,
 } = await import("./roster-grid");
@@ -152,16 +151,6 @@ describe("violationsByWorker / badgeText / violationSummary", () => {
     ]);
     expect(summary).toBe("3 rule warnings — C1 · one; C2 · two; C3 · three");
     expect(violationSummary([])).toBeNull();
-  });
-});
-
-describe("generateGateText (the disabled generate explanation)", () => {
-  test("an empty requirement week explains what is missing", () => {
-    expect(generateGateText(0)).toBe("No received requests cover this week.");
-  });
-
-  test("a covered week gates nothing", () => {
-    expect(generateGateText(3)).toBeNull();
   });
 });
 

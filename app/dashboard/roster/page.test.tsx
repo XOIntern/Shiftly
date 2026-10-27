@@ -369,10 +369,13 @@ describe("roster page SSR (roster-engine Task 7)", () => {
       expect(html.includes("50 of 55")).toBeTrue();
       // Plan list: the location's draft is auto-selected.
       expect(html.includes("Draft")).toBeTrue();
-      expect(html.includes("Publish")).toBeTrue();
-      expect(html.includes("Generate draft")).toBeTrue();
+      // A draft's one primary button is Publish; Generate is not offered.
+      expect(html.includes("Publish roster")).toBeTrue();
+      expect(html.includes("Generate draft")).toBeFalse();
       // The empty-week explanation must NOT appear on a covered week.
-      expect(html.includes("No received requests cover this week")).toBeFalse();
+      expect(
+        html.includes("No request approved by HO for this week"),
+      ).toBeFalse();
     } finally {
       await fx.cleanup();
     }
@@ -401,7 +404,9 @@ describe("roster page SSR (roster-engine Task 7)", () => {
       const html = await renderRoster({ week: fx.EMPTY_MONDAY });
 
       expect(html.includes("Generate draft")).toBeTrue();
-      expect(html.includes("No received requests cover this week")).toBeTrue();
+      expect(
+        html.includes("No request approved by HO for this week"),
+      ).toBeTrue();
       // The generate trigger is rendered disabled (the explanation rides
       // the same gate).
       const trigger = html.indexOf("Generate draft");
