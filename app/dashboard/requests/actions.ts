@@ -32,6 +32,7 @@ import {
   advanceStatusSchema,
   mpRequestCreateSchema,
   mpRequestLineSchema,
+  withdrawRequestSchema,
   type MpRequestCreateInput,
   type MpRequestLineInput,
 } from "@/validation/request-line";
@@ -57,6 +58,8 @@ const NOT_FOUND = "Request not found.";
 const ILLEGAL_TRANSITION = "That status change is not allowed";
 const APPROVER_ONLY_MESSAGE = "Only HO can approve or reject requests.";
 const WEEKLY_ONLY_MESSAGE = "Only weekly requests need approval.";
+const HO_WITHDRAW_MESSAGE = "HO rejects requests instead of withdrawing them.";
+const NOT_WITHDRAWABLE = "Only open requests can be withdrawn.";
 // The composite weld FKs on mp_request_line (work area / shift +
 // site_location + site) make a cross-location pairing impossible — this is
 // both the pre-check's message for a foreign reference and the catch's net
@@ -540,6 +543,81 @@ export async function advanceStatus(
     });
 
     revalidatePath("/dashboard/requests");
+    return result;
+  } catch (err) {
+    if (err instanceof ActionAbort) return err.state;
+    return { ok: false, message: GENERIC_ERROR };
+  }
+}
+
+// Withdrawal is the requester's retraction of a request that is still open:
+// admins (pinned to their own location by the scope) and superadmin. HO
+// decides requests through approve/reject instead, so it is refused before
+// any read. Only open -> withdrawn exists; a decided request stays as decided.
+export async function withdrawRequest(id: string): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (actor.role === "ho") {
+    return { ok: false, message: HO_WITHDRAW_MESSAGE };
+  }
+
+  const parsed = withdrawRequestSchema.safeParse({ id });
+  if (!parsed.success) {
+    return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({
+          status: mpRequest.status,
+          type: mpRequest.type,
+          siteId: mpRequest.siteId,
+          siteLocationId: mpRequest.siteLocationId,
+        })
+        .from(mpRequest)
+        .where(mpRequestMutationWhere(actor, parsed.data.id))
+        .limit(1)
+        .for("update");
+      if (!row) throw new ActionAbort({ ok: false, message: NOT_FOUND });
+
+      if (row.status !== "open") {
+        throw new ActionAbort({ ok: false, message: NOT_WITHDRAWABLE });
+      }
+
+      // Guarded write: a concurrent decision turns this into a 0-row no-op.
+      const updated = await tx
+        .update(mpRequest)
+        .set({ status: "withdrawn" })
+        .where(
+          and(
+            eq(mpRequest.id, parsed.data.id),
+            eq(mpRequest.status, "open"),
+          ),
+        )
+        .returning({ id: mpRequest.id });
+      if (updated.length === 0) {
+        throw new ActionAbort({ ok: false, message: RACE_MESSAGE });
+      }
+
+      await recordMpRequestAudit(tx, {
+        actorId: actor.id,
+        action: "mp_request.status_change",
+        siteId: row.siteId,
+        siteLocationId: row.siteLocationId,
+        details: {
+          requestId: parsed.data.id,
+          type: row.type,
+          oldValue: "open",
+          newValue: "withdrawn",
+        },
+      });
+
+      return { ok: true } as ActionState;
+    });
+
+    revalidatePath("/dashboard/requests");
+    revalidatePath("/dashboard/roster");
     return result;
   } catch (err) {
     if (err instanceof ActionAbort) return err.state;

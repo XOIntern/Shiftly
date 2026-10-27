@@ -9,10 +9,13 @@ import {
   mpRequest,
   mpRequestLine,
   position,
+  rosterAssignment,
+  rosterPlan,
   shiftDefinition,
   site,
   siteLocation,
   user,
+  worker,
   workArea,
   workAreaPosition,
 } from "@/drizzle/schema";
@@ -1171,6 +1174,463 @@ describe("request actions: advanceStatus", () => {
       expect(await statusOf(requestId)).toBe("approved");
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+});
+
+describe("request actions: withdrawRequest", () => {
+  async function statusOf(requestId: string) {
+    const [row] = await db
+      .select()
+      .from(mpRequest)
+      .where(eq(mpRequest.id, requestId));
+    return row.status;
+  }
+
+  async function auditsOf(actorId: string) {
+    return db.select().from(auditLog).where(eq(auditLog.actorId, actorId));
+  }
+
+  test("admin withdraws an open weekly request at their location: status withdrawn + one audit row old→new", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { withdrawRequest } = await import("./actions");
+      const result = await withdrawRequest(requestId);
+      expect(result.ok).toBe(true);
+      expect(await statusOf(requestId)).toBe("withdrawn");
+
+      const audits = await auditsOf(actor.id);
+      expect(audits).toHaveLength(1);
+      expect(audits[0].action).toBe("mp_request.status_change");
+      expect(audits[0].siteId).toBe(fx.siteA);
+      expect(audits[0].siteLocationId).toBe(fx.locA1);
+      expect(audits[0].details).toEqual({
+        requestId,
+        type: "weekly",
+        oldValue: "open",
+        newValue: "withdrawn",
+      });
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("admin withdraws an open daily request", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "daily",
+      requestDate: "2026-03-04",
+    });
+
+    try {
+      const { withdrawRequest } = await import("./actions");
+      expect((await withdrawRequest(requestId)).ok).toBe(true);
+      expect(await statusOf(requestId)).toBe("withdrawn");
+
+      const audits = await auditsOf(actor.id);
+      expect(audits).toHaveLength(1);
+      expect(audits[0].details).toEqual({
+        requestId,
+        type: "daily",
+        oldValue: "open",
+        newValue: "withdrawn",
+      });
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("superadmin withdraws any open request", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteB,
+      siteLocationId: fx.locB,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { withdrawRequest } = await import("./actions");
+      expect((await withdrawRequest(requestId)).ok).toBe(true);
+      expect(await statusOf(requestId)).toBe("withdrawn");
+      expect(await auditsOf(actor.id)).toHaveLength(1);
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("HO is refused with the HO message and the row stays open (no audit row)", async () => {
+    const fx = await seedGlobalData();
+    const creator = makeActor("admin", null, fx.locA1);
+    await seedUser(creator);
+    actor = makeActor("ho", fx.siteA, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: creator.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { withdrawRequest } = await import("./actions");
+      const result = await withdrawRequest(requestId);
+      expect(result).toEqual({
+        ok: false,
+        message: "HO rejects requests instead of withdrawing them.",
+      });
+      expect(await statusOf(requestId)).toBe("open");
+      expect(await auditsOf(actor.id)).toHaveLength(0);
+    } finally {
+      await dropAll({ userIds: [actor.id, creator.id], ...fx });
+    }
+  });
+
+  test("an admin cannot withdraw another location's request (not found, row unchanged)", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA2,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { withdrawRequest } = await import("./actions");
+      const result = await withdrawRequest(requestId);
+      expect(result).toEqual({ ok: false, message: "Request not found." });
+      expect(await statusOf(requestId)).toBe("open");
+      expect(await auditsOf(actor.id)).toHaveLength(0);
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("a malformed id is refused with field errors", async () => {
+    actor = makeActor("superadmin", null, null);
+    const { withdrawRequest } = await import("./actions");
+    const result = await withdrawRequest("not-a-uuid");
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors).toBeDefined();
+  });
+
+  test("approved, fulfilled, rejected and withdrawn requests are refused with the not-withdrawable message", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+    const statuses = ["approved", "fulfilled", "rejected", "withdrawn"] as const;
+    const ids: Record<string, string> = {};
+    for (const [index, status] of statuses.entries()) {
+      ids[status] = await seedRequest({
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
+        createdBy: actor.id,
+        type: "weekly",
+        // Distinct anchors keep the one-open-per-week index out of the way.
+        weekStart: `2026-03-${String(9 + index * 7).padStart(2, "0")}`,
+        status,
+      });
+    }
+
+    try {
+      const { withdrawRequest } = await import("./actions");
+      for (const status of statuses) {
+        const result = await withdrawRequest(ids[status]);
+        expect(result).toEqual({
+          ok: false,
+          message: "Only open requests can be withdrawn.",
+        });
+        expect(await statusOf(ids[status])).toBe(status);
+      }
+      expect(await auditsOf(actor.id)).toHaveLength(0);
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("after a withdraw a new weekly request for the same location and week can be created", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { createRequest, withdrawRequest } = await import("./actions");
+      const input = weeklyInput({
+        lines: [
+          {
+            workAreaId: waA1,
+            shiftDefinitionId: shiftA1,
+            positionId: posA1,
+            date: MONDAY,
+            headcount: 2,
+          },
+        ],
+      });
+      // The open request holds the week's slot until it is withdrawn.
+      expect((await createRequest(input)).ok).toBe(false);
+
+      expect((await withdrawRequest(requestId)).ok).toBe(true);
+      expect((await createRequest(input)).ok).toBe(true);
+
+      const rows = await db
+        .select({ id: mpRequest.id, status: mpRequest.status })
+        .from(mpRequest)
+        .where(eq(mpRequest.siteLocationId, fx.locA1));
+      expect(rows.map((r) => r.status).sort()).toEqual(["open", "withdrawn"]);
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1],
+        ...fx,
+      });
+    }
+  });
+
+  test("a withdrawn request is absent from loadRequirementsForWeek and loadDailyRequirements", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const dailyDate = "2026-03-05";
+    const weeklyId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+    const dailyId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "daily",
+      requestDate: dailyDate,
+    });
+    for (const [requestId, date] of [
+      [weeklyId, MONDAY],
+      [dailyId, dailyDate],
+    ] as const) {
+      await seedLine({
+        requestId,
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
+        workAreaId: waA1,
+        shiftDefinitionId: shiftA1,
+        positionId: posA1,
+        date,
+        headcount: 2,
+      });
+    }
+
+    try {
+      const { loadDailyRequirements, loadRequirementsForWeek } = await import(
+        "@/lib/roster-data"
+      );
+      const { withdrawRequest } = await import("./actions");
+      // The daily request is live demand until withdrawn.
+      expect(
+        await loadDailyRequirements(fx.locA1, dailyDate, dailyDate),
+      ).toHaveLength(1);
+
+      expect((await withdrawRequest(weeklyId)).ok).toBe(true);
+      expect((await withdrawRequest(dailyId)).ok).toBe(true);
+
+      expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual([]);
+      expect(await loadDailyRequirements(fx.locA1, dailyDate, dailyDate)).toEqual([]);
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1],
+        ...fx,
+      });
+    }
+  });
+
+  test("concurrent approve and withdraw of one open request: exactly one succeeds and the final status matches the winner", async () => {
+    const fx = await seedGlobalData();
+    const admin = makeActor("admin", null, fx.locA1);
+    const ho = makeActor("ho", fx.siteA, null);
+    await seedUser(admin);
+    await seedUser(ho);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: admin.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { advanceStatus, withdrawRequest } = await import("./actions");
+      // Each action resolves its actor synchronously on entry, so swapping
+      // the stub between the two calls hands each its own role.
+      actor = ho;
+      const approving = advanceStatus(requestId, "approved");
+      actor = admin;
+      const withdrawing = withdrawRequest(requestId);
+      const [approveResult, withdrawResult] = await Promise.all([
+        approving,
+        withdrawing,
+      ]);
+
+      expect([approveResult.ok, withdrawResult.ok].filter(Boolean)).toHaveLength(1);
+      if (approveResult.ok) {
+        expect(await statusOf(requestId)).toBe("approved");
+        expect(withdrawResult.message).toBeOneOf([
+          "Request state changed, reload",
+          "Only open requests can be withdrawn.",
+        ]);
+      } else {
+        expect(await statusOf(requestId)).toBe("withdrawn");
+        expect(approveResult.message).toBeOneOf([
+          "Request state changed, reload",
+          "That status change is not allowed",
+        ]);
+      }
+    } finally {
+      await dropAll({ userIds: [admin.id, ho.id], ...fx });
+    }
+  });
+
+  test("a daily request withdrawn after a partial fill leaves the daily plan's assignments untouched", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const date = "2026-03-04";
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "daily",
+      requestDate: date,
+    });
+    await seedLine({
+      requestId,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      workAreaId: waA1,
+      shiftDefinitionId: shiftA1,
+      positionId: posA1,
+      date,
+      headcount: 2,
+    });
+    // The state a first fill leaves behind: the daily plan sourced from the
+    // request, holding one of the two demanded heads.
+    const workerId = randomUUID();
+    await db.insert(worker).values({
+      id: workerId,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      employeeId: `t-mp-emp-${workerId}`,
+      name: `t-mp-worker-${workerId}`,
+    });
+    const [plan] = await db
+      .insert(rosterPlan)
+      .values({
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
+        kind: "daily",
+        requestDate: date,
+        sourceRequestId: requestId,
+        rulesSnapshot: { shifts: [], areas: {} },
+      })
+      .returning({ id: rosterPlan.id });
+    await db.insert(rosterAssignment).values({
+      planId: plan.id,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      workerId,
+      workAreaId: waA1,
+      shiftDefinitionId: shiftA1,
+      date,
+    });
+
+    try {
+      const { withdrawRequest } = await import("./actions");
+      expect((await withdrawRequest(requestId)).ok).toBe(true);
+      expect(await statusOf(requestId)).toBe("withdrawn");
+
+      const assignments = await db
+        .select()
+        .from(rosterAssignment)
+        .where(eq(rosterAssignment.planId, plan.id));
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0].workerId).toBe(workerId);
+      const plans = await db
+        .select({ id: rosterPlan.id, status: rosterPlan.status })
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locA1));
+      expect(plans).toEqual([{ id: plan.id, status: "draft" }]);
+    } finally {
+      await db.delete(rosterAssignment).where(eq(rosterAssignment.planId, plan.id));
+      await db.delete(rosterPlan).where(eq(rosterPlan.id, plan.id));
+      await db.delete(worker).where(eq(worker.id, workerId));
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1],
+        ...fx,
+      });
     }
   });
 });
