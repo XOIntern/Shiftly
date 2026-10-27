@@ -288,6 +288,18 @@ describe("edit request page SSR (requests #129)", () => {
           `Remove inactive line ${fx.names.waOld} / ${fx.names.shOld} / ${fx.names.posOld}`,
         ),
       ).toBeTrue();
+      // The stored active line's area opens as its own section; edit has
+      // no copy step and no Add bar.
+      expect(
+        html.includes(`aria-label="Remove area ${fx.names.waActive}"`),
+      ).toBeTrue();
+      expect(
+        html.includes(
+          `aria-label="Headcount ${fx.names.waActive} / ${fx.names.shActive} / ${fx.names.posActive} / 2026-01-05"`,
+        ),
+      ).toBeTrue();
+      expect(html.includes("Start blank")).toBeFalse();
+      expect(html.includes("Add rows")).toBeFalse();
     } finally {
       await fx.cleanup();
     }

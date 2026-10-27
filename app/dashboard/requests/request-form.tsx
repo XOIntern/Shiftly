@@ -1,8 +1,22 @@
 "use client";
 
-import { Fragment, useState, useTransition, type ComponentProps } from "react";
+import {
+  Fragment,
+  useEffect,
+  useState,
+  useTransition,
+  type ComponentProps,
+} from "react";
 import { useRouter } from "next/navigation";
-import { EraserIcon, SparklesIcon, XIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  CopyIcon,
+  EraserIcon,
+  PaintBucketIcon,
+  PlusIcon,
+  XIcon,
+} from "lucide-react";
+import { cn } from "cn";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
@@ -17,21 +31,11 @@ import { dayFromNumber, dayNumber } from "@/lib/dates";
 import { mondayOf, weekDates } from "@/lib/week";
 import {
   createRequest,
+  loadCopySource,
   updateRequestLines,
 } from "@/app/dashboard/requests/actions";
 import type { MpRequestCreateInput } from "@/validation/request-line";
 import { Button } from "@/components/ui/button";
-import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxValue,
-} from "@/components/ui/combobox";
 import { DialogFooter } from "@/components/ui/dialog";
 import {
   Field,
@@ -108,87 +112,7 @@ export function gridRows(
   return rows;
 }
 
-// gridRows is the catalog of admissible rows (#147): the grid only shows the
-// rows the admin added, keyed `workAreaId|shiftId|positionId`.
-
-// What the Add bar offers: every catalog area and shift (in catalog order),
-// and only the picked area's required positions — no area picked, no
-// positions.
-export function rowPickerOptions(
-  catalog: GridRow[],
-  pickedWorkAreaId: string | null,
-) {
-  const workAreas = new Map<string, string>();
-  const shifts = new Map<string, string>();
-  const positions = new Map<string, string>();
-  for (const row of catalog) {
-    workAreas.set(row.workAreaId, row.workAreaName);
-    shifts.set(row.shiftDefinitionId, row.shiftLabel);
-    if (row.workAreaId === pickedWorkAreaId) {
-      positions.set(row.positionId, row.positionName);
-    }
-  }
-  return {
-    workAreas: [...workAreas].map(([id, name]) => ({ id, name })),
-    shifts: [...shifts].map(([id, label]) => ({ id, label })),
-    positions: [...positions].map(([id, name]) => ({ id, name })),
-  };
-}
-
-// The added keys plus the picked shifts × positions of one area. Walking the
-// catalog makes ids outside it (a stale position pick) add nothing, and the
-// Set makes an already-added combination a no-op.
-export function addRowKeys(
-  catalog: GridRow[],
-  added: ReadonlySet<string>,
-  workAreaId: string,
-  shiftIds: string[],
-  positionIds: string[],
-): Set<string> {
-  const next = new Set(added);
-  for (const row of catalog) {
-    if (
-      row.workAreaId === workAreaId &&
-      shiftIds.includes(row.shiftDefinitionId) &&
-      positionIds.includes(row.positionId)
-    ) {
-      next.add(row.key);
-    }
-  }
-  return next;
-}
-
-// The rows the grid renders: the added catalog rows, in catalog order.
-export function visibleRows(
-  catalog: GridRow[],
-  added: ReadonlySet<string>,
-): GridRow[] {
-  return catalog.filter((row) => added.has(row.key));
-}
-
-// Edit seeds the grid from the stored lines whose triple is in the catalog;
-// triples that left the active masters keep their inactive-pair rows instead.
-export function initialAddedKeys(
-  catalog: GridRow[],
-  lines: MpRequestLineView[],
-): Set<string> {
-  const catalogKeys = new Set(catalog.map((row) => row.key));
-  const keys = new Set<string>();
-  for (const line of lines) {
-    const key = `${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}`;
-    if (catalogKeys.has(key)) keys.add(key);
-  }
-  return keys;
-}
-
 const rowKeyOfCell = (cellKey: string) => cellKey.split("|").slice(0, 3).join("|");
-
-// Removing a row deletes its cells, so re-adding it starts blank.
-export function dropRowValues(values: GridValues, rowKey: string): GridValues {
-  return Object.fromEntries(
-    Object.entries(values).filter(([cell]) => rowKeyOfCell(cell) !== rowKey),
-  );
-}
 
 // Keeps only the cells of rows still in the grid, so stale values (another
 // location's rows, removed rows) never reach the submit payload.
@@ -534,74 +458,6 @@ function SelectField({
   );
 }
 
-type PickOption = { id: string; name: string };
-
-// Multi-select of the Add bar: chips over a Combobox, like the work-area
-// form's position picker.
-function MultiPickField({
-  id,
-  label,
-  options,
-  selectedIds,
-  onChange,
-  placeholder,
-  disabled,
-}: {
-  id: string;
-  label: string;
-  options: PickOption[];
-  selectedIds: string[];
-  onChange: (ids: string[]) => void;
-  placeholder: string;
-  disabled?: boolean;
-}) {
-  // Chips are positional in Base UI, so the value array follows the chip
-  // order; ids no longer on offer drop out.
-  const selected = selectedIds.flatMap((selectedId) => {
-    const option = options.find((candidate) => candidate.id === selectedId);
-    return option ? [option] : [];
-  });
-  return (
-    <Field>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <Combobox
-        multiple
-        items={options}
-        itemToStringLabel={(option) => option.name}
-        isItemEqualToValue={(option, value) => option.id === value.id}
-        value={selected}
-        onValueChange={(next) => onChange(next.map((option) => option.id))}
-        disabled={disabled}
-      >
-        <ComboboxChips>
-          <ComboboxValue>
-            {selected.map((option) => (
-              <ComboboxChip
-                key={option.id}
-                aria-label={option.name}
-                removeLabel={`Remove ${option.name}`}
-              >
-                {option.name}
-              </ComboboxChip>
-            ))}
-          </ComboboxValue>
-          <ComboboxChipsInput id={id} placeholder={placeholder} />
-        </ComboboxChips>
-        <ComboboxContent>
-          <ComboboxEmpty>No matches.</ComboboxEmpty>
-          <ComboboxList>
-            {(option: PickOption) => (
-              <ComboboxItem key={option.id} value={option}>
-                {option.name}
-              </ComboboxItem>
-            )}
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
-    </Field>
-  );
-}
-
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // Headcounts are typed as digits-only strings capped at the schema's 999.
@@ -635,6 +491,56 @@ export function refusalToast(
   return fieldErrorsSummary(result.fieldErrors ?? {});
 }
 
+type CopySource = { weekStart: string; lines: MpRequestLineView[] };
+
+// The resolved copy lookup, tagged with the location|Monday it answers for:
+// a tag that differs from the current one means the lookup is in flight.
+type CopyLookup = { key: string; source: CopySource | null };
+
+// Fixed column widths shared by every section table and the totals table,
+// so the day columns line up down the whole form.
+const NAME_COL = "w-44";
+const DAY_COL = "w-16";
+const TAIL_COL = "w-32";
+
+const triple = (row: {
+  workAreaId: string;
+  shiftDefinitionId: string;
+  positionId: string;
+}) => `${row.workAreaId}|${row.shiftDefinitionId}|${row.positionId}`;
+
+function GridColumns({ dates, tail }: { dates: string[]; tail: boolean }) {
+  return (
+    <colgroup>
+      <col className={NAME_COL} />
+      {dates.map((date) => (
+        <col key={date} className={DAY_COL} />
+      ))}
+      {tail ? <col className={TAIL_COL} /> : null}
+    </colgroup>
+  );
+}
+
+function DayHeaders({ type }: { type: "weekly" | "daily" }) {
+  return type === "weekly" ? (
+    <>
+      {DAYS.map((day) => (
+        <th key={day} scope="col" className="px-1 py-2 text-center font-medium">
+          {day}
+        </th>
+      ))}
+    </>
+  ) : (
+    <th scope="col" className="px-1 py-2 text-center font-medium">
+      Headcount
+    </th>
+  );
+}
+
+// The row label column stays put while the day columns scroll sideways on
+// narrow screens.
+const STICKY_CELL = "sticky left-0 z-[1] bg-card";
+
 export function RequestForm({
   siteLocations,
   sites,
@@ -647,6 +553,10 @@ export function RequestForm({
   initialFieldErrors,
   defaultWeekStart,
   defaultRequestDate,
+  defaultStep,
+  defaultAreaIds,
+  defaultValues,
+  initialCopySource,
   onSaved,
 }: {
   siteLocations: SiteLocationOption[];
@@ -665,10 +575,17 @@ export function RequestForm({
   request?: EditRequest;
   // Pre-seeded ActionState.fieldErrors (tests; re-opened dialogs).
   initialFieldErrors?: FieldErrors;
-  // Pre-filled anchors (tests; a re-opened dialog could restore state). The
-  // edit variant ignores them — its anchor comes from the stored request.
+  // Pre-filled create state (tests; a re-opened form could restore it). The
+  // edit variant ignores them — its anchor and lines come from the request.
   defaultWeekStart?: string;
   defaultRequestDate?: string;
+  // "grid" skips the weekly copy step, as if a choice had been made.
+  defaultStep?: "copy" | "grid";
+  defaultAreaIds?: string[];
+  defaultValues?: GridValues;
+  // An already-resolved copy lookup for the initial location and week
+  // (tests); `null` means "nothing to copy". Omitted, the form looks it up.
+  initialCopySource?: CopySource | null;
   onSaved: () => void;
 }) {
   const isEdit = !!request;
@@ -695,28 +612,29 @@ export function RequestForm({
   // Existing lines pre-fill the grid (edit); inactive-pair keys ride the
   // same map so their submitted tuples re-travel byte-identical.
   const [values, setValues] = useState<GridValues>(() =>
-    Object.fromEntries(
-      (request?.lines ?? []).map((line) => [
-        `${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}|${line.date}`,
-        String(line.headcount),
-      ]),
-    ),
+    request
+      ? Object.fromEntries(
+          request.lines.map((line) => [
+            `${triple(line)}|${line.date}`,
+            String(line.headcount),
+          ]),
+        )
+      : { ...defaultValues },
   );
   const [removedPairs, setRemovedPairs] = useState<Set<string>>(new Set());
-  // The rows the admin added (#147) and the Add bar's current picks. Create
-  // starts empty; edit seeds the rows from the stored lines (its location is
-  // the immutable prop, so the catalog is already known).
-  const [addedKeys, setAddedKeys] = useState<Set<string>>(() =>
+  // The added area sections. Edit seeds them from the stored lines (its
+  // location is the immutable prop, so the catalog is already known).
+  const [areaIds, setAreaIds] = useState<Set<string>>(() =>
     request
-      ? initialAddedKeys(
+      ? initialAreaIds(
           gridRows(activeWorkAreas, activeShifts, siteLocationId ?? null),
           request.lines,
         )
-      : new Set(),
+      : new Set(defaultAreaIds),
   );
-  const [pickedWorkAreaId, setPickedWorkAreaId] = useState<string | null>(null);
-  const [pickedShiftIds, setPickedShiftIds] = useState<string[]>([]);
-  const [pickedPositionIds, setPickedPositionIds] = useState<string[]>([]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Weekly create starts on the copy-or-blank choice.
+  const [step, setStep] = useState<"copy" | "grid">(defaultStep ?? "copy");
   const [quickFill, setQuickFill] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(
     initialFieldErrors ?? {},
@@ -751,8 +669,14 @@ export function RequestForm({
     activeShifts,
     effectiveLocationId ?? null,
   );
-  const rows = visibleRows(catalog, addedKeys);
-  const picker = rowPickerOptions(catalog, pickedWorkAreaId);
+  const groups = groupByArea(catalog, areaIds);
+  const rows = groups.flatMap((group) => group.rows);
+  // "Add area" offers the catalog areas not yet added — an area without
+  // required positions has no catalog rows, so it is never offered.
+  const addableAreas = groupByArea(
+    catalog,
+    new Set(catalog.map((row) => row.workAreaId)),
+  ).filter((group) => !areaIds.has(group.workAreaId));
   // Areas rendering no rows because nothing positions them (#137): hinted
   // above the grid — or in the empty state — instead of silent emptiness.
   const configureHint = (() => {
@@ -766,86 +690,112 @@ export function RequestForm({
   })();
   const inactivePairs = request
     ? inactiveLinePairs(request.lines, activeWorkAreas, activeShifts).filter(
-        (pair) =>
-          !removedPairs.has(
-            `${pair.workAreaId}|${pair.shiftDefinitionId}|${pair.positionId}`,
-          ),
+        (pair) => !removedPairs.has(triple(pair)),
       )
     : [];
+  // Inactive pairs still travel on submit, so they count in the totals.
+  const totalRows: GridRow[] = [
+    ...rows,
+    ...inactivePairs.map((pair) => ({ ...pair, key: triple(pair) })),
+  ];
+  const totals = dayTotals(values, totalRows, dates);
+  const weekTotal = totals.reduce((sum, count) => sum + count, 0);
 
-  const cellKey = (
-    workAreaId: string,
-    shiftDefinitionId: string,
-    positionId: string,
-    date: string,
-  ) => `${workAreaId}|${shiftDefinitionId}|${positionId}|${date}`;
+  // Copy-from-last-week lookup: weekly create only, keyed by the resolved
+  // location and the chosen week's Monday.
+  const copyMonday =
+    !isEdit && type_ === "weekly" && weekStart ? mondayOf(weekStart) : null;
+  const copyKey =
+    copyMonday && effectiveLocationId
+      ? `${effectiveLocationId}|${copyMonday}`
+      : null;
+  const [copyLookup, setCopyLookup] = useState<CopyLookup | null>(() =>
+    initialCopySource !== undefined && copyKey
+      ? { key: copyKey, source: initialCopySource }
+      : null,
+  );
+  useEffect(() => {
+    if (!copyKey || !effectiveLocationId || !copyMonday) return;
+    // A response for an older location/week never lands over a newer one.
+    let stale = false;
+    loadCopySource(effectiveLocationId, copyMonday).then(
+      (source) => {
+        if (!stale) setCopyLookup({ key: copyKey, source });
+      },
+      () => {
+        if (!stale) setCopyLookup({ key: copyKey, source: null });
+      },
+    );
+    return () => {
+      stale = true;
+    };
+  }, [copyKey, effectiveLocationId, copyMonday]);
+  const copyPending = copyLookup?.key !== copyKey;
+  const copySource = copyPending ? null : (copyLookup?.source ?? null);
+  const showCopyStep =
+    !isEdit && type_ === "weekly" && step === "copy" && dates.length > 0;
 
   function removePair(pair: InactivePair) {
     setValues((prev) => {
       const next = { ...prev };
-      for (const date of pair.dates) {
-        delete next[
-          cellKey(pair.workAreaId, pair.shiftDefinitionId, pair.positionId, date)
-        ];
-      }
+      for (const date of pair.dates) delete next[`${triple(pair)}|${date}`];
       return next;
     });
-    setRemovedPairs((prev) =>
-      new Set(prev).add(
-        `${pair.workAreaId}|${pair.shiftDefinitionId}|${pair.positionId}`,
-      ),
-    );
+    setRemovedPairs((prev) => new Set(prev).add(triple(pair)));
   }
 
-  // The added rows belong to one location's catalog: a location move starts
-  // the grid over (stale cells are also pruned on submit).
+  // The sections belong to one location's catalog: a location move starts
+  // the form over, copy step included (stale cells are also pruned on
+  // submit).
   function changeLocation(next: string | null) {
     if (next !== locationId) {
-      setAddedKeys(new Set());
-      setPickedWorkAreaId(null);
-      setPickedShiftIds([]);
-      setPickedPositionIds([]);
+      setAreaIds(new Set());
+      setValues({});
+      setQuickFill({});
+      setCollapsed(new Set());
+      setStep("copy");
     }
     setLocationId(next);
   }
 
-  function pickWorkArea(next: string) {
-    // The positions on offer belong to the picked area.
-    if (next !== pickedWorkAreaId) setPickedPositionIds([]);
-    setPickedWorkAreaId(next);
-  }
-
-  const canAddRows =
-    pickedWorkAreaId !== null &&
-    pickedShiftIds.length > 0 &&
-    pickedPositionIds.length > 0;
-
-  function addRows() {
-    if (!canAddRows) return;
-    setAddedKeys((prev) =>
-      addRowKeys(
-        catalog,
-        prev,
-        pickedWorkAreaId,
-        pickedShiftIds,
-        pickedPositionIds,
-      ),
+  function copyFromSource() {
+    if (!copySource || !copyMonday) return;
+    const copied = copyWeekValues(
+      copySource.lines,
+      copySource.weekStart,
+      copyMonday,
+      catalog,
     );
-    // The area stays picked so the next shifts/positions can be added fast.
-    setPickedShiftIds([]);
-    setPickedPositionIds([]);
+    setValues(copied.values);
+    setAreaIds(copied.areaIds);
+    setStep("grid");
   }
 
-  function removeRow(row: GridRow) {
-    setAddedKeys((prev) => {
+  function addArea(workAreaId: string) {
+    setAreaIds((prev) => new Set(prev).add(workAreaId));
+  }
+
+  function removeArea(workAreaId: string) {
+    setAreaIds((prev) => {
       const next = new Set(prev);
-      next.delete(row.key);
+      next.delete(workAreaId);
       return next;
     });
-    setValues((prev) => dropRowValues(prev, row.key));
-    setQuickFill((prev) => {
-      const next = { ...prev };
-      delete next[row.key];
+    setValues((prev) => removeAreaValues(prev, workAreaId));
+    setQuickFill((prev) => removeAreaValues(prev, workAreaId));
+    // Re-adding the area starts it open again.
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.delete(workAreaId);
+      return next;
+    });
+  }
+
+  function toggleArea(workAreaId: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(workAreaId)) next.delete(workAreaId);
+      else next.add(workAreaId);
       return next;
     });
   }
@@ -854,11 +804,7 @@ export function RequestForm({
     const spread = quickFillCells(quickFill[row.key] ?? "", dates);
     setValues((prev) => {
       const next = { ...prev };
-      for (const date of dates) {
-        next[
-          cellKey(row.workAreaId, row.shiftDefinitionId, row.positionId, date)
-        ] = spread[date];
-      }
+      for (const date of dates) next[`${row.key}|${date}`] = spread[date];
       return next;
     });
   }
@@ -870,16 +816,13 @@ export function RequestForm({
     setFieldErrors({});
     setMessage(undefined);
 
-    // Only the grid's rows travel: the added rows plus the inactive pairs
-    // kept unchanged. Removed pairs and stale cells drop out here.
+    // Only the grid's rows travel: the added areas' rows plus the inactive
+    // pairs kept unchanged. Removed pairs and stale cells drop out here.
     const liveValues = pruneValues(
       values,
       new Set([
         ...rows.map((row) => row.key),
-        ...inactivePairs.map(
-          (pair) =>
-            `${pair.workAreaId}|${pair.shiftDefinitionId}|${pair.positionId}`,
-        ),
+        ...inactivePairs.map((pair) => triple(pair)),
       ]),
     );
 
@@ -914,6 +857,11 @@ export function RequestForm({
     });
   }
 
+  const weekly = type_ === "weekly";
+  // Columns per row: label, the dates, and (weekly) the "same all days" or
+  // week-total tail.
+  const columnCount = 1 + dates.length + (weekly ? 1 : 0);
+
   return (
     <form onSubmit={handleSubmit}>
       <FieldGroup className="gap-4">
@@ -927,7 +875,7 @@ export function RequestForm({
             <Input id="request-location" value={pinnedLocationName} disabled />
           </Field>
         ) : (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {showSiteSelect ? (
               <SelectField
                 id="request-site"
@@ -992,7 +940,7 @@ export function RequestForm({
           </Field>
         )}
 
-        {type_ === "weekly" ? (
+        {weekly ? (
           <Field
             data-invalid={fieldErrors.weekStart ? "true" : undefined}
           >
@@ -1030,9 +978,13 @@ export function RequestForm({
           </Field>
         )}
 
+        {fieldErrors.lines ? (
+          <FieldError errors={[{ message: fieldErrors.lines }]} />
+        ) : null}
+
         {dates.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {type_ === "weekly"
+            {weekly
               ? "Pick a week to open the requirement grid."
               : "Pick a date to open the requirement grid."}
           </p>
@@ -1041,239 +993,409 @@ export function RequestForm({
             {configureHint ??
               "This location has no active work areas or shifts yet."}
           </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-          {configureHint ? (
-            <p className="text-sm text-muted-foreground">{configureHint}</p>
-          ) : null}
-          {catalog.length > 0 ? (
-            <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
-              <SelectField
-                id="request-add-work-area"
-                label="Work area"
-                items={toSelectItems(picker.workAreas, "Select a work area")}
-                value={pickedWorkAreaId}
-                onChange={pickWorkArea}
-              />
-              <MultiPickField
-                id="request-add-shifts"
-                label="Shifts"
-                options={picker.shifts.map((shift) => ({
-                  id: shift.id,
-                  name: shift.label,
-                }))}
-                selectedIds={pickedShiftIds}
-                onChange={setPickedShiftIds}
-                placeholder="Select shifts"
-              />
-              <MultiPickField
-                id="request-add-positions"
-                label="Positions"
-                options={picker.positions}
-                selectedIds={pickedPositionIds}
-                onChange={setPickedPositionIds}
-                placeholder={
-                  pickedWorkAreaId === null
-                    ? "Select a work area first"
-                    : "Select positions"
-                }
-                disabled={pickedWorkAreaId === null}
-              />
-              <Button type="button" disabled={!canAddRows} onClick={addRows}>
-                Add rows
+        ) : showCopyStep ? (
+          <div
+            role="group"
+            aria-labelledby="request-copy-step-title"
+            className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4"
+          >
+            <p id="request-copy-step-title" className="font-medium">
+              How do you want to start this week?
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                className="h-11 md:h-8"
+                disabled={!copySource}
+                aria-describedby="request-copy-step-note"
+                onClick={copyFromSource}
+              >
+                <CopyIcon data-icon="inline-start" />
+                {copySource
+                  ? `Copy from week of ${copySource.weekStart}`
+                  : "Copy from an earlier week"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 md:h-8"
+                onClick={() => setStep("grid")}
+              >
+                Start blank
               </Button>
             </div>
-          ) : null}
-          {fieldErrors.lines ? (
-            <FieldError errors={[{ message: fieldErrors.lines }]} />
-          ) : null}
-          {rows.length === 0 && inactivePairs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Add a work area, shift and position to start.
+            <p
+              id="request-copy-step-note"
+              className="text-sm text-muted-foreground"
+              aria-live="polite"
+            >
+              {copyPending
+                ? "Looking for the last request…"
+                : copySource
+                  ? "Headcounts move to the same weekday of this week. Lines for areas, shifts or positions no longer active are left out."
+                  : "No earlier request to copy for this location."}
             </p>
-          ) : (
-          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="min-w-50 px-3 py-2 text-start font-medium">
-                    Work area / shift / position
-                  </th>
-                  {type_ === "weekly"
-                    ? DAYS.map((day) => (
-                        <th
-                          key={day}
-                          className="w-20 px-2 py-2 text-center font-medium"
+            {configureHint ? (
+              <p className="text-sm text-muted-foreground">{configureHint}</p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {configureHint ? (
+              <p className="text-sm text-muted-foreground">{configureHint}</p>
+            ) : null}
+
+            {groups.length === 0 && inactivePairs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Add an area to start.
+              </p>
+            ) : null}
+
+            {groups.map((group) => {
+              const open = !collapsed.has(group.workAreaId);
+              const areaTotals = dayTotals(values, group.rows, dates);
+              const areaWeek = areaTotals.reduce((sum, n) => sum + n, 0);
+              const bodyId = `request-area-${group.workAreaId}`;
+              return (
+                <section
+                  key={group.workAreaId}
+                  aria-labelledby={`${bodyId}-title`}
+                  className="rounded-md border"
+                >
+                  <div className="flex items-start gap-1 p-1">
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      aria-controls={bodyId}
+                      onClick={() => toggleArea(group.workAreaId)}
+                      className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-start outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      <ChevronDownIcon
+                        aria-hidden
+                        className={cn(
+                          "mt-0.5 size-4 shrink-0 transition-transform",
+                          !open && "-rotate-90",
+                        )}
+                      />
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span
+                          id={`${bodyId}-title`}
+                          className="font-medium"
                         >
-                          {day}
-                        </th>
-                      ))
-                    : (
-                        <th className="w-24 px-2 py-2 text-center font-medium">
-                          Headcount
-                        </th>
-                      )}
-                  {type_ === "weekly" ? (
-                    <th className="w-28 px-2 py-2 text-center font-medium">
-                      Same all days
-                    </th>
-                  ) : null}
-                  <th className="w-12 px-2 py-2">
-                    <span className="sr-only">Remove</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, index) => {
-                  // Best-effort per-line placement: the action's refusal
-                  // keys are lines-array indexes (`lines.<i>[.field]`), not
-                  // grid coordinates, so a row matching the index — if any
-                  // — gets the message inline; the toast is the safety net.
-                  const rowError =
-                    fieldErrors[`lines.${index}`] ??
-                    fieldErrors[`lines.${index}.date`] ??
-                    fieldErrors[`lines.${index}.headcount`];
-                  return (
-                    <Fragment key={row.key}>
-                      <tr className="border-b">
-                    <td className="px-3 py-1.5">
-                      {`${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`}
-                    </td>
-                    {dates.map((date) => {
-                      const key = cellKey(
-                        row.workAreaId,
-                        row.shiftDefinitionId,
-                        row.positionId,
-                        date,
-                      );
-                      return (
-                        <td key={date} className="px-2 py-1.5">
-                          <Input
-                            aria-label={`Headcount ${row.workAreaName} / ${row.shiftLabel} / ${row.positionName} / ${date}`}
-                            type="number"
-                            inputMode="numeric"
-                            min={1}
-                            max={999}
-                            step={1}
-                            className="h-8 w-16 text-center tabular-nums"
-                            value={values[key] ?? ""}
-                            onChange={(event) =>
-                              setValues((prev) => ({
-                                ...prev,
-                                [key]: normalizeHeadcount(event.target.value),
-                              }))
-                            }
-                          />
-                        </td>
-                      );
-                    })}
-                    {type_ === "weekly" ? (
-                      <td className="px-2 py-1.5">
-                        <span className="flex items-center gap-1">
-                          <Input
-                            aria-label={`Same all days ${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`}
-                            type="number"
-                            inputMode="numeric"
-                            min={1}
-                            max={999}
-                            className="h-8 w-16 text-center tabular-nums"
-                            value={quickFill[row.key] ?? ""}
-                            onChange={(event) =>
-                              setQuickFill((prev) => ({
-                                ...prev,
-                                [row.key]: normalizeHeadcount(event.target.value),
-                              }))
-                            }
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Quick fill ${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`}
-                            onClick={() => applyQuickFill(row)}
-                          >
-                            <SparklesIcon />
-                          </Button>
+                          {group.workAreaName}
                         </span>
-                      </td>
-                    ) : null}
-                    <td className="px-2 py-1.5">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Remove row ${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`}
-                        onClick={() => removeRow(row)}
-                      >
-                        <XIcon />
-                      </Button>
-                    </td>
-                      </tr>
-                      {rowError ? (
-                        <tr
-                          key={`${row.key}-error`}
-                          className="border-b"
-                        >
-                          <td
-                            colSpan={dates.length + (type_ === "weekly" ? 3 : 2)}
-                            className="px-3 py-1 text-xs text-destructive"
-                          >
-                            {rowError}
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-                {inactivePairs.map((pair) => (
-                  <tr
-                    key={`${pair.workAreaId}|${pair.shiftDefinitionId}|${pair.positionId}`}
-                    className="border-b bg-muted/30 text-muted-foreground"
-                  >
-                    <td className="px-3 py-1.5">
-                      {`${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
-                      <span className="block text-xs">
-                        Inactive — keep unchanged or remove
+                        <ul className="flex flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums">
+                          {weekly ? (
+                            <>
+                              {DAYS.map((day, i) => (
+                                <li key={day}>{`${day} ${areaTotals[i] ?? 0}`}</li>
+                              ))}
+                              <li className="font-medium text-foreground">{`Week ${areaWeek}`}</li>
+                            </>
+                          ) : (
+                            <li>{`Total ${areaWeek}`}</li>
+                          )}
+                        </ul>
                       </span>
-                    </td>
-                    {dates.map((date) => {
-                      const cell = pair.dates.includes(date)
-                        ? values[
-                            cellKey(
-                              pair.workAreaId,
-                              pair.shiftDefinitionId,
-                              pair.positionId,
-                              date,
-                            )
-                          ]
-                        : undefined;
-                      return (
-                        <td
-                          key={date}
-                          className="px-2 py-1.5 text-center tabular-nums"
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-11 md:size-8"
+                      aria-label={`Remove area ${group.workAreaName}`}
+                      onClick={() => removeArea(group.workAreaId)}
+                    >
+                      <XIcon />
+                    </Button>
+                  </div>
+                  <div
+                    id={bodyId}
+                    hidden={!open}
+                    className="relative overflow-x-auto border-t"
+                  >
+                    <table className="w-max min-w-full table-fixed border-collapse text-sm">
+                      <GridColumns dates={dates} tail={weekly} />
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th
+                            scope="col"
+                            className={cn(
+                              STICKY_CELL,
+                              "bg-muted px-3 py-2 text-start font-medium",
+                            )}
+                          >
+                            Shift / position
+                          </th>
+                          <DayHeaders type={type_} />
+                          {weekly ? (
+                            <th
+                              scope="col"
+                              className="px-2 py-2 text-center font-medium"
+                            >
+                              Same all days
+                            </th>
+                          ) : null}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.rows.map((row) => {
+                          // Best-effort per-line placement: the action's
+                          // refusal keys are lines-array indexes
+                          // (`lines.<i>[.field]`), not grid coordinates, so
+                          // a row matching the index — if any — gets the
+                          // message inline; the toast is the safety net.
+                          const index = rows.indexOf(row);
+                          const rowError =
+                            fieldErrors[`lines.${index}`] ??
+                            fieldErrors[`lines.${index}.date`] ??
+                            fieldErrors[`lines.${index}.headcount`];
+                          const label = `${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`;
+                          return (
+                            <Fragment key={row.key}>
+                              <tr className="border-b last:border-b-0">
+                                <th
+                                  scope="row"
+                                  className={cn(
+                                    STICKY_CELL,
+                                    "px-3 py-1.5 text-start font-normal",
+                                  )}
+                                >
+                                  {`${row.shiftLabel} / ${row.positionName}`}
+                                </th>
+                                {dates.map((date) => {
+                                  const key = `${row.key}|${date}`;
+                                  return (
+                                    <td key={date} className="px-1 py-1.5">
+                                      <Input
+                                        aria-label={`Headcount ${label} / ${date}`}
+                                        type="number"
+                                        inputMode="numeric"
+                                        min={1}
+                                        max={999}
+                                        step={1}
+                                        className="h-10 w-14 text-center tabular-nums md:h-8"
+                                        value={values[key] ?? ""}
+                                        onChange={(event) =>
+                                          setValues((prev) => ({
+                                            ...prev,
+                                            [key]: normalizeHeadcount(
+                                              event.target.value,
+                                            ),
+                                          }))
+                                        }
+                                      />
+                                    </td>
+                                  );
+                                })}
+                                {weekly ? (
+                                  <td className="px-2 py-1.5">
+                                    <span className="flex items-center gap-1">
+                                      <Input
+                                        aria-label={`Same all days ${label}`}
+                                        type="number"
+                                        inputMode="numeric"
+                                        min={1}
+                                        max={999}
+                                        className="h-10 w-14 text-center tabular-nums md:h-8"
+                                        value={quickFill[row.key] ?? ""}
+                                        onChange={(event) =>
+                                          setQuickFill((prev) => ({
+                                            ...prev,
+                                            [row.key]: normalizeHeadcount(
+                                              event.target.value,
+                                            ),
+                                          }))
+                                        }
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-10 md:size-8"
+                                        aria-label={`Fill every day ${label}`}
+                                        onClick={() => applyQuickFill(row)}
+                                      >
+                                        <PaintBucketIcon />
+                                      </Button>
+                                    </span>
+                                  </td>
+                                ) : null}
+                              </tr>
+                              {rowError ? (
+                                <tr className="border-b">
+                                  <td
+                                    colSpan={columnCount}
+                                    className="px-3 py-1 text-xs text-destructive"
+                                  >
+                                    {rowError}
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              );
+            })}
+
+            {inactivePairs.length > 0 ? (
+              <div className="relative overflow-x-auto rounded-md border">
+                <table className="w-max min-w-full table-fixed border-collapse text-sm">
+                  <GridColumns dates={dates} tail={weekly} />
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th
+                        scope="col"
+                        className={cn(
+                          STICKY_CELL,
+                          "bg-muted px-3 py-2 text-start font-medium",
+                        )}
+                      >
+                        No longer active
+                      </th>
+                      <DayHeaders type={type_} />
+                      {weekly ? (
+                        <th scope="col">
+                          <span className="sr-only">Remove</span>
+                        </th>
+                      ) : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inactivePairs.map((pair) => (
+                      <tr
+                        key={triple(pair)}
+                        className="border-b bg-muted/30 text-muted-foreground last:border-b-0"
+                      >
+                        <th
+                          scope="row"
+                          className="px-3 py-1.5 text-start font-normal"
                         >
-                          {cell ?? ""}
-                        </td>
-                      );
-                    })}
-                    {type_ === "weekly" ? <td /> : null}
-                    <td className="px-2 py-1.5">
+                          {`${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
+                          <span className="block text-xs">
+                            Inactive — keep unchanged or remove
+                          </span>
+                        </th>
+                        {dates.map((date) => {
+                          const cell = pair.dates.includes(date)
+                            ? values[`${triple(pair)}|${date}`]
+                            : undefined;
+                          return (
+                            <td
+                              key={date}
+                              className="px-1 py-1.5 text-center tabular-nums"
+                            >
+                              {cell ?? ""}
+                            </td>
+                          );
+                        })}
+                        {weekly ? (
+                          <td className="px-2 py-1.5">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-10 md:size-8"
+                              aria-label={`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
+                              onClick={() => removePair(pair)}
+                            >
+                              <EraserIcon />
+                            </Button>
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {weekly ? null : (
+                  // Daily has no tail column, so the remove controls sit
+                  // under the table.
+                  <div className="flex flex-wrap gap-2 border-t p-2">
+                    {inactivePairs.map((pair) => (
                       <Button
+                        key={triple(pair)}
                         type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
+                        variant="outline"
+                        className="h-11 md:h-8"
                         onClick={() => removePair(pair)}
                       >
-                        <EraserIcon />
+                        <EraserIcon data-icon="inline-start" />
+                        {`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
                       </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          )}
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {totalRows.length > 0 ? (
+              <div className="relative overflow-x-auto rounded-md border bg-muted/40">
+                <table className="w-max min-w-full table-fixed border-collapse text-sm tabular-nums">
+                  <GridColumns dates={dates} tail={weekly} />
+                  <tbody>
+                    <tr>
+                      <th
+                        scope="row"
+                        className="sticky left-0 z-[1] bg-muted px-3 py-2 text-start font-medium"
+                      >
+                        Total
+                      </th>
+                      {totals.map((count, i) => (
+                        <td
+                          key={dates[i]}
+                          className="px-1 py-2 text-center font-medium"
+                        >
+                          {weekly ? (
+                            <span className="sr-only">{`${DAYS[i]} `}</span>
+                          ) : null}
+                          {count}
+                        </td>
+                      ))}
+                      {weekly ? (
+                        <td className="px-2 py-2 font-semibold">
+                          <span className="sr-only">Week total </span>
+                          {weekTotal}
+                        </td>
+                      ) : null}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+
+            {addableAreas.length > 0 ? (
+              <div
+                role="group"
+                aria-labelledby="request-add-area-label"
+                className="flex flex-col gap-2"
+              >
+                <p
+                  id="request-add-area-label"
+                  className="text-sm font-medium"
+                >
+                  Add area
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {addableAreas.map((area) => (
+                    <Button
+                      key={area.workAreaId}
+                      type="button"
+                      variant="outline"
+                      className="h-11 md:h-8"
+                      aria-label={`Add ${area.workAreaName}`}
+                      onClick={() => addArea(area.workAreaId)}
+                    >
+                      <PlusIcon data-icon="inline-start" />
+                      {area.workAreaName}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 

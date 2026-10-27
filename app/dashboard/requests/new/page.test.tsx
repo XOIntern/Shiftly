@@ -171,10 +171,14 @@ describe("new request page SSR (requests #128)", () => {
       expect(html.includes(fx.locNames.a)).toBeTrue();
       expect(html.includes("Select a location")).toBeFalse();
       expect(html.includes(fx.locNames.b)).toBeFalse();
-      // Empty anchor → the form's existing guard paragraph.
+      // Empty anchor → the form's existing guard paragraph; the copy step
+      // waits for a week, and the old Add bar is gone.
       expect(
         html.includes("Pick a week to open the requirement grid."),
       ).toBeTrue();
+      expect(html.includes("Start blank")).toBeFalse();
+      expect(html.includes("Add rows")).toBeFalse();
+      expect(html.includes('id="request-add-work-area"')).toBeFalse();
     } finally {
       await fx.cleanup();
     }
