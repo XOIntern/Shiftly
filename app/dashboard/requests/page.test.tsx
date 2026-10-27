@@ -569,7 +569,7 @@ describe("requests list: approval, roster link and filter", () => {
 
   test("rejectDialogCopy asks for confirmation and warns the admin must re-enter the request", async () => {
     const { rejectDialogCopy } = await import("./status-actions");
-    expect(rejectDialogCopy(baseRow)).toEqual({
+    expect(rejectDialogCopy()).toEqual({
       title: "Reject this request?",
       body: "This cannot be undone. The admin will need to enter a new request.",
     });
@@ -577,7 +577,7 @@ describe("requests list: approval, roster link and filter", () => {
 
   test("approveDialogCopy asks for confirmation and says the request feeds the roster", async () => {
     const { approveDialogCopy } = await import("./status-actions");
-    expect(approveDialogCopy(baseRow)).toEqual({
+    expect(approveDialogCopy()).toEqual({
       title: "Approve this request?",
       body: "This request becomes the basis for the week's roster.",
     });

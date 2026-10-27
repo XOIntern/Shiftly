@@ -16,7 +16,7 @@ import { toast } from "sonner";
 
 import type { MpRequestLineView, MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import { finalFocusTarget } from "@/lib/final-focus";
+import { focusFallbackTarget } from "@/lib/final-focus";
 import { runExclusive } from "@/lib/run-exclusive";
 import {
   advanceStatus,
@@ -89,17 +89,13 @@ export const withdrawDialogCopy = (request: MpRequestRow): DialogCopy => ({
       : WITHDRAW_BODY,
 });
 
-// Takes the row like withdrawDialogCopy so both read the same at the call
-// site; the reject copy does not vary by request.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const rejectDialogCopy = (_request: MpRequestRow): DialogCopy => ({
+export const rejectDialogCopy = (): DialogCopy => ({
   title: "Reject this request?",
   body: "This cannot be undone. The admin will need to enter a new request.",
 });
 
 // Approving cannot be undone either; the dialog says what it commits to.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const approveDialogCopy = (_request: MpRequestRow): DialogCopy => ({
+export const approveDialogCopy = (): DialogCopy => ({
   title: "Approve this request?",
   body: "This request becomes the basis for the week's roster.",
 });
@@ -119,17 +115,13 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
   // dialog content unmounts when it closes, this component stays mounted.
   const lock = useRef(false);
   // True only when a dialog closes on a successful approve or reject: the
-  // row is no longer open, its buttons leave the list, so focus goes to the
-  // title.
+  // row stays (as Approved or Rejected) but its inline buttons are removed,
+  // so focus goes to the page title.
   const succeeded = useRef(false);
   const period = periodLabel(request);
-  const approveCopy = approveDialogCopy(request);
-  const rejectCopy = rejectDialogCopy(request);
-  const focusAfterClose = () =>
-    finalFocusTarget(
-      succeeded.current,
-      document.querySelector<HTMLElement>("[data-focus-fallback]"),
-    );
+  const approveCopy = approveDialogCopy();
+  const rejectCopy = rejectDialogCopy();
+  const focusAfterClose = () => focusFallbackTarget(succeeded.current);
 
   function confirm(nextStatus: "approved" | "rejected") {
     succeeded.current = false;

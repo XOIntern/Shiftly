@@ -45,7 +45,8 @@ type ConfirmDialogProps = {
   onConfirm: () => void;
   // Omitted, the confirm button is destructive-styled.
   confirmVariant?: ConfirmVariant;
-  // Passed through to the popup; omitted, focus returns to the trigger.
+  // Passed through to the popup; omitted, Base UI returns focus to the
+  // element that was focused before the dialog opened.
   finalFocus?: ComponentProps<typeof AlertDialogContent>["finalFocus"];
 };
 

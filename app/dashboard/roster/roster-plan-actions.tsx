@@ -6,7 +6,7 @@ import { CalendarPlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import { finalFocusTarget } from "@/lib/final-focus";
+import { focusFallbackTarget } from "@/lib/final-focus";
 import { shouldRefreshAfter } from "@/lib/refresh-after";
 import { runExclusive } from "@/lib/run-exclusive";
 import {
@@ -121,7 +121,10 @@ export function PublishButton({
   const copy = publishDialogCopy(version, totals);
 
   function publish() {
-    if (!enabled) return;
+    if (!enabled) {
+      setOpen(false);
+      return;
+    }
     startTransition(async () => {
       await runExclusive(lock, async () => {
         try {
@@ -170,12 +173,7 @@ export function PublishButton({
         confirmLabel="Publish"
         confirmVariant="default"
         onConfirm={publish}
-        finalFocus={() =>
-          finalFocusTarget(
-            succeeded.current,
-            document.querySelector<HTMLElement>("[data-focus-fallback]"),
-          )
-        }
+        finalFocus={() => focusFallbackTarget(succeeded.current)}
       />
     </>
   );
@@ -256,12 +254,7 @@ export function DiscardDraftButton({
         cancelLabel="Keep draft"
         confirmLabel="Discard draft"
         onConfirm={discard}
-        finalFocus={() =>
-          finalFocusTarget(
-            succeeded.current,
-            document.querySelector<HTMLElement>("[data-focus-fallback]"),
-          )
-        }
+        finalFocus={() => focusFallbackTarget(succeeded.current)}
       />
     </>
   );

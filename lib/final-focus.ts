@@ -9,3 +9,17 @@ export function finalFocusTarget(
 ): HTMLElement | true {
   return succeeded && fallback ? fallback : true;
 }
+
+export const FOCUS_FALLBACK_SELECTOR = "[data-focus-fallback]";
+
+// `finalFocusTarget` against the page's fallback element, looked up when the
+// dialog closes. Call it from inside the `finalFocus` callback, so the flag
+// is read at close time: `finalFocus={() => focusFallbackTarget(ref.current)}`.
+// (A helper that took the ref and returned the callback would pass a ref
+// during render, which the React lint rules reject.)
+export function focusFallbackTarget(succeeded: boolean): HTMLElement | true {
+  return finalFocusTarget(
+    succeeded,
+    document.querySelector<HTMLElement>(FOCUS_FALLBACK_SELECTOR),
+  );
+}
