@@ -263,6 +263,20 @@ describe("RosterStatusBar", () => {
     expect(render({ selectedPlanId: null })).not.toContain("Discard draft");
   });
 
+  test("Discard draft is absent while the plan version is unknown", () => {
+    expect(render({ planVersion: null })).not.toContain("Discard draft");
+  });
+
+  test("the Discard trigger is disabled while a navigation is pending and enabled otherwise", () => {
+    const trigger = (html: string) => {
+      const label = html.indexOf("Discard draft");
+      expect(label).toBeGreaterThan(-1);
+      return html.slice(html.lastIndexOf("<button", label), label);
+    };
+    expect(trigger(render({ navigating: true }))).toContain('disabled=""');
+    expect(trigger(render({ navigating: false }))).not.toContain('disabled=""');
+  });
+
   test("canWrite false hides the primary button on a draft", () => {
     expect(render({ canWrite: false })).not.toContain("Publish roster");
   });

@@ -180,7 +180,10 @@ export function RosterStatusBar({
 
   const showPrimary = canWrite && gate.action !== "none";
   const showDiscard =
-    canDiscard && planStatus === "draft" && selectedPlanId !== null;
+    canDiscard &&
+    planStatus === "draft" &&
+    selectedPlanId !== null &&
+    planVersion !== null;
   const reason = gate.action === "none" ? null : gate.reason;
 
   return (
@@ -296,11 +299,12 @@ export function RosterStatusBar({
         {showPrimary || showDiscard ? (
           <div className="flex min-w-0 max-w-full flex-col gap-1.5 sm:items-end">
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-              {showDiscard && selectedPlanId ? (
+              {showDiscard && selectedPlanId && planVersion !== null ? (
                 <DiscardDraftButton
                   planId={selectedPlanId}
-                  version={planVersion ?? 0}
+                  version={planVersion}
                   assignmentCount={discardAssignmentCount}
+                  navigating={navigating || isPending}
                   onDiscarded={afterDiscard}
                 />
               ) : null}

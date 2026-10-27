@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { finalFocusTarget } from "@/lib/final-focus";
+import { shouldRefreshAfter } from "@/lib/refresh-after";
 import { runExclusive } from "@/lib/run-exclusive";
 import {
   discardDraft,
@@ -84,6 +85,7 @@ export function PublishButton({
   enabled: boolean;
   reasonId: string;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   function publish() {
@@ -96,6 +98,8 @@ export function PublishButton({
       }
       // Refusals carry up to five violation messages: surfaced verbatim.
       toast.error(result.message ?? GENERIC_ERROR);
+      // The plan may have changed elsewhere: re-read it.
+      if (shouldRefreshAfter(result)) router.refresh();
     });
   }
 
@@ -116,13 +120,19 @@ export function DiscardDraftButton({
   planId,
   version,
   assignmentCount,
+  navigating,
   onDiscarded,
 }: {
   planId: string;
   version: number;
   assignmentCount: number | null;
+  // A navigation is in flight (after a discard the URL push has not yet
+  // committed): the trigger stays disabled so it cannot reopen the dialog on
+  // a plan that no longer exists.
+  navigating: boolean;
   onDiscarded: () => void;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   // Held here, not in the dialog content: the content unmounts on close,
@@ -145,8 +155,10 @@ export function DiscardDraftButton({
             return;
           }
           toast.error(result.message ?? GENERIC_ERROR);
+          if (shouldRefreshAfter(result)) router.refresh();
         } catch {
           toast.error(GENERIC_ERROR);
+          router.refresh();
         } finally {
           setOpen(false);
         }
@@ -160,7 +172,7 @@ export function DiscardDraftButton({
         type="button"
         variant="outline"
         className="max-sm:h-10"
-        disabled={pending}
+        disabled={pending || navigating}
         aria-busy={pending}
         onClick={() => {
           succeeded.current = false;
@@ -202,6 +214,7 @@ export function RevisePlanButton({ planId }: { planId: string }) {
       const outcome = await commitRevise(planId);
       if (!outcome.ok) {
         toast.error(outcome.message);
+        if (shouldRefreshAfter(outcome)) router.refresh();
         return;
       }
       toast.success("Revision draft created.");
