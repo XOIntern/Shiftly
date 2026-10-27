@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { UserPlusIcon } from "lucide-react";
@@ -63,10 +63,61 @@ type SlotTarget = {
   siteLocationId: string;
 };
 
+// Runs `task` unless one is already in flight on `lock`. The lock is a ref so
+// a second call in the same tick is refused before any state has re-rendered.
+export async function runExclusive(
+  lock: { current: boolean },
+  task: () => Promise<void>,
+): Promise<boolean> {
+  if (lock.current) return false;
+  lock.current = true;
+  try {
+    await task();
+  } finally {
+    lock.current = false;
+  }
+  return true;
+}
+
+// The in-flight fill state. It must live in a component that outlives the
+// popup (choosing a candidate closes the menu and unmounts its content), so
+// the busy flag and the guard keep working while the request is pending.
+function useSlotFill() {
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+
+  function fill(target: SlotTarget, workerId: string, employeeId: string) {
+    void runExclusive(lock, async () => {
+      setBusy(true);
+      try {
+        const result = await fillDailyRequest({
+          requestId: target.requestId,
+          workAreaId: target.workAreaId,
+          shiftDefId: target.shiftDefId,
+          date: target.date,
+          positionId: target.positionId,
+          workerId,
+          siteLocationId: target.siteLocationId,
+        });
+        if (result.ok) {
+          toast.success(`Daily request filled with ${employeeId}.`);
+          return;
+        }
+        toast.error(result.message ?? GENERIC_ERROR);
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
+
+  return { busy, fill };
+}
+
+type SlotFill = ReturnType<typeof useSlotFill>;
+
 function useSlotCandidates(target: SlotTarget) {
   const [candidates, setCandidates] = useState<SuggestedCandidate[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -88,38 +139,25 @@ function useSlotCandidates(target: SlotTarget) {
       setLoading(false);
     }
   }
-  function fill(workerId: string, employeeId: string) {
-    if (busy) return;
-    setBusy(true);
-    void (async () => {
-      const result = await fillDailyRequest({
-        requestId: target.requestId,
-        workAreaId: target.workAreaId,
-        shiftDefId: target.shiftDefId,
-        date: target.date,
-        positionId: target.positionId,
-        workerId,
-        siteLocationId: target.siteLocationId,
-      });
-      setBusy(false);
-      if (result.ok) {
-        toast.success(`Daily request filled with ${employeeId}.`);
-        return;
-      }
-      toast.error(result.message ?? GENERIC_ERROR);
-    })();
-  }
   function onOpenChange(open: boolean) {
     if (open) void load();
     else setCandidates(null);
   }
 
-  return { candidates, loading, busy, fill, onOpenChange };
+  return { candidates, loading, onOpenChange };
 }
 
-type SlotCandidates = ReturnType<typeof useSlotCandidates>;
-
-function CandidateItems({ candidates, loading, busy, fill }: SlotCandidates) {
+function CandidateItems({
+  candidates,
+  loading,
+  busy,
+  onPick,
+}: {
+  candidates: SuggestedCandidate[] | null;
+  loading: boolean;
+  busy: boolean;
+  onPick: (workerId: string, employeeId: string) => void;
+}) {
   if (loading) {
     return <DropdownMenuItem disabled>Searching…</DropdownMenuItem>;
   }
@@ -131,7 +169,7 @@ function CandidateItems({ candidates, loading, busy, fill }: SlotCandidates) {
     <DropdownMenuItem
       key={candidate.workerId}
       disabled={busy}
-      onClick={() => fill(candidate.workerId, candidate.employeeId)}
+      onClick={() => onPick(candidate.workerId, candidate.employeeId)}
     >
       {candidate.employeeId}
       <span className="text-xs text-muted-foreground">{candidate.reason}</span>
@@ -140,27 +178,40 @@ function CandidateItems({ candidates, loading, busy, fill }: SlotCandidates) {
 }
 
 function SuggestMenu({ line }: { line: DailyLineRow }) {
-  const slot = useSlotCandidates({
+  const target: SlotTarget = {
     requestId: line.requestId,
     workAreaId: line.workAreaId,
     shiftDefId: line.shiftDefinitionId,
     date: line.date,
     positionId: line.positionId,
     siteLocationId: line.siteLocationId,
-  });
+  };
+  const slot = useSlotCandidates(target);
+  const filler = useSlotFill();
 
   return (
     <DropdownMenu onOpenChange={slot.onOpenChange}>
       <DropdownMenuTrigger
         render={
-          <Button variant="outline" size="sm" disabled={slot.loading || slot.busy}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={slot.loading || filler.busy}
+          >
             <UserPlusIcon data-icon="inline-start" />
             Suggest replacements
           </Button>
         }
       />
       <DropdownMenuContent align="end">
-        <CandidateItems {...slot} />
+        <CandidateItems
+          candidates={slot.candidates}
+          loading={slot.loading}
+          busy={filler.busy}
+          onPick={(workerId, employeeId) =>
+            filler.fill(target, workerId, employeeId)
+          }
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -169,7 +220,9 @@ function SuggestMenu({ line }: { line: DailyLineRow }) {
 // One daily slot of the requirements panel: a menu with an entry per demanded
 // position; opening an entry loads the candidates for that position and
 // confirming one fills the position's request. A position without a request
-// id cannot be filled, so it is not offered.
+// id cannot be filled, so it is not offered. The in-flight fill state is held
+// by DailySlotMenu (outside the popup); per-position candidates stay in the
+// submenu.
 function PositionSubmenu({
   row,
   position,
@@ -177,6 +230,7 @@ function PositionSubmenu({
   siteLocationId,
   date,
   requestId,
+  filler,
 }: {
   row: CoverageRow;
   position: CoverageRow["positions"][number];
@@ -184,24 +238,33 @@ function PositionSubmenu({
   siteLocationId: string;
   date: string;
   requestId: string;
+  filler: SlotFill;
 }) {
-  const slot = useSlotCandidates({
+  const target: SlotTarget = {
     requestId,
     workAreaId: row.workAreaId,
     shiftDefId: row.shiftDefId,
     date,
     positionId: position.positionId,
     siteLocationId,
-  });
+  };
+  const slot = useSlotCandidates(target);
 
   return (
     <DropdownMenuSub onOpenChange={slot.onOpenChange}>
-      <DropdownMenuSubTrigger disabled={slot.busy}>
+      <DropdownMenuSubTrigger disabled={filler.busy}>
         {positionNames[position.positionId] ?? "Position"} (needs{" "}
         {position.headcount})
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
-        <CandidateItems {...slot} />
+        <CandidateItems
+          candidates={slot.candidates}
+          loading={slot.loading}
+          busy={filler.busy}
+          onPick={(workerId, employeeId) =>
+            filler.fill(target, workerId, employeeId)
+          }
+        />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
@@ -216,6 +279,7 @@ export function DailySlotMenu({
   positionNames: Record<string, string>;
   siteLocationId: string;
 }) {
+  const filler = useSlotFill();
   const date = row.date;
   if (date === null) return null;
 
@@ -223,7 +287,12 @@ export function DailySlotMenu({
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button variant="outline" size="sm" className="max-sm:h-10">
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-sm:h-10"
+            disabled={filler.busy}
+          >
             <UserPlusIcon data-icon="inline-start" />
             Suggest replacements
           </Button>
@@ -240,6 +309,7 @@ export function DailySlotMenu({
               siteLocationId={siteLocationId}
               date={date}
               requestId={position.requestId}
+              filler={filler}
             />
           ) : null,
         )}
