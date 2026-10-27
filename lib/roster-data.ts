@@ -133,7 +133,7 @@ export async function loadWorkerProfiles(
 
 // Requirement lines for one Monday-anchored week: the lines of every WEEKLY
 // request whose week_start equals the anchor exactly and whose status is
-// approved or fulfilled (open is not confirmed demand, rejected is void).
+// approved or fulfilled (open is not confirmed demand, rejected and withdrawn are void).
 // A week can hold a fulfilled request next to an approved one, so lines are
 // returned per request, unmerged: identical area/shift/position/date lines
 // from two requests both appear and the engine sums them.
@@ -167,7 +167,7 @@ export type DailyRequirementLine = RequirementLine & { requestId: string };
 
 // Requirement lines of the location's open DAILY requests with a line date
 // in [fromDate, toDate], each tagged with its request id so a daily roster
-// can mark the request fulfilled. Fulfilled and rejected daily requests are
+// can mark the request fulfilled. Fulfilled, rejected and withdrawn daily requests are
 // excluded.
 export async function loadDailyRequirements(
   siteLocationId: string,

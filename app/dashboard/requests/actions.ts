@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, isNull, lt, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -548,10 +548,11 @@ export async function advanceStatus(
 }
 
 // Read-only lookup behind "copy from last week": the most recent week before
-// the given one in which the actor has a non-rejected weekly request at that
-// location, returned as the merged lines of every non-rejected weekly
-// request of that week (a fulfilled request plus a later delta request read
-// as one demand). Network-reachable, so it authenticates and scopes like the writes;
+// the given one in which the actor has a live (open, approved or fulfilled)
+// weekly request at that location, returned as the merged lines of every
+// live weekly request of that week (a fulfilled request plus a later delta
+// request read as one demand). Rejected and withdrawn requests are void and
+// never count, so a week holding only those is skipped. Network-reachable, so it authenticates and scopes like the writes;
 // anything malformed or out of scope is simply "no source".
 export async function loadCopySource(
   siteLocationId: string,
@@ -570,7 +571,7 @@ export async function loadCopySource(
     mpRequestListWhere(actor),
     eq(mpRequest.siteLocationId, siteLocationId),
     eq(mpRequest.type, "weekly"),
-    ne(mpRequest.status, "rejected"),
+    inArray(mpRequest.status, ["open", "approved", "fulfilled"]),
   );
   const [source] = await db
     .select({ weekStart: mpRequest.weekStart })

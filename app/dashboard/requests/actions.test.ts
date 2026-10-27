@@ -155,7 +155,7 @@ async function seedRequest(args: {
   type: "weekly" | "daily";
   weekStart?: string;
   requestDate?: string;
-  status?: "open" | "approved" | "fulfilled" | "rejected";
+  status?: "open" | "approved" | "fulfilled" | "rejected" | "withdrawn";
 }) {
   const id = randomUUID();
   await db.insert(mpRequest).values({
@@ -1203,7 +1203,7 @@ describe("request actions: loadCopySource", () => {
       createdBy: string;
       weekStart: string;
       headcount: number;
-      status?: "open" | "approved" | "fulfilled" | "rejected";
+      status?: "open" | "approved" | "fulfilled" | "rejected" | "withdrawn";
       siteLocationId?: string;
     },
   ) {
@@ -1306,6 +1306,54 @@ describe("request actions: loadCopySource", () => {
         workAreaIds: [masters.workAreaId, ...(otherMasters ? [otherMasters.workAreaId] : [])],
         shiftIds: [masters.shiftId, ...(otherMasters ? [otherMasters.shiftId] : [])],
         positionIds: [masters.positionId, ...(otherMasters ? [otherMasters.positionId] : [])],
+        ...fx,
+      });
+    }
+  });
+
+  test("withdrawn requests are left out of the copy source: a withdrawn-only week is skipped for the next earlier week, and a week mixing fulfilled and withdrawn copies only the fulfilled lines", async () => {
+    const fx = await seedGlobalData();
+    const masters = await seedMasters(fx);
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+
+    try {
+      const { loadCopySource } = await import("./actions");
+
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 2,
+        status: "fulfilled",
+      });
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 6,
+        status: "withdrawn",
+      });
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_2,
+        headcount: 9,
+        status: "withdrawn",
+      });
+
+      const source = await loadCopySource(fx.locA1, WEEK_3);
+      expect(source?.weekStart).toBe(WEEK_1);
+      expect(source?.lines).toHaveLength(1);
+      expect(source?.lines[0]).toMatchObject({ date: WEEK_1, headcount: 2 });
+
+      // Only the week-1 requests precede week 2, and week 1 holds no
+      // withdrawn lines in its source; nothing precedes week 1.
+      expect((await loadCopySource(fx.locA1, WEEK_2))?.lines).toHaveLength(1);
+      expect(await loadCopySource(fx.locA1, WEEK_1)).toBeNull();
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [masters.workAreaId],
+        shiftIds: [masters.shiftId],
+        positionIds: [masters.positionId],
         ...fx,
       });
     }
