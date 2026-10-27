@@ -31,6 +31,7 @@ export {
   buildReviseHref,
   commitRevise,
   discardDialogCopy,
+  publishDialogCopy,
 } from "@/app/dashboard/roster/roster-plan-actions";
 export type { ReviseOutcome } from "@/app/dashboard/roster/roster-plan-actions";
 
@@ -319,9 +320,14 @@ export function RosterStatusBar({
                   locationName={locationName}
                 />
               ) : null}
-              {showPrimary && gate.action === "publish" && selectedPlanId ? (
+              {showPrimary &&
+              gate.action === "publish" &&
+              selectedPlanId &&
+              planVersion !== null ? (
                 <PublishButton
                   planId={selectedPlanId}
+                  version={planVersion}
+                  totals={totals}
                   enabled={gate.enabled}
                   reasonId={reasonId}
                 />

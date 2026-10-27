@@ -76,43 +76,108 @@ export function discardDialogCopy(
   };
 }
 
+// The publish confirmation's copy. Pure so tests can pin it: the dialog
+// parts cannot render outside an open dialog. A shortfall is named so the
+// admin publishes a short roster knowingly.
+export function publishDialogCopy(
+  version: number,
+  totals: { required: number; filled: number } | null,
+): { title: string; body: string } {
+  const body = `This locks v${version} and marks the week's approved requests fulfilled. Use Revise to change it afterwards.`;
+  const unfilled = totals ? totals.required - totals.filled : 0;
+  const short =
+    unfilled > 0
+      ? unfilled === 1
+        ? " 1 slot is still unfilled."
+        : ` ${unfilled} slots are still unfilled.`
+      : "";
+  return { title: `Publish v${version}?`, body: `${body}${short}` };
+}
+
 export function PublishButton({
   planId,
+  version,
+  totals,
   enabled,
   reasonId,
 }: {
   planId: string;
+  version: number;
+  // The selected plan's coverage, for the shortfall sentence; null when
+  // unknown.
+  totals: { required: number; filled: number } | null;
   enabled: boolean;
   reasonId: string;
 }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  // Held here, not in the dialog content: the content unmounts on close,
+  // this button stays mounted and guards a second submit.
+  const lock = useRef(false);
+  // True only when the dialog closes on a successful publish: this button
+  // turns into Revise, so focus goes to the title.
+  const succeeded = useRef(false);
+  const copy = publishDialogCopy(version, totals);
 
   function publish() {
-    if (pending || !enabled) return;
+    if (!enabled) return;
     startTransition(async () => {
-      const result: ActionState = await publishRoster(planId);
-      if (result.ok) {
-        toast.success("Roster published.");
-        return;
-      }
-      // Refusals carry up to five violation messages: surfaced verbatim.
-      toast.error(result.message ?? GENERIC_ERROR);
-      // The plan may have changed elsewhere: re-read it.
-      if (shouldRefreshAfter(result)) router.refresh();
+      await runExclusive(lock, async () => {
+        try {
+          const result: ActionState = await publishRoster(planId);
+          if (result.ok) {
+            toast.success("Roster published.");
+            succeeded.current = true;
+            return;
+          }
+          // Refusals carry up to five violation messages: surfaced verbatim.
+          toast.error(result.message ?? GENERIC_ERROR);
+          // The plan may have changed elsewhere: re-read it.
+          if (shouldRefreshAfter(result)) router.refresh();
+        } catch {
+          toast.error(GENERIC_ERROR);
+          router.refresh();
+        } finally {
+          setOpen(false);
+        }
+      });
     });
   }
 
   return (
-    <Button
-      type="button"
-      className="max-sm:h-10"
-      onClick={publish}
-      disabled={pending || !enabled}
-      aria-describedby={enabled ? undefined : reasonId}
-    >
-      {pending ? "Publishing…" : "Publish roster"}
-    </Button>
+    <>
+      <Button
+        type="button"
+        className="max-sm:h-10"
+        onClick={() => {
+          succeeded.current = false;
+          setOpen(true);
+        }}
+        disabled={pending || !enabled}
+        aria-busy={pending}
+        aria-describedby={enabled ? undefined : reasonId}
+      >
+        {pending ? "Publishing…" : "Publish roster"}
+      </Button>
+      <ConfirmDestructiveDialog
+        open={open}
+        onOpenChange={setOpen}
+        pending={pending}
+        title={copy.title}
+        body={copy.body}
+        cancelLabel="Keep editing"
+        confirmLabel="Publish"
+        confirmVariant="default"
+        onConfirm={publish}
+        finalFocus={() =>
+          finalFocusTarget(
+            succeeded.current,
+            document.querySelector<HTMLElement>("[data-focus-fallback]"),
+          )
+        }
+      />
+    </>
   );
 }
 
@@ -211,17 +276,25 @@ export function RevisePlanButton({ planId }: { planId: string }) {
   function revise() {
     if (pending) return;
     startTransition(async () => {
-      const outcome = await commitRevise(planId);
-      if (!outcome.ok) {
-        toast.error(outcome.message);
-        if (shouldRefreshAfter(outcome)) router.refresh();
-        return;
+      try {
+        const outcome = await commitRevise(planId);
+        if (!outcome.ok) {
+          toast.error(outcome.message);
+          if (shouldRefreshAfter(outcome)) router.refresh();
+          return;
+        }
+        toast.success("Revision draft created.");
+        router.push(
+          `${pathname}?${buildReviseHref(searchParams.toString(), outcome.draftPlanId)}`,
+          { scroll: false },
+        );
+      } catch {
+        // commitRevise already folds a thrown action into a failure; this
+        // catches anything else in the handler so it still toasts and
+        // re-reads the plan.
+        toast.error(GENERIC_ERROR);
+        router.refresh();
       }
-      toast.success("Revision draft created.");
-      router.push(
-        `${pathname}?${buildReviseHref(searchParams.toString(), outcome.draftPlanId)}`,
-        { scroll: false },
-      );
     });
   }
 

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { guardedOpenChange } from "@/components/confirm-destructive-dialog";
+import {
+  confirmButtonVariant,
+  guardedOpenChange,
+} from "@/components/confirm-destructive-dialog";
 
 // The dialog parts cannot render outside an open dialog, so the close guard
 // is pinned through its pure helper.
@@ -19,5 +22,20 @@ describe("guardedOpenChange", () => {
 
   test("when idle, an open request is applied", () => {
     expect(guardedOpenChange(false, true)).toBe(true);
+  });
+});
+
+// The confirm button's variant cannot be read from a closed dialog either.
+describe("confirmButtonVariant", () => {
+  test("defaults to destructive, so existing callers are unchanged", () => {
+    expect(confirmButtonVariant(undefined)).toBe("destructive");
+  });
+
+  test("destructive stays destructive", () => {
+    expect(confirmButtonVariant("destructive")).toBe("destructive");
+  });
+
+  test("default gives the primary button style", () => {
+    expect(confirmButtonVariant("default")).toBe("default");
   });
 });

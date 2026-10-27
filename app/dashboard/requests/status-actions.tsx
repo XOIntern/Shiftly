@@ -97,6 +97,13 @@ export const rejectDialogCopy = (_request: MpRequestRow): DialogCopy => ({
   body: "This cannot be undone. The admin will need to enter a new request.",
 });
 
+// Approving cannot be undone either; the dialog says what it commits to.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const approveDialogCopy = (_request: MpRequestRow): DialogCopy => ({
+  title: "Approve this request?",
+  body: "This request becomes the basis for the week's roster.",
+});
+
 const periodLabel = (request: MpRequestRow): string =>
   request.type === "weekly"
     ? `week of ${request.weekStart}`
@@ -105,15 +112,29 @@ const periodLabel = (request: MpRequestRow): string =>
 export function RowApproval({ request }: { request: MpRequestRow }) {
   const [pending, startTransition] = useTransition();
   const [choice, setChoice] = useState<"approved" | "rejected" | null>(null);
-  const [confirmingReject, setConfirmingReject] = useState(false);
+  const [confirming, setConfirming] = useState<
+    "approved" | "rejected" | null
+  >(null);
   // The ref lock and the pending flag live here, not in the dialog: the
   // dialog content unmounts when it closes, this component stays mounted.
   const lock = useRef(false);
-  // True only when the reject dialog closes on a successful reject: the row
-  // and this trigger are about to leave the list, so focus goes to the title.
+  // True only when a dialog closes on a successful approve or reject: the
+  // row is no longer open, its buttons leave the list, so focus goes to the
+  // title.
   const succeeded = useRef(false);
   const period = periodLabel(request);
+  const approveCopy = approveDialogCopy(request);
   const rejectCopy = rejectDialogCopy(request);
+  const focusAfterClose = () =>
+    finalFocusTarget(
+      succeeded.current,
+      document.querySelector<HTMLElement>("[data-focus-fallback]"),
+    );
+
+  function confirm(nextStatus: "approved" | "rejected") {
+    succeeded.current = false;
+    setConfirming(nextStatus);
+  }
 
   function decide(nextStatus: "approved" | "rejected") {
     setChoice(nextStatus);
@@ -122,7 +143,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         try {
           const result = await advanceStatus(request.id, nextStatus);
           if (result.ok) {
-            if (nextStatus === "rejected") succeeded.current = true;
+            succeeded.current = true;
             toast.success(
               nextStatus === "approved"
                 ? "Request approved."
@@ -134,7 +155,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         } catch {
           toast.error(GENERIC_ERROR);
         } finally {
-          setConfirmingReject(false);
+          setConfirming(null);
         }
       });
     });
@@ -147,7 +168,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         disabled={pending}
         aria-busy={pending && choice === "approved"}
         aria-label={`Approve request for ${period}`}
-        onClick={() => decide("approved")}
+        onClick={() => confirm("approved")}
       >
         {pending && choice === "approved" ? (
           <Loader2Icon data-icon="inline-start" className="animate-spin" />
@@ -163,10 +184,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         aria-busy={pending && choice === "rejected"}
         aria-label={`Reject request for ${period}`}
         className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => {
-          succeeded.current = false;
-          setConfirmingReject(true);
-        }}
+        onClick={() => confirm("rejected")}
       >
         {pending && choice === "rejected" ? (
           <Loader2Icon data-icon="inline-start" className="animate-spin" />
@@ -176,20 +194,27 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         Reject
       </Button>
       <ConfirmDestructiveDialog
-        open={confirmingReject}
-        onOpenChange={setConfirmingReject}
+        open={confirming === "approved"}
+        onOpenChange={(open) => setConfirming(open ? "approved" : null)}
+        pending={pending}
+        title={approveCopy.title}
+        body={approveCopy.body}
+        cancelLabel="Cancel"
+        confirmLabel="Approve"
+        confirmVariant="default"
+        onConfirm={() => decide("approved")}
+        finalFocus={focusAfterClose}
+      />
+      <ConfirmDestructiveDialog
+        open={confirming === "rejected"}
+        onOpenChange={(open) => setConfirming(open ? "rejected" : null)}
         pending={pending}
         title={rejectCopy.title}
         body={rejectCopy.body}
         cancelLabel="Cancel"
         confirmLabel="Reject"
         onConfirm={() => decide("rejected")}
-        finalFocus={() =>
-          finalFocusTarget(
-            succeeded.current,
-            document.querySelector<HTMLElement>("[data-focus-fallback]"),
-          )
-        }
+        finalFocus={focusAfterClose}
       />
     </div>
   );

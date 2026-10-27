@@ -23,6 +23,17 @@ export function guardedOpenChange(pending: boolean, next: boolean): boolean {
   return !pending;
 }
 
+export type ConfirmVariant = "destructive" | "default";
+
+// The confirm button's style. Destructive unless the caller asks for the
+// primary style: an action that is final but not destructive (approve,
+// publish) still confirms, without the warning colour.
+export function confirmButtonVariant(
+  confirmVariant: ConfirmVariant | undefined,
+): ConfirmVariant {
+  return confirmVariant ?? "destructive";
+}
+
 type ConfirmDestructiveDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -32,11 +43,14 @@ type ConfirmDestructiveDialogProps = {
   confirmLabel: ReactNode;
   cancelLabel: ReactNode;
   onConfirm: () => void;
+  // Omitted, the confirm button is destructive-styled.
+  confirmVariant?: ConfirmVariant;
   // Passed through to the popup; omitted, focus returns to the trigger.
   finalFocus?: ComponentProps<typeof AlertDialogContent>["finalFocus"];
 };
 
-// A controlled confirmation for an irreversible action. Render it outside any
+// A controlled confirmation for an irreversible action (destructive-styled
+// unless `confirmVariant` says otherwise). Render it outside any
 // menu popup. The caller owns the in-flight lock and the transition: this
 // content unmounts on close, the caller stays mounted. The confirm button is
 // a plain button, not a closing part, so the dialog stays open and shows the
@@ -50,6 +64,7 @@ export function ConfirmDestructiveDialog({
   confirmLabel,
   cancelLabel,
   onConfirm,
+  confirmVariant,
   finalFocus,
 }: ConfirmDestructiveDialogProps) {
   return (
@@ -67,7 +82,7 @@ export function ConfirmDestructiveDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
-            variant="destructive"
+            variant={confirmButtonVariant(confirmVariant)}
             disabled={pending}
             aria-busy={pending}
             onClick={onConfirm}

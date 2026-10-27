@@ -575,6 +575,14 @@ describe("requests list: approval, roster link and filter", () => {
     });
   });
 
+  test("approveDialogCopy asks for confirmation and says the request feeds the roster", async () => {
+    const { approveDialogCopy } = await import("./status-actions");
+    expect(approveDialogCopy(baseRow)).toEqual({
+      title: "Approve this request?",
+      body: "This request becomes the basis for the week's roster.",
+    });
+  });
+
   test("ho sees Approve and Reject on an open weekly row and none on an approved row", async () => {
     const fx = await seedRequestFixtures();
     const dailyId = randomUUID();
