@@ -23,6 +23,26 @@ export function guardedOpenChange(pending: boolean, next: boolean): boolean {
   return !pending;
 }
 
+// The pending state of the dialog's buttons. `aria-disabled`, not the
+// `disabled` attribute: a disabled button loses focus, and the focused
+// confirm would drop focus to <body> for the whole request. The buttons stay
+// focusable and announced as unavailable; clicks are ignored by
+// `guardedConfirm` (confirm) and `guardedOpenChange` (cancel).
+export function pendingButtonProps(pending: boolean): {
+  "aria-disabled"?: true;
+} {
+  return pending ? { "aria-disabled": true } : {};
+}
+
+// Whether a confirm click should run the action: not while one is pending.
+export function guardedConfirm(pending: boolean): boolean {
+  return !pending;
+}
+
+// Looks disabled while `aria-disabled` is set, as the `disabled:` styles do.
+const PENDING_BUTTON_CLASS =
+  "aria-disabled:pointer-events-none aria-disabled:opacity-50";
+
 export type ConfirmVariant = "destructive" | "default";
 
 // The confirm button's style. Destructive unless the caller asks for the
@@ -81,12 +101,20 @@ export function ConfirmDialog({
           <AlertDialogDescription>{body}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>{cancelLabel}</AlertDialogCancel>
+          <AlertDialogCancel
+            {...pendingButtonProps(pending)}
+            className={PENDING_BUTTON_CLASS}
+          >
+            {cancelLabel}
+          </AlertDialogCancel>
           <AlertDialogAction
             variant={confirmButtonVariant(confirmVariant)}
-            disabled={pending}
+            {...pendingButtonProps(pending)}
+            className={PENDING_BUTTON_CLASS}
             aria-busy={pending}
-            onClick={onConfirm}
+            onClick={() => {
+              if (guardedConfirm(pending)) onConfirm();
+            }}
           >
             {pending ? (
               <Loader2Icon data-icon="inline-start" className="animate-spin" />

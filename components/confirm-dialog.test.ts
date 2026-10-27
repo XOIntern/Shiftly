@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   confirmButtonVariant,
+  guardedConfirm,
   guardedOpenChange,
+  pendingButtonProps,
 } from "@/components/confirm-dialog";
 
 // The dialog parts cannot render outside an open dialog, so the close guard
@@ -37,5 +39,31 @@ describe("confirmButtonVariant", () => {
 
   test("default gives the primary button style", () => {
     expect(confirmButtonVariant("default")).toBe("default");
+  });
+});
+
+// While pending the buttons keep focus: they are marked aria-disabled, never
+// given the `disabled` attribute (a disabled button drops focus to <body>).
+describe("pendingButtonProps", () => {
+  test("while the action runs, the buttons are aria-disabled, not disabled", () => {
+    const props = pendingButtonProps(true);
+    expect(props).toEqual({ "aria-disabled": true });
+    expect("disabled" in props).toBe(false);
+  });
+
+  test("when idle, no disabled state is set", () => {
+    expect(pendingButtonProps(false)).toEqual({});
+  });
+});
+
+// The confirm button stays clickable to the browser while pending, so the
+// dialog ignores the click itself.
+describe("guardedConfirm", () => {
+  test("while the action runs, a confirm click is ignored", () => {
+    expect(guardedConfirm(true)).toBe(false);
+  });
+
+  test("when idle, a confirm click runs the action", () => {
+    expect(guardedConfirm(false)).toBe(true);
   });
 });
