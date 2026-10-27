@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte } from "drizzle-orm";
 
 import { db } from "./db";
 import {
@@ -131,11 +131,12 @@ export async function loadWorkerProfiles(
   return workers;
 }
 
-// Requirement lines for one Monday-anchored week: lines of the WEEKLY
-// request whose week_start equals the anchor exactly, in approved
-// status (open is not confirmed demand, fulfilled is done).
-// One open weekly request per location per week by the partial unique, so
-// no aggregation two worlds can collide.
+// Requirement lines for one Monday-anchored week: the lines of every WEEKLY
+// request whose week_start equals the anchor exactly and whose status is
+// approved or fulfilled (open is not confirmed demand, rejected is void).
+// A week can hold a fulfilled request next to an approved one, so lines are
+// returned per request, unmerged: identical area/shift/position/date lines
+// from two requests both appear and the engine sums them.
 export async function loadRequirementsForWeek(
   siteLocationId: string,
   weekStart: string,
@@ -155,10 +156,50 @@ export async function loadRequirementsForWeek(
         eq(mpRequest.siteLocationId, siteLocationId),
         eq(mpRequest.type, "weekly"),
         eq(mpRequest.weekStart, weekStart),
-        inArray(mpRequest.status, ["approved"]),
+        inArray(mpRequest.status, ["approved", "fulfilled"]),
       ),
     )
     .orderBy(asc(mpRequestLine.date), asc(mpRequestLine.workAreaId), asc(mpRequestLine.shiftDefinitionId));
+  return rows;
+}
+
+export type DailyRequirementLine = RequirementLine & { requestId: string };
+
+// Requirement lines of the location's open DAILY requests with a line date
+// in [fromDate, toDate], each tagged with its request id so a daily roster
+// can mark the request fulfilled. Fulfilled and rejected daily requests are
+// excluded.
+export async function loadDailyRequirements(
+  siteLocationId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<DailyRequirementLine[]> {
+  const rows = await db
+    .select({
+      requestId: mpRequestLine.requestId,
+      workAreaId: mpRequestLine.workAreaId,
+      shiftDefId: mpRequestLine.shiftDefinitionId,
+      positionId: mpRequestLine.positionId,
+      date: mpRequestLine.date,
+      headcount: mpRequestLine.headcount,
+    })
+    .from(mpRequestLine)
+    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
+    .where(
+      and(
+        eq(mpRequest.siteLocationId, siteLocationId),
+        eq(mpRequest.type, "daily"),
+        eq(mpRequest.status, "open"),
+        gte(mpRequestLine.date, fromDate),
+        lte(mpRequestLine.date, toDate),
+      ),
+    )
+    .orderBy(
+      asc(mpRequestLine.date),
+      asc(mpRequestLine.workAreaId),
+      asc(mpRequestLine.shiftDefinitionId),
+      asc(mpRequestLine.positionId),
+    );
   return rows;
 }
 
