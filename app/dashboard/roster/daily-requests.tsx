@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { GENERIC_ERROR } from "@/lib/action-state";
+import { runExclusive } from "@/lib/run-exclusive";
 import {
   fillDailyRequest,
   suggestReplacementsAction,
@@ -37,22 +38,6 @@ type SlotTarget = {
   positionId: string;
   siteLocationId: string;
 };
-
-// Runs `task` unless one is already in flight on `lock`. The lock is a ref so
-// a second call in the same tick is refused before any state has re-rendered.
-export async function runExclusive(
-  lock: { current: boolean },
-  task: () => Promise<void>,
-): Promise<boolean> {
-  if (lock.current) return false;
-  lock.current = true;
-  try {
-    await task();
-  } finally {
-    lock.current = false;
-  }
-  return true;
-}
 
 // The in-flight fill state. It must live in a component that outlives the
 // popup (choosing a candidate closes the menu and unmounts its content), so
