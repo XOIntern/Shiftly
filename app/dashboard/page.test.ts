@@ -39,20 +39,27 @@ afterAll(() => {
   mock.module("@/lib/dashboard-counts", () => realDashboardCounts);
 });
 
-// Other suites resolve these navigations; nothing here needs them.
-mock.module("next/navigation", () => ({
-  redirect: () => {
-    throw new Error("redirect");
-  },
-  // Pages under test may call notFound(); every stub in the repo carries it
-  // because bun's module mocks are process-wide and the last registration
-  // wins across suites.
-  notFound: () => {
-    throw new Error("not-found");
-  },
-  useRouter: () => ({}),
-  useSearchParams: () => new URLSearchParams(),
-}));
+// Other suites resolve these navigations; nothing here needs them. The real
+// exports are kept (usePathname among them) and only the ones this page may
+// call are overridden — registered for this file only, like the counts stub.
+const realNavigation = { ...(await import("next/navigation")) };
+beforeAll(() => {
+  mock.module("next/navigation", () => ({
+    ...realNavigation,
+    redirect: () => {
+      throw new Error("redirect");
+    },
+    // Pages under test may call notFound().
+    notFound: () => {
+      throw new Error("not-found");
+    },
+    useRouter: () => ({}),
+    useSearchParams: () => new URLSearchParams(),
+  }));
+});
+afterAll(() => {
+  mock.module("next/navigation", () => realNavigation);
+});
 
 // The page is an async server component; awaiting it resolves its own
 // boundary, leaving a synchronous SectionCards tree renderToStaticMarkup
