@@ -1110,6 +1110,32 @@ describe("roster actions: fillDailyRequest", () => {
     });
   });
 
+  test("a second same-slot daily request is not fulfilled by the first request's fills", async () => {
+    const s = await setupDailyFulfilment("seq", { headcount: 2, workers: 4 });
+    const { fillDailyRequest } = await import("./actions");
+    expect((await fillDailyRequest(s.fillInput(s.requestId, s.workers[0]))).ok).toBe(true);
+    expect((await fillDailyRequest(s.fillInput(s.requestId, s.workers[1]))).ok).toBe(true);
+    expect(await requestStatus(s.requestId)).toBe("fulfilled");
+
+    // The first request freed the date's slot: "more people needed today".
+    const second = await createRequest(s.fx, { type: "daily", requestDate: TUE });
+    await addRequestLine(s.fx, second, {
+      workAreaId: s.area,
+      shiftDefinitionId: s.shift,
+      date: TUE,
+      headcount: 2,
+      positionId: s.pos,
+    });
+
+    expect((await fillDailyRequest(s.fillInput(second, s.workers[2]))).ok).toBe(true);
+    expect(await requestStatus(second)).toBe("open");
+    expect((await statusAudits(second)).length).toBe(0);
+
+    expect((await fillDailyRequest(s.fillInput(second, s.workers[3]))).ok).toBe(true);
+    expect(await requestStatus(second)).toBe("fulfilled");
+    expect((await statusAudits(second)).length).toBe(1);
+  });
+
   test("fill against a fulfilled daily request is refused with REQUEST_GONE and writes no assignment", async () => {
     const s = await setupDailyFulfilment("done", { headcount: 1, workers: 1, status: "fulfilled" });
     const { fillDailyRequest } = await import("./actions");

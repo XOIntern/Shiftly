@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -21,6 +21,7 @@ import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { mondayOf, weekDates } from "@/lib/week";
+import { withoutFulfilledDailyFills } from "@/lib/engine/coverage";
 import { computeDeficit } from "@/lib/engine/deficit";
 import { generateDraft } from "@/lib/engine/generate";
 import type { RequirementLine, SuggestedCandidate } from "@/lib/engine/generate";
@@ -931,7 +932,32 @@ export async function fillDailyRequest(
             eq(rosterPlan.requestDate, input.date),
           ),
         );
-      const remaining = computeDeficit(lineRows, filledRows.map(engineShape));
+      // The date's daily plan also holds the fills of the location's
+      // earlier daily requests that are already fulfilled (a fulfilled
+      // request frees the date for a new one). Those fills are discounted
+      // first, as the roster page does, so they never count toward this one.
+      const fulfilledLines = await tx
+        .select({
+          workAreaId: mpRequestLine.workAreaId,
+          shiftDefId: mpRequestLine.shiftDefinitionId,
+          date: mpRequestLine.date,
+          headcount: mpRequestLine.headcount,
+        })
+        .from(mpRequestLine)
+        .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
+        .where(
+          and(
+            eq(mpRequest.type, "daily"),
+            eq(mpRequest.status, "fulfilled"),
+            eq(mpRequest.siteLocationId, siteLocationId),
+            ne(mpRequest.id, input.requestId),
+            eq(mpRequestLine.date, input.date),
+          ),
+        );
+      const remaining = computeDeficit(
+        lineRows,
+        withoutFulfilledDailyFills(filledRows.map(engineShape), fulfilledLines),
+      );
       if (remaining.length === 0) {
         const fulfilled = await tx
           .update(mpRequest)
