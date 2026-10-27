@@ -299,6 +299,17 @@
     outline-offset: 2px;
     --tw-ring-shadow: 0 0 #0000;
   }
+
+  /* A page title that takes focus after its dialog's trigger is removed:
+     the same ring as actions for keyboard users, no outline for a pointer
+     focus. */
+  [data-focus-fallback]:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  [data-focus-fallback]:focus:not(:focus-visible) {
+    outline: none;
+  }
 }
 
 /* Type scale (§3.2). Weights 400 unless noted; sizes in px as specified. */

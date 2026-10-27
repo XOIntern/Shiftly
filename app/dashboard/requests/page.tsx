@@ -196,7 +196,9 @@ export default async function RequestsPage({
     <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="page-title">Requests</h1>
+          <h1 className="page-title" tabIndex={-1} data-focus-fallback>
+            Requests
+          </h1>
           <p className="text-sm text-muted-foreground">
             Open requests wait for HO approval; approved requests become
             fulfilled when the week&apos;s roster is published.

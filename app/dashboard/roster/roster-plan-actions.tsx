@@ -6,6 +6,7 @@ import { CalendarPlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
+import { finalFocusTarget } from "@/lib/final-focus";
 import { runExclusive } from "@/lib/run-exclusive";
 import {
   discardDraft,
@@ -127,6 +128,9 @@ export function DiscardDraftButton({
   // Held here, not in the dialog content: the content unmounts on close,
   // this button stays mounted and guards a second submit.
   const lock = useRef(false);
+  // True only when the dialog closes on a successful discard: the draft and
+  // this trigger are about to leave the page, so focus goes to the title.
+  const succeeded = useRef(false);
   const copy = discardDialogCopy(version, assignmentCount);
 
   function discard() {
@@ -136,6 +140,7 @@ export function DiscardDraftButton({
           const result = await discardDraft(planId);
           if (result.ok) {
             toast.success("Draft discarded.");
+            succeeded.current = true;
             onDiscarded();
             return;
           }
@@ -157,7 +162,10 @@ export function DiscardDraftButton({
         className="max-sm:h-10"
         disabled={pending}
         aria-busy={pending}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          succeeded.current = false;
+          setOpen(true);
+        }}
       >
         <Trash2Icon data-icon="inline-start" />
         Discard draft
@@ -171,6 +179,12 @@ export function DiscardDraftButton({
         cancelLabel="Keep draft"
         confirmLabel="Discard draft"
         onConfirm={discard}
+        finalFocus={() =>
+          finalFocusTarget(
+            succeeded.current,
+            document.querySelector<HTMLElement>("[data-focus-fallback]"),
+          )
+        }
       />
     </>
   );

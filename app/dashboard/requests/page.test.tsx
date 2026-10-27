@@ -290,6 +290,11 @@ describe("requests page SSR (mp-requests Task 8)", () => {
 
       const html = await renderRequests();
       expect(html.includes("Requests")).toBeTrue();
+      // The title is where focus lands after a confirmed Reject removes the
+      // row and its trigger.
+      const title = html.match(/<h1[^>]*>Requests<\/h1>/)?.[0] ?? "";
+      expect(title).toContain(" data-focus-fallback=");
+      expect(title).toContain('tabindex="-1"');
       expect(html.includes(fx.anchors.rqA1)).toBeTrue();
       expect(html.includes(fx.anchors.rqA2)).toBeTrue();
       expect(html.includes(fx.anchors.rqB1)).toBeFalse();

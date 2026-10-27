@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import type { MpRequestLineView, MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
+import { finalFocusTarget } from "@/lib/final-focus";
 import { runExclusive } from "@/lib/run-exclusive";
 import {
   advanceStatus,
@@ -108,6 +109,9 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
   // The ref lock and the pending flag live here, not in the dialog: the
   // dialog content unmounts when it closes, this component stays mounted.
   const lock = useRef(false);
+  // True only when the reject dialog closes on a successful reject: the row
+  // and this trigger are about to leave the list, so focus goes to the title.
+  const succeeded = useRef(false);
   const period = periodLabel(request);
   const rejectCopy = rejectDialogCopy(request);
 
@@ -118,6 +122,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         try {
           const result = await advanceStatus(request.id, nextStatus);
           if (result.ok) {
+            if (nextStatus === "rejected") succeeded.current = true;
             toast.success(
               nextStatus === "approved"
                 ? "Request approved."
@@ -158,7 +163,10 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         aria-busy={pending && choice === "rejected"}
         aria-label={`Reject request for ${period}`}
         className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => setConfirmingReject(true)}
+        onClick={() => {
+          succeeded.current = false;
+          setConfirmingReject(true);
+        }}
       >
         {pending && choice === "rejected" ? (
           <Loader2Icon data-icon="inline-start" className="animate-spin" />
@@ -176,6 +184,12 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         cancelLabel="Cancel"
         confirmLabel="Reject"
         onConfirm={() => decide("rejected")}
+        finalFocus={() =>
+          finalFocusTarget(
+            succeeded.current,
+            document.querySelector<HTMLElement>("[data-focus-fallback]"),
+          )
+        }
       />
     </div>
   );
