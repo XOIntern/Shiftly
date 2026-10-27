@@ -15,7 +15,7 @@ import {
   publishRoster,
   revisePlan,
 } from "@/app/dashboard/roster/actions";
-import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -160,7 +160,7 @@ export function PublishButton({
       >
         {pending ? "Publishing…" : "Publish roster"}
       </Button>
-      <ConfirmDestructiveDialog
+      <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
         pending={pending}
@@ -247,7 +247,7 @@ export function DiscardDraftButton({
         <Trash2Icon data-icon="inline-start" />
         Discard draft
       </Button>
-      <ConfirmDestructiveDialog
+      <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
         pending={pending}

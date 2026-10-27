@@ -34,7 +34,7 @@ export function confirmButtonVariant(
   return confirmVariant ?? "destructive";
 }
 
-type ConfirmDestructiveDialogProps = {
+type ConfirmDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
@@ -55,7 +55,7 @@ type ConfirmDestructiveDialogProps = {
 // content unmounts on close, the caller stays mounted. The confirm button is
 // a plain button, not a closing part, so the dialog stays open and shows the
 // spinner until the caller closes it.
-export function ConfirmDestructiveDialog({
+export function ConfirmDialog({
   open,
   onOpenChange,
   pending,
@@ -66,7 +66,7 @@ export function ConfirmDestructiveDialog({
   onConfirm,
   confirmVariant,
   finalFocus,
-}: ConfirmDestructiveDialogProps) {
+}: ConfirmDialogProps) {
   return (
     <AlertDialog
       open={open}

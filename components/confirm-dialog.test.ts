@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   confirmButtonVariant,
   guardedOpenChange,
-} from "@/components/confirm-destructive-dialog";
+} from "@/components/confirm-dialog";
 
 // The dialog parts cannot render outside an open dialog, so the close guard
 // is pinned through its pure helper.

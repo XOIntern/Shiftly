@@ -26,7 +26,7 @@ import {
   RequestStatusBadge,
   rosterHrefFor,
 } from "@/app/dashboard/requests/request-status";
-import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -193,7 +193,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         )}
         Reject
       </Button>
-      <ConfirmDestructiveDialog
+      <ConfirmDialog
         open={confirming === "approved"}
         onOpenChange={(open) => setConfirming(open ? "approved" : null)}
         pending={pending}
@@ -205,7 +205,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         onConfirm={() => decide("approved")}
         finalFocus={focusAfterClose}
       />
-      <ConfirmDestructiveDialog
+      <ConfirmDialog
         open={confirming === "rejected"}
         onOpenChange={(open) => setConfirming(open ? "rejected" : null)}
         pending={pending}
@@ -330,7 +330,7 @@ export function MpRequestRowActions({
           </DialogContent>
         </Dialog>
         {canWithdrawRequest(request, canWrite) ? (
-          <ConfirmDestructiveDialog
+          <ConfirmDialog
             open={dialog === "withdraw"}
             onOpenChange={(open) => setDialog(open ? "withdraw" : null)}
             pending={withdrawing}
