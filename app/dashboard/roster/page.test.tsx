@@ -2,10 +2,11 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
+  auditLog,
   mpRequest,
   mpRequestLine,
   position,
@@ -803,6 +804,164 @@ describe("roster page SSR (roster-engine Task 7)", () => {
       expect(html.includes("Revise plan")).toBeFalse();
       expect(html.includes("Read-only")).toBeTrue();
     } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+const RULES_SNAPSHOT = {
+  c1: { value: 6, source: "default" },
+  c2: { value: 20, source: "default" },
+  c3: { value: false, source: "default" },
+  c4: { value: false, source: "default" },
+  c5: { value: 6, source: "default" },
+  c6: { value: 1, source: "default" },
+  c7: { value: false, source: "default" },
+};
+
+// The discard action writes an audit row whose actor is an FK to the auth
+// user table, so the stub admin needs a real user row behind it.
+async function seedAdmin(locationId: string) {
+  const admin = makeActor("admin", null, locationId);
+  await db
+    .insert(user)
+    .values({ id: admin.id, name: admin.name, email: admin.email });
+  return {
+    admin,
+    async cleanup() {
+      await db.delete(auditLog).where(eq(auditLog.actorId, admin.id));
+      await db.delete(user).where(eq(user.id, admin.id));
+    },
+  };
+}
+
+async function insertDraft(
+  fx: Awaited<ReturnType<typeof seedRosterFixtures>>,
+  weekStart: string,
+  version: number,
+  generatedBy: string,
+): Promise<string> {
+  const id = randomUUID();
+  await db.insert(rosterPlan).values({
+    id,
+    siteId: fx.ids.siteS,
+    siteLocationId: fx.ids.locL1,
+    kind: "weekly",
+    weekStart,
+    status: "draft",
+    version,
+    rulesSnapshot: RULES_SNAPSHOT,
+    generatedBy,
+  });
+  return id;
+}
+
+describe("roster page: discarding a draft", () => {
+  test("an admin on a draft week sees Discard draft; an ho does not", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      actor = makeActor("admin", null, fx.ids.locL1);
+      expect(text(await renderRoster({ week: fx.MONDAY }))).toContain(
+        "Discard draft",
+      );
+
+      actor = makeActor("ho", fx.ids.siteS, null);
+      const page = text(await renderRoster({ week: fx.MONDAY }));
+      expect(page).toContain("Draft v1");
+      expect(page).not.toContain("Discard draft");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("discarding a week's first draft brings Generate back and keeps the request approved", async () => {
+    const fx = await seedRosterFixtures();
+    const seeded = await seedAdmin(fx.ids.locL1);
+    let draftId: string | null = null;
+    try {
+      actor = seeded.admin;
+      draftId = await insertDraft(fx, fx.APPROVED_MONDAY, 1, seeded.admin.id);
+      const before = text(await renderRoster({ week: fx.APPROVED_MONDAY }));
+      expect(before).toContain("Draft v1");
+      expect(before).toContain("Discard draft");
+
+      const { discardDraft } = await import("./actions");
+      expect((await discardDraft(draftId)).ok).toBe(true);
+
+      const html = await renderRoster({ week: fx.APPROVED_MONDAY });
+      const page = text(html);
+      expect(page).not.toContain("Draft v1");
+      expect(page).not.toContain("Discard draft");
+      expect(page).toContain("3 slots from 1 request");
+      const trigger = html.indexOf("Generate draft");
+      expect(trigger).toBeGreaterThan(-1);
+      expect(html.slice(Math.max(0, trigger - 3000), trigger)).not.toContain(
+        'disabled=""',
+      );
+
+      const requests = await db
+        .select({ status: mpRequest.status })
+        .from(mpRequest)
+        .where(
+          and(
+            eq(mpRequest.siteLocationId, fx.ids.locL1),
+            eq(mpRequest.weekStart, fx.APPROVED_MONDAY),
+          ),
+        );
+      expect(requests.map((r) => r.status)).toEqual(["approved"]);
+    } finally {
+      if (draftId) await db.delete(rosterPlan).where(eq(rosterPlan.id, draftId));
+      await seeded.cleanup();
+      await fx.cleanup();
+    }
+  });
+
+  test("a planId of a discarded draft renders the empty week", async () => {
+    const fx = await seedRosterFixtures();
+    const seeded = await seedAdmin(fx.ids.locL1);
+    let draftId: string | null = null;
+    try {
+      actor = seeded.admin;
+      draftId = await insertDraft(fx, fx.APPROVED_MONDAY, 1, seeded.admin.id);
+      const { discardDraft } = await import("./actions");
+      expect((await discardDraft(draftId)).ok).toBe(true);
+
+      const page = text(
+        await renderRoster({ week: fx.APPROVED_MONDAY, planId: draftId }),
+      );
+      expect(page).toContain("No plan for this week");
+      expect(page).toContain(
+        "No roster plan for this week yet. Generate a draft once a request is approved.",
+      );
+    } finally {
+      if (draftId) await db.delete(rosterPlan).where(eq(rosterPlan.id, draftId));
+      await seeded.cleanup();
+      await fx.cleanup();
+    }
+  });
+
+  test("discarding a revision draft falls back to the published version", async () => {
+    const fx = await seedRosterFixtures();
+    const seeded = await seedAdmin(fx.ids.locL1);
+    let draftId: string | null = null;
+    try {
+      actor = seeded.admin;
+      draftId = await insertDraft(fx, fx.LATE_MONDAY, 2, seeded.admin.id);
+      expect(text(await renderRoster({ week: fx.LATE_MONDAY }))).toContain(
+        "Draft v2",
+      );
+
+      const { discardDraft } = await import("./actions");
+      expect((await discardDraft(draftId)).ok).toBe(true);
+
+      const page = text(await renderRoster({ week: fx.LATE_MONDAY }));
+      expect(page).toContain("Published v1");
+      expect(page).toContain("Revise plan");
+      expect(page).not.toContain("Draft v2");
+      expect(page).not.toContain("Discard draft");
+    } finally {
+      if (draftId) await db.delete(rosterPlan).where(eq(rosterPlan.id, draftId));
+      await seeded.cleanup();
       await fx.cleanup();
     }
   });
