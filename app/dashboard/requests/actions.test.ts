@@ -1440,12 +1440,23 @@ describe("request actions: withdrawRequest", () => {
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
     const dailyDate = "2026-03-05";
+    // Week A's request is withdrawn through the action; week B's approved
+    // request is the live control proving the weekly loader returns demand.
+    const weekB = "2026-03-09";
     const weeklyId = await seedRequest({
       siteId: fx.siteA,
       siteLocationId: fx.locA1,
       createdBy: actor.id,
       type: "weekly",
       weekStart: MONDAY,
+    });
+    const controlId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: weekB,
+      status: "approved",
     });
     const dailyId = await seedRequest({
       siteId: fx.siteA,
@@ -1456,6 +1467,7 @@ describe("request actions: withdrawRequest", () => {
     });
     for (const [requestId, date] of [
       [weeklyId, MONDAY],
+      [controlId, weekB],
       [dailyId, dailyDate],
     ] as const) {
       await seedLine({
@@ -1483,6 +1495,30 @@ describe("request actions: withdrawRequest", () => {
       expect((await withdrawRequest(weeklyId)).ok).toBe(true);
       expect((await withdrawRequest(dailyId)).ok).toBe(true);
 
+      const weekALines = [
+        {
+          workAreaId: waA1,
+          shiftDefId: shiftA1,
+          positionId: posA1,
+          date: MONDAY,
+          headcount: 2,
+        },
+      ];
+      expect(await loadRequirementsForWeek(fx.locA1, weekB)).toEqual([
+        { ...weekALines[0], date: weekB },
+      ]);
+      expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual([]);
+      // The same request counted as demand under a live status, so the empty
+      // result above comes from "withdrawn" and nothing else.
+      await db
+        .update(mpRequest)
+        .set({ status: "approved" })
+        .where(eq(mpRequest.id, weeklyId));
+      expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual(weekALines);
+      await db
+        .update(mpRequest)
+        .set({ status: "withdrawn" })
+        .where(eq(mpRequest.id, weeklyId));
       expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual([]);
       expect(await loadDailyRequirements(fx.locA1, dailyDate, dailyDate)).toEqual([]);
     } finally {
