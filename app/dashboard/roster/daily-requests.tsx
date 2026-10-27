@@ -11,6 +11,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +23,7 @@ import {
   fillDailyRequest,
   suggestReplacementsAction,
 } from "@/app/dashboard/roster/actions";
+import type { CoverageRow } from "@/lib/engine/coverage";
 import type { SuggestedCandidate } from "@/lib/engine/generate";
 
 // The daily-requests tab (roster-engine task 7): the outstanding daily
@@ -48,7 +52,18 @@ export type DailyLineRow = {
 
 const helper = createColumnHelper<typeof dataTableFeatures, DailyLineRow>();
 
-function SuggestMenu({ line }: { line: DailyLineRow }) {
+// What a candidate menu needs to load suggestions for one position of one
+// slot and to fill it: shared by the table's SuggestMenu and DailySlotMenu.
+type SlotTarget = {
+  requestId: string;
+  workAreaId: string;
+  shiftDefId: string;
+  date: string;
+  positionId: string;
+  siteLocationId: string;
+};
+
+function useSlotCandidates(target: SlotTarget) {
   const [candidates, setCandidates] = useState<SuggestedCandidate[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -57,11 +72,11 @@ function SuggestMenu({ line }: { line: DailyLineRow }) {
     setLoading(true);
     try {
       const result = await suggestReplacementsAction({
-        workAreaId: line.workAreaId,
-        shiftDefId: line.shiftDefinitionId,
-        date: line.date,
-        positionId: line.positionId,
-        siteLocationId: line.siteLocationId,
+        workAreaId: target.workAreaId,
+        shiftDefId: target.shiftDefId,
+        date: target.date,
+        positionId: target.positionId,
+        siteLocationId: target.siteLocationId,
       });
       if (result.ok && "data" in result) {
         setCandidates(result.data);
@@ -78,13 +93,13 @@ function SuggestMenu({ line }: { line: DailyLineRow }) {
     setBusy(true);
     void (async () => {
       const result = await fillDailyRequest({
-        requestId: line.requestId,
-        workAreaId: line.workAreaId,
-        shiftDefId: line.shiftDefinitionId,
-        date: line.date,
-        positionId: line.positionId,
+        requestId: target.requestId,
+        workAreaId: target.workAreaId,
+        shiftDefId: target.shiftDefId,
+        date: target.date,
+        positionId: target.positionId,
         workerId,
-        siteLocationId: line.siteLocationId,
+        siteLocationId: target.siteLocationId,
       });
       setBusy(false);
       if (result.ok) {
@@ -94,40 +109,139 @@ function SuggestMenu({ line }: { line: DailyLineRow }) {
       toast.error(result.message ?? GENERIC_ERROR);
     })();
   }
+  function onOpenChange(open: boolean) {
+    if (open) void load();
+    else setCandidates(null);
+  }
+
+  return { candidates, loading, busy, fill, onOpenChange };
+}
+
+type SlotCandidates = ReturnType<typeof useSlotCandidates>;
+
+function CandidateItems({ candidates, loading, busy, fill }: SlotCandidates) {
+  if (loading) {
+    return <DropdownMenuItem disabled>Searching…</DropdownMenuItem>;
+  }
+  if (candidates === null) return null;
+  if (candidates.length === 0) {
+    return <DropdownMenuItem disabled>No clean candidate</DropdownMenuItem>;
+  }
+  return candidates.map((candidate) => (
+    <DropdownMenuItem
+      key={candidate.workerId}
+      disabled={busy}
+      onClick={() => fill(candidate.workerId, candidate.employeeId)}
+    >
+      {candidate.employeeId}
+      <span className="text-xs text-muted-foreground">{candidate.reason}</span>
+    </DropdownMenuItem>
+  ));
+}
+
+function SuggestMenu({ line }: { line: DailyLineRow }) {
+  const slot = useSlotCandidates({
+    requestId: line.requestId,
+    workAreaId: line.workAreaId,
+    shiftDefId: line.shiftDefinitionId,
+    date: line.date,
+    positionId: line.positionId,
+    siteLocationId: line.siteLocationId,
+  });
 
   return (
-    <DropdownMenu
-      onOpenChange={(open) => {
-        if (open) void load();
-        else setCandidates(null);
-      }}
-    >
+    <DropdownMenu onOpenChange={slot.onOpenChange}>
       <DropdownMenuTrigger
         render={
-          <Button variant="outline" size="sm" disabled={loading || busy}>
+          <Button variant="outline" size="sm" disabled={slot.loading || slot.busy}>
             <UserPlusIcon data-icon="inline-start" />
             Suggest replacements
           </Button>
         }
       />
       <DropdownMenuContent align="end">
-        {loading ? (
-          <DropdownMenuItem disabled>Searching…</DropdownMenuItem>
-        ) : candidates === null ? null : candidates.length === 0 ? (
-          <DropdownMenuItem disabled>No clean candidate</DropdownMenuItem>
-        ) : (
-          candidates.map((candidate) => (
-            <DropdownMenuItem
-              key={candidate.workerId}
-              disabled={busy}
-              onClick={() => fill(candidate.workerId, candidate.employeeId)}
-            >
-              {candidate.employeeId}
-              <span className="text-xs text-muted-foreground">
-                {candidate.reason}
-              </span>
-            </DropdownMenuItem>
-          ))
+        <CandidateItems {...slot} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// One daily slot of the requirements panel: a menu with an entry per demanded
+// position; opening an entry loads the candidates for that position and
+// confirming one fills the position's request. A position without a request
+// id cannot be filled, so it is not offered.
+function PositionSubmenu({
+  row,
+  position,
+  positionNames,
+  siteLocationId,
+  date,
+  requestId,
+}: {
+  row: CoverageRow;
+  position: CoverageRow["positions"][number];
+  positionNames: Record<string, string>;
+  siteLocationId: string;
+  date: string;
+  requestId: string;
+}) {
+  const slot = useSlotCandidates({
+    requestId,
+    workAreaId: row.workAreaId,
+    shiftDefId: row.shiftDefId,
+    date,
+    positionId: position.positionId,
+    siteLocationId,
+  });
+
+  return (
+    <DropdownMenuSub onOpenChange={slot.onOpenChange}>
+      <DropdownMenuSubTrigger disabled={slot.busy}>
+        {positionNames[position.positionId] ?? "Position"} (needs{" "}
+        {position.headcount})
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <CandidateItems {...slot} />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+export function DailySlotMenu({
+  row,
+  positionNames,
+  siteLocationId,
+}: {
+  row: CoverageRow;
+  positionNames: Record<string, string>;
+  siteLocationId: string;
+}) {
+  const date = row.date;
+  if (date === null) return null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="outline" size="sm" className="max-sm:h-10">
+            <UserPlusIcon data-icon="inline-start" />
+            Suggest replacements
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        {row.positions.map((position) =>
+          position.requestId ? (
+            <PositionSubmenu
+              key={position.positionId}
+              row={row}
+              position={position}
+              positionNames={positionNames}
+              siteLocationId={siteLocationId}
+              date={date}
+              requestId={position.requestId}
+            />
+          ) : null,
         )}
       </DropdownMenuContent>
     </DropdownMenu>
