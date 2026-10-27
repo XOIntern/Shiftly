@@ -526,6 +526,50 @@ describe("requests list: approval, roster link and filter", () => {
     ).toBeFalse();
   });
 
+  test("canWithdrawRequest is true only for an open request when canWrite", async () => {
+    const { canWithdrawRequest } = await import("./status-actions");
+    expect(canWithdrawRequest(baseRow, true)).toBeTrue();
+    expect(canWithdrawRequest(baseRow, false)).toBeFalse();
+    for (const status of [
+      "approved",
+      "fulfilled",
+      "rejected",
+      "withdrawn",
+    ] as const) {
+      expect(canWithdrawRequest({ ...baseRow, status }, true)).toBeFalse();
+    }
+  });
+
+  test("withdrawDialogCopy gives the weekly body for a weekly request and adds the fills sentence for a daily one", async () => {
+    const { withdrawDialogCopy } = await import("./status-actions");
+    const weeklyBody =
+      "It stays in the list as Withdrawn and cannot be restored. You can create a new request for the same period afterwards.";
+
+    expect(withdrawDialogCopy(baseRow)).toEqual({
+      title: "Withdraw this request?",
+      body: weeklyBody,
+    });
+    expect(
+      withdrawDialogCopy({
+        ...baseRow,
+        type: "daily",
+        weekStart: null,
+        requestDate: "2026-11-03",
+      }),
+    ).toEqual({
+      title: "Withdraw this request?",
+      body: `${weeklyBody} Fills already made stay in the roster.`,
+    });
+  });
+
+  test("rejectDialogCopy asks for confirmation and warns the admin must re-enter the request", async () => {
+    const { rejectDialogCopy } = await import("./status-actions");
+    expect(rejectDialogCopy(baseRow)).toEqual({
+      title: "Reject this request?",
+      body: "This cannot be undone. The admin will need to enter a new request.",
+    });
+  });
+
   test("ho sees Approve and Reject on an open weekly row and none on an approved row", async () => {
     const fx = await seedRequestFixtures();
     const dailyId = randomUUID();

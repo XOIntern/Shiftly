@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -9,17 +9,32 @@ import {
   ListIcon,
   Loader2Icon,
   PencilIcon,
+  Undo2Icon,
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { MpRequestLineView, MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import { advanceStatus } from "@/app/dashboard/requests/actions";
+import {
+  advanceStatus,
+  withdrawRequest,
+} from "@/app/dashboard/requests/actions";
 import {
   RequestStatusBadge,
   rosterHrefFor,
 } from "@/app/dashboard/requests/request-status";
+import { runExclusive } from "@/app/dashboard/roster/daily-requests";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,6 +48,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -58,6 +74,34 @@ export const canEditRequest = (
   canWrite: boolean,
 ): boolean => canWrite && request.status === "open";
 
+// Withdrawing retracts a request the admin entered, so it is offered to the
+// roles that write requests and only while the request is still open.
+export const canWithdrawRequest = (
+  request: MpRequestRow,
+  canWrite: boolean,
+): boolean => canWrite && request.status === "open";
+
+type DialogCopy = { title: string; body: string };
+
+const WITHDRAW_BODY =
+  "It stays in the list as Withdrawn and cannot be restored. You can create a new request for the same period afterwards.";
+
+// A daily request can already have fills in the roster; say what happens to
+// them. The copy lives in pure helpers because the dialog parts cannot render
+// outside an open dialog, so tests pin the strings here.
+export const withdrawDialogCopy = (request: MpRequestRow): DialogCopy => ({
+  title: "Withdraw this request?",
+  body:
+    request.type === "daily"
+      ? `${WITHDRAW_BODY} Fills already made stay in the roster.`
+      : WITHDRAW_BODY,
+});
+
+export const rejectDialogCopy: (request: MpRequestRow) => DialogCopy = () => ({
+  title: "Reject this request?",
+  body: "This cannot be undone. The admin will need to enter a new request.",
+});
+
 const periodLabel = (request: MpRequestRow): string =>
   request.type === "weekly"
     ? `week of ${request.weekStart}`
@@ -66,19 +110,34 @@ const periodLabel = (request: MpRequestRow): string =>
 export function RowApproval({ request }: { request: MpRequestRow }) {
   const [pending, startTransition] = useTransition();
   const [choice, setChoice] = useState<"approved" | "rejected" | null>(null);
+  const [confirmingReject, setConfirmingReject] = useState(false);
+  // The ref lock and the pending flag live here, not in the dialog: the
+  // dialog content unmounts when it closes, this component stays mounted.
+  const lock = useRef(false);
   const period = periodLabel(request);
+  const rejectCopy = rejectDialogCopy(request);
 
   function decide(nextStatus: "approved" | "rejected") {
     setChoice(nextStatus);
     startTransition(async () => {
-      const result = await advanceStatus(request.id, nextStatus);
-      if (result.ok) {
-        toast.success(
-          nextStatus === "approved" ? "Request approved." : "Request rejected.",
-        );
-        return;
-      }
-      toast.error(result.message ?? GENERIC_ERROR);
+      await runExclusive(lock, async () => {
+        try {
+          const result = await advanceStatus(request.id, nextStatus);
+          if (result.ok) {
+            toast.success(
+              nextStatus === "approved"
+                ? "Request approved."
+                : "Request rejected.",
+            );
+            return;
+          }
+          toast.error(result.message ?? GENERIC_ERROR);
+        } catch {
+          toast.error(GENERIC_ERROR);
+        } finally {
+          setConfirmingReject(false);
+        }
+      });
     });
   }
 
@@ -105,7 +164,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         aria-busy={pending && choice === "rejected"}
         aria-label={`Reject request for ${period}`}
         className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => decide("rejected")}
+        onClick={() => setConfirmingReject(true)}
       >
         {pending && choice === "rejected" ? (
           <Loader2Icon data-icon="inline-start" className="animate-spin" />
@@ -114,6 +173,33 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         )}
         Reject
       </Button>
+      <AlertDialog
+        open={confirmingReject}
+        onOpenChange={(open) => {
+          if (!pending) setConfirmingReject(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{rejectCopy.title}</AlertDialogTitle>
+            <AlertDialogDescription>{rejectCopy.body}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={pending}
+              aria-busy={pending}
+              onClick={() => decide("rejected")}
+            >
+              {pending ? (
+                <Loader2Icon data-icon="inline-start" className="animate-spin" />
+              ) : null}
+              Reject
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -130,8 +216,33 @@ export function MpRequestRowActions({
   // May the actor approve or reject? HO and superadmin.
   canApprove: boolean;
 }) {
-  const [dialog, setDialog] = useState<"lines" | null>(null);
+  const [dialog, setDialog] = useState<"lines" | "withdraw" | null>(null);
+  const [withdrawing, startWithdraw] = useTransition();
+  // Held here, not in the withdraw dialog: choosing Withdraw closes the menu
+  // and the dialog content unmounts on close, so only this component can
+  // guard a second submit.
+  const withdrawLock = useRef(false);
   const router = useRouter();
+  const withdrawCopy = withdrawDialogCopy(request);
+
+  function withdraw() {
+    startWithdraw(async () => {
+      await runExclusive(withdrawLock, async () => {
+        try {
+          const result = await withdrawRequest(request.id);
+          if (result.ok) {
+            toast.success("Request withdrawn.");
+            return;
+          }
+          toast.error(result.message ?? GENERIC_ERROR);
+        } catch {
+          toast.error(GENERIC_ERROR);
+        } finally {
+          setDialog(null);
+        }
+      });
+    });
+  }
 
   return (
     <div className="flex items-center justify-end gap-2">
@@ -144,6 +255,7 @@ export function MpRequestRowActions({
             <Button
               variant="ghost"
               size="icon-sm"
+              disabled={withdrawing}
               aria-label={`Actions for request ${request.siteName ?? ""} ${request.locationName}`}
             />
           }
@@ -167,6 +279,20 @@ export function MpRequestRowActions({
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuGroup>
+          {canWithdrawRequest(request, canWrite) ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => setDialog("withdraw")}
+                >
+                  <Undo2Icon />
+                  Withdraw
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </>
+          ) : null}
         </DropdownMenuContent>
         {/* Controlled dialogs live outside the menu popup so the menu can
         close before their layer opens. */}
@@ -187,6 +313,42 @@ export function MpRequestRowActions({
             <RequestLinesTable lines={request.lines} />
           </DialogContent>
         </Dialog>
+        {canWithdrawRequest(request, canWrite) ? (
+          <AlertDialog
+            open={dialog === "withdraw"}
+            onOpenChange={(open) => {
+              if (!withdrawing) setDialog(open ? "withdraw" : null);
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{withdrawCopy.title}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {withdrawCopy.body}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={withdrawing}>
+                  Keep request
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={withdrawing}
+                  aria-busy={withdrawing}
+                  onClick={withdraw}
+                >
+                  {withdrawing ? (
+                    <Loader2Icon
+                      data-icon="inline-start"
+                      className="animate-spin"
+                    />
+                  ) : null}
+                  Withdraw
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
       </DropdownMenu>
     </div>
   );
