@@ -25,16 +25,7 @@ import {
   RequestStatusBadge,
   rosterHrefFor,
 } from "@/app/dashboard/requests/request-status";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -173,33 +164,16 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         )}
         Reject
       </Button>
-      <AlertDialog
+      <ConfirmDestructiveDialog
         open={confirmingReject}
-        onOpenChange={(open) => {
-          if (!pending) setConfirmingReject(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{rejectCopy.title}</AlertDialogTitle>
-            <AlertDialogDescription>{rejectCopy.body}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={pending}
-              aria-busy={pending}
-              onClick={() => decide("rejected")}
-            >
-              {pending ? (
-                <Loader2Icon data-icon="inline-start" className="animate-spin" />
-              ) : null}
-              Reject
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setConfirmingReject}
+        pending={pending}
+        title={rejectCopy.title}
+        body={rejectCopy.body}
+        cancelLabel="Cancel"
+        confirmLabel="Reject"
+        onConfirm={() => decide("rejected")}
+      />
     </div>
   );
 }
@@ -314,40 +288,16 @@ export function MpRequestRowActions({
           </DialogContent>
         </Dialog>
         {canWithdrawRequest(request, canWrite) ? (
-          <AlertDialog
+          <ConfirmDestructiveDialog
             open={dialog === "withdraw"}
-            onOpenChange={(open) => {
-              if (!withdrawing) setDialog(open ? "withdraw" : null);
-            }}
-          >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{withdrawCopy.title}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {withdrawCopy.body}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={withdrawing}>
-                  Keep request
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  disabled={withdrawing}
-                  aria-busy={withdrawing}
-                  onClick={withdraw}
-                >
-                  {withdrawing ? (
-                    <Loader2Icon
-                      data-icon="inline-start"
-                      className="animate-spin"
-                    />
-                  ) : null}
-                  Withdraw
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+            onOpenChange={(open) => setDialog(open ? "withdraw" : null)}
+            pending={withdrawing}
+            title={withdrawCopy.title}
+            body={withdrawCopy.body}
+            cancelLabel="Keep request"
+            confirmLabel="Withdraw"
+            onConfirm={withdraw}
+          />
         ) : null}
       </DropdownMenu>
     </div>

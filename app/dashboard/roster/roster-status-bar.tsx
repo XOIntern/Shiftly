@@ -7,7 +7,6 @@ import {
   CalendarPlusIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  Loader2Icon,
   Trash2Icon,
 } from "lucide-react";
 import { Popover } from "@base-ui/react/popover";
@@ -25,16 +24,7 @@ import {
   revisePlan,
 } from "@/app/dashboard/roster/actions";
 import type { RosterGate } from "@/app/dashboard/roster/roster-gate";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -591,33 +581,16 @@ function DiscardDraftButton({
         <Trash2Icon data-icon="inline-start" />
         Discard draft
       </Button>
-      <AlertDialog
+      <ConfirmDestructiveDialog
         open={open}
-        onOpenChange={(next) => {
-          if (!pending) setOpen(next);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{copy.title}</AlertDialogTitle>
-            <AlertDialogDescription>{copy.body}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={pending}>Keep draft</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={pending}
-              aria-busy={pending}
-              onClick={discard}
-            >
-              {pending ? (
-                <Loader2Icon data-icon="inline-start" className="animate-spin" />
-              ) : null}
-              Discard draft
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setOpen}
+        pending={pending}
+        title={copy.title}
+        body={copy.body}
+        cancelLabel="Keep draft"
+        confirmLabel="Discard draft"
+        onConfirm={discard}
+      />
     </>
   );
 }
