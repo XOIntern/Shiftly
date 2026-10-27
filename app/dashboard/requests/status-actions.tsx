@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import type { MpRequestLineView, MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { focusFallbackTarget } from "@/lib/final-focus";
+import { shouldRefreshAfter } from "@/lib/refresh-after";
 import { runExclusive } from "@/lib/run-exclusive";
 import { useFocusRestore } from "@/hooks/use-focus-restore";
 import {
@@ -126,6 +127,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
     arm: armFocusRestore,
     onDialogClosed,
   } = useFocusRestore(pending);
+  const router = useRouter();
   const period = periodLabel(request);
   const approveCopy = approveDialogCopy();
   const rejectCopy = rejectDialogCopy();
@@ -157,6 +159,9 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
           }
           toast.error(result.message ?? GENERIC_ERROR);
           armFocusRestore();
+          // The request may have been decided elsewhere: re-read the list so
+          // the row shows its current status.
+          if (shouldRefreshAfter(result)) router.refresh();
         } catch {
           toast.error(GENERIC_ERROR);
           armFocusRestore();
