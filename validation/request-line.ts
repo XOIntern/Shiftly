@@ -117,6 +117,8 @@ export const advanceStatusSchema = z.object({
   status: z.enum(["approved", "rejected"]),
 });
 
+export const withdrawRequestSchema = z.object({ id: z.uuid() });
+
 export type MpRequestLineInput = z.infer<typeof mpRequestLineSchema>;
 export type MpRequestCreateInput = z.infer<typeof mpRequestCreateSchema>;
 export type MpRequestUpdateInput = z.infer<typeof mpRequestUpdateSchema>;

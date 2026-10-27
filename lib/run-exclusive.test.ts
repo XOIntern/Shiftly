@@ -1,7 +1,6 @@
-import "dotenv/config";
 import { describe, expect, test } from "bun:test";
 
-const { runExclusive } = await import("./daily-requests");
+import { runExclusive } from "@/lib/run-exclusive";
 
 describe("runExclusive", () => {
   test("a second task started while the first is in flight is refused and never runs", async () => {

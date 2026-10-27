@@ -10,6 +10,7 @@ const STATUS_BADGE: Record<
   approved: { label: "Approved", variant: "default" },
   fulfilled: { label: "Fulfilled", variant: "success" },
   rejected: { label: "Rejected", variant: "destructive" },
+  withdrawn: { label: "Withdrawn", variant: "outline" },
 };
 
 export function RequestStatusBadge({ status }: { status: MpRequestRow["status"] }) {

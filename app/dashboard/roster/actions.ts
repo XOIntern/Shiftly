@@ -101,6 +101,9 @@ const HO_EDIT_MESSAGE = "Only admins edit rosters";
 const HO_PUBLISH_MESSAGE = "Only admins publish rosters";
 const HO_FILL_MESSAGE = "Only admins fill daily requests";
 const HO_REVISE_MESSAGE = "Only admins revise rosters";
+const HO_DISCARD_MESSAGE = "Only admins discard drafts";
+const ONLY_WEEKLY_DISCARD = "Only weekly rosters can be discarded.";
+const ONLY_DRAFT_DISCARD = "Only drafts can be discarded.";
 const NO_REQUIREMENTS = "No approved requests cover this week.";
 const DRAFT_EXISTS = "Draft already exists";
 const NOT_FOUND = "Roster not found.";
@@ -409,6 +412,81 @@ export async function setAssignment(
 // The write half of setAssignment lives in lib/roster-plan-mutations.ts
 // (applyAssignmentEdit); tests drive it from there directly — in this
 // "use server" module it would be a network-reachable endpoint.
+
+// Discarding removes the draft plan row; its assignments go with it through
+// the ON DELETE CASCADE on roster_assignment.plan_id. Published versions and
+// daily plans are never deleted (a daily plan is born "draft", so the kind
+// check must run before the status check), and mp_request is untouched.
+export async function discardDraft(planId: string): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (actor.role === "ho") {
+    return { ok: false, message: HO_DISCARD_MESSAGE };
+  }
+  if (!areIds(planId)) return { ok: false, message: NOT_FOUND };
+
+  const owned = await rosterPlanOwnedByActor(actor, planId);
+  if (!owned) return { ok: false, message: NOT_FOUND };
+
+  try {
+    await db.transaction(async (tx) => {
+      // Row lock: a concurrent publish/revise of this plan waits for us (or
+      // we for it) instead of interleaving between the read and the delete.
+      const [plan] = await tx
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.id, planId))
+        .limit(1)
+        .for("update");
+      if (!plan) throw new ActionAbort({ ok: false, message: NOT_FOUND });
+      if (plan.kind !== "weekly") {
+        throw new ActionAbort({ ok: false, message: ONLY_WEEKLY_DISCARD });
+      }
+      if (plan.status !== "draft") {
+        throw new ActionAbort({ ok: false, message: ONLY_DRAFT_DISCARD });
+      }
+
+      const assignmentCount = await tx.$count(
+        rosterAssignment,
+        eq(rosterAssignment.planId, planId),
+      );
+
+      // The draft status rides in the DELETE itself, so a plan that was
+      // published after the read can never be removed.
+      const deleted = await tx
+        .delete(rosterPlan)
+        .where(
+          and(
+            rosterPlanMutationWhere(actor, planId),
+            eq(rosterPlan.status, "draft"),
+          ),
+        )
+        .returning({ id: rosterPlan.id });
+      if (deleted.length === 0) {
+        throw new ActionAbort({ ok: false, message: RACE_MESSAGE });
+      }
+
+      await recordRosterAudit(tx, {
+        actorId: actor.id,
+        action: "roster.discard",
+        siteId: plan.siteId,
+        siteLocationId: plan.siteLocationId,
+        details: {
+          planId,
+          version: plan.version,
+          weekStart: plan.weekStart,
+          assignmentCount,
+        },
+      });
+    });
+  } catch (err) {
+    if (err instanceof ActionAbort) return err.state;
+    return { ok: false, message: GENERIC_ERROR };
+  }
+
+  revalidatePath("/dashboard/roster");
+  return { ok: true };
+}
 
 export async function publishRoster(planId: string): Promise<ActionState> {
   const actor = await requireUser();

@@ -1,26 +1,40 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   CalendarPlusIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  Loader2Icon,
+  Trash2Icon,
 } from "lucide-react";
 import { Popover } from "@base-ui/react/popover";
 import { toast } from "sonner";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
+import { runExclusive } from "@/lib/run-exclusive";
 import { dayFromNumber, dayNumber } from "@/lib/dates";
 import { mondayOf } from "@/lib/week";
 import {
+  discardDraft,
   generateRoster,
   publishRoster,
   revisePlan,
 } from "@/app/dashboard/roster/actions";
 import type { RosterGate } from "@/app/dashboard/roster/roster-gate";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -88,6 +102,22 @@ export function buildReviseHref(
   return params.toString();
 }
 
+// The discard confirmation's copy. Pure so tests can pin it: the dialog
+// parts cannot render outside an open dialog.
+export function discardDialogCopy(
+  version: number,
+  assignmentCount: number | null,
+): { title: string; body: string } {
+  const deleted =
+    assignmentCount === null
+      ? "Its assignments will be deleted."
+      : `${assignmentCount} assignment${assignmentCount === 1 ? "" : "s"} will be deleted.`;
+  return {
+    title: `Discard draft v${version}?`,
+    body: `${deleted} Published versions are not affected.`,
+  };
+}
+
 type BarProps = {
   week: string;
   gate: RosterGate;
@@ -106,6 +136,11 @@ type BarProps = {
   // A navigation started outside the bar (work area, row page) is pending.
   navigating: boolean;
   canWrite: boolean;
+  // May the actor discard the selected plan (admin/superadmin on a draft)?
+  canDiscard: boolean;
+  // The selected plan's assignment rows, for the discard dialog; null when
+  // unknown.
+  discardAssignmentCount: number | null;
 };
 
 const planLabel = (p: RosterPlanOption) =>
@@ -126,6 +161,8 @@ export function RosterStatusBar({
   selectedLocationId,
   navigating,
   canWrite,
+  canDiscard,
+  discardAssignmentCount,
 }: BarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -198,7 +235,19 @@ export function RosterStatusBar({
   const locationName =
     siteLocations.find((l) => l.id === selectedLocationId)?.name ?? null;
 
+  // After a discard the plan is gone: drop it from the URL so the page falls
+  // back to the week's remaining plan or its empty state.
+  const afterDiscard = () => {
+    pushWith((params) => {
+      params.delete("planId");
+      params.delete("workAreaId");
+      params.delete("rowPage");
+    });
+  };
+
   const showPrimary = canWrite && gate.action !== "none";
+  const showDiscard =
+    canDiscard && planStatus === "draft" && selectedPlanId !== null;
   const reason = gate.action === "none" ? null : gate.reason;
 
   return (
@@ -311,29 +360,39 @@ export function RosterStatusBar({
             violationCount={violationCount}
           />
         </div>
-        {showPrimary ? (
+        {showPrimary || showDiscard ? (
           <div className="flex min-w-0 max-w-full flex-col gap-1.5 sm:items-end">
-            {gate.action === "generate" ? (
-              <GenerateDraftDialog
-                key={selectedLocationId ?? "none"}
-                week={week}
-                enabled={gate.enabled}
-                reason={reason}
-                reasonId={reasonId}
-                locationId={selectedLocationId}
-                locationName={locationName}
-              />
-            ) : null}
-            {gate.action === "publish" && selectedPlanId ? (
-              <PublishButton
-                planId={selectedPlanId}
-                enabled={gate.enabled}
-                reasonId={reasonId}
-              />
-            ) : null}
-            {gate.action === "revise" && selectedPlanId ? (
-              <RevisePlanButton planId={selectedPlanId} />
-            ) : null}
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              {showDiscard && selectedPlanId ? (
+                <DiscardDraftButton
+                  planId={selectedPlanId}
+                  version={planVersion ?? 0}
+                  assignmentCount={discardAssignmentCount}
+                  onDiscarded={afterDiscard}
+                />
+              ) : null}
+              {showPrimary && gate.action === "generate" ? (
+                <GenerateDraftDialog
+                  key={selectedLocationId ?? "none"}
+                  week={week}
+                  enabled={gate.enabled}
+                  reason={reason}
+                  reasonId={reasonId}
+                  locationId={selectedLocationId}
+                  locationName={locationName}
+                />
+              ) : null}
+              {showPrimary && gate.action === "publish" && selectedPlanId ? (
+                <PublishButton
+                  planId={selectedPlanId}
+                  enabled={gate.enabled}
+                  reasonId={reasonId}
+                />
+              ) : null}
+              {showPrimary && gate.action === "revise" && selectedPlanId ? (
+                <RevisePlanButton planId={selectedPlanId} />
+              ) : null}
+            </div>
             {/* Always mounted while a button shows, so a reason that
             appears after publish/revise/generate is announced. */}
             <p
@@ -478,6 +537,88 @@ function PublishButton({
     >
       {pending ? "Publishing…" : "Publish roster"}
     </Button>
+  );
+}
+
+function DiscardDraftButton({
+  planId,
+  version,
+  assignmentCount,
+  onDiscarded,
+}: {
+  planId: string;
+  version: number;
+  assignmentCount: number | null;
+  onDiscarded: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  // Held here, not in the dialog content: the content unmounts on close,
+  // this button stays mounted and guards a second submit.
+  const lock = useRef(false);
+  const copy = discardDialogCopy(version, assignmentCount);
+
+  function discard() {
+    startTransition(async () => {
+      await runExclusive(lock, async () => {
+        try {
+          const result = await discardDraft(planId);
+          if (result.ok) {
+            toast.success("Draft discarded.");
+            onDiscarded();
+            return;
+          }
+          toast.error(result.message ?? GENERIC_ERROR);
+        } catch {
+          toast.error(GENERIC_ERROR);
+        } finally {
+          setOpen(false);
+        }
+      });
+    });
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        className="max-sm:h-10"
+        disabled={pending}
+        aria-busy={pending}
+        onClick={() => setOpen(true)}
+      >
+        <Trash2Icon data-icon="inline-start" />
+        Discard draft
+      </Button>
+      <AlertDialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!pending) setOpen(next);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{copy.title}</AlertDialogTitle>
+            <AlertDialogDescription>{copy.body}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Keep draft</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={pending}
+              aria-busy={pending}
+              onClick={discard}
+            >
+              {pending ? (
+                <Loader2Icon data-icon="inline-start" className="animate-spin" />
+              ) : null}
+              Discard draft
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

@@ -83,6 +83,7 @@ export default async function RequestsPage({
     "approved",
     "fulfilled",
     "rejected",
+    "withdrawn",
   ] as const);
   const type = whitelistParam(raw, "type", ["weekly", "daily"] as const);
   const isSuperadmin = actor.role === "superadmin";

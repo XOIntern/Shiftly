@@ -256,12 +256,13 @@ afterAll(async () => {
 });
 
 describe("mp_request (Module 3 requests)", () => {
-  test("status enum is open, approved, fulfilled, rejected", () => {
+  test("status enum is open, approved, fulfilled, rejected, withdrawn", () => {
     expect(mpRequestStatusEnum.enumValues).toEqual([
       "open",
       "approved",
       "fulfilled",
       "rejected",
+      "withdrawn",
     ]);
   });
 
@@ -366,6 +367,28 @@ describe("mp_request (Module 3 requests)", () => {
       (await db.select().from(mpRequest).where(eq(mpRequest.id, reopenedId)))
         .length,
     ).toBe(1);
+  });
+
+  test("a withdrawn request frees the weekly slot", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "wd");
+    const firstId = await insertRequest(fx, {
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+    await db
+      .update(mpRequest)
+      .set({ status: "withdrawn" })
+      .where(eq(mpRequest.id, firstId));
+
+    let code: string | undefined;
+    let secondId: string | undefined;
+    try {
+      secondId = await insertRequest(fx, { type: "weekly", weekStart: MONDAY });
+    } catch (err) {
+      code = pgErrorCode(err);
+    }
+    expect(code).toBeUndefined();
+    expect(secondId).toBeDefined();
   });
 
   test("daily-fulfilled slot is freed; a daily open request on the same date applies", async () => {

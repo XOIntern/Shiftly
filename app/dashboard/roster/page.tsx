@@ -355,6 +355,10 @@ export default async function RosterPage({
     siteName: row.siteName,
   }));
 
+  // Discarding is offered to the writing roles on a draft; the page lists
+  // weekly plans only, and daily plans are never discardable.
+  const canDiscard = canWrite && chosen?.status === "draft";
+
   return (
     <RosterWeekView
       week={week}
@@ -380,6 +384,8 @@ export default async function RosterPage({
         ),
       }}
       workAreaId={workAreaId}
+      canDiscard={canDiscard}
+      discardAssignmentCount={bundle ? bundle.rows.length : null}
     />
   );
 }

@@ -4,6 +4,7 @@ import {
   mpRequestCreateSchema,
   mpRequestLineSchema,
   mpRequestUpdateSchema,
+  withdrawRequestSchema,
 } from "./request-line";
 
 // Hand-checked fixtures: 2026-10-19 is a Monday, its week runs through
@@ -298,5 +299,15 @@ describe("advanceStatusSchema", () => {
   test("rejects a non-uuid id", () => {
     const result = advanceStatusSchema.safeParse({ id: "not-a-uuid", status: "approved" });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("withdrawRequestSchema", () => {
+  test("accepts a uuid and rejects anything else", () => {
+    expect(withdrawRequestSchema.safeParse({ id: REQUEST_ID }).success).toBe(true);
+    expect(withdrawRequestSchema.safeParse({ id: "not-a-uuid" }).success).toBe(false);
+    expect(withdrawRequestSchema.safeParse({ id: "" }).success).toBe(false);
+    expect(withdrawRequestSchema.safeParse({}).success).toBe(false);
+    expect(withdrawRequestSchema.safeParse({ id: 42 }).success).toBe(false);
   });
 });

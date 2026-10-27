@@ -13,7 +13,7 @@ mock.module("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-const { RosterStatusBar } = await import(
+const { RosterStatusBar, discardDialogCopy } = await import(
   "./roster-status-bar"
 );
 type BarProps = Parameters<typeof RosterStatusBar>[0];
@@ -48,6 +48,8 @@ const base: BarProps = {
   selectedLocationId: LOC_1,
   navigating: false,
   canWrite: true,
+  canDiscard: true,
+  discardAssignmentCount: 3,
 };
 
 function render(overrides: Partial<BarProps> = {}): string {
@@ -239,5 +241,50 @@ describe("RosterStatusBar", () => {
     expect(html).toContain('aria-label="Next week"');
     expect(html).toContain('aria-label="Week start"');
     expect(html).toContain('value="2026-01-05"');
+  });
+
+  test("a discardable draft offers Discard draft next to the primary button", () => {
+    const html = render();
+    expect(html).toContain("Discard draft");
+    expect(html).toContain("Publish roster");
+  });
+
+  test("Discard draft is absent on a published plan, for an ho, and with no selected plan", () => {
+    expect(
+      render({
+        planStatus: "published",
+        gate: { action: "revise", enabled: true, reason: null },
+      }),
+    ).not.toContain("Discard draft");
+    expect(
+      render({ canDiscard: false, canWrite: false, gate: { action: "none" } }),
+    ).not.toContain("Discard draft");
+    expect(render({ canDiscard: false })).not.toContain("Discard draft");
+    expect(render({ selectedPlanId: null })).not.toContain("Discard draft");
+  });
+});
+
+describe("discardDialogCopy", () => {
+  test("names the draft version in the title", () => {
+    expect(discardDialogCopy(2, 5).title).toBe("Discard draft v2?");
+  });
+
+  test("counts zero, one and many assignments", () => {
+    expect(discardDialogCopy(1, 0).body).toBe(
+      "0 assignments will be deleted. Published versions are not affected.",
+    );
+    expect(discardDialogCopy(1, 1).body).toBe(
+      "1 assignment will be deleted. Published versions are not affected.",
+    );
+    expect(discardDialogCopy(1, 12).body).toBe(
+      "12 assignments will be deleted. Published versions are not affected.",
+    );
+  });
+
+  test("an unknown count drops the number", () => {
+    expect(discardDialogCopy(3, null)).toEqual({
+      title: "Discard draft v3?",
+      body: "Its assignments will be deleted. Published versions are not affected.",
+    });
   });
 });

@@ -63,6 +63,8 @@ export function RosterWeekView({
   violationCount,
   requirements,
   workAreaId,
+  canDiscard,
+  discardAssignmentCount,
 }: {
   week: string;
   // Admin + superadmin; an ho never sees the write surface.
@@ -81,6 +83,10 @@ export function RosterWeekView({
   requirements: RequirementsView;
   // The selected work area: the panel highlights it, the grid shows it.
   workAreaId: string;
+  // Admin + superadmin on a selected draft; the server re-checks.
+  canDiscard: boolean;
+  // The selected plan's assignment rows (null without a plan).
+  discardAssignmentCount: number | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -143,6 +149,8 @@ export function RosterWeekView({
         selectedLocationId={locationId}
         navigating={isPending}
         canWrite={canWrite}
+        canDiscard={canDiscard}
+        discardAssignmentCount={discardAssignmentCount}
       />
 
       {/* Panel first in source order: it stacks above the grid on narrow

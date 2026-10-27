@@ -169,6 +169,13 @@
       "when": 1793074489907,
       "tag": "0023_request_status_open_approved",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793086401622,
+      "tag": "0024_request_status_withdrawn",
+      "breakpoints": true
     }
   ]
 }

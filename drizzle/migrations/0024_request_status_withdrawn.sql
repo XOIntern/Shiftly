@@ -1,0 +1,1 @@
+ALTER TYPE "public"."mp_request_status" ADD VALUE 'withdrawn';
