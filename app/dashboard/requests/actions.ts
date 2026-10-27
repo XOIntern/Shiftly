@@ -50,6 +50,8 @@ const NOT_EDITABLE = "Only open requests can be edited";
 const RACE_MESSAGE = "Request state changed, reload";
 const NOT_FOUND = "Request not found.";
 const ILLEGAL_TRANSITION = "That status change is not allowed";
+const APPROVER_ONLY_MESSAGE = "Only HO can approve or reject requests.";
+const WEEKLY_ONLY_MESSAGE = "Only weekly requests need approval.";
 // The composite weld FKs on mp_request_line (work area / shift +
 // site_location + site) make a cross-location pairing impossible — this is
 // both the pre-check's message for a foreign reference and the catch's net
@@ -68,12 +70,13 @@ const POSITION_NOT_REQUIRED =
 const INACTIVE_POSITION_KEEP_ONLY =
   "Inactive positions can only be kept unchanged, not re-added";
 
-// Manual status machine (spec §4.4): forward-only edges, terminal states
-// stay terminal. The guarded write below still re-checks the CURRENT row
-// status in its WHERE, so a concurrent move turns this into a 0-row no-op.
+// Manual status machine: a weekly request leaves "open" exactly once, for
+// approved or rejected; every other state is terminal here ("fulfilled" is
+// never set by hand). The guarded write below still re-checks the CURRENT
+// row status in its WHERE, so a concurrent move turns this into a 0-row no-op.
 const LEGAL_TRANSITIONS: Record<MpRequestStatus, readonly string[]> = {
   open: ["approved", "rejected"],
-  approved: ["fulfilled", "rejected"],
+  approved: [],
   fulfilled: [],
   rejected: [],
 };
@@ -457,9 +460,15 @@ export async function updateRequestLines(
 
 export async function advanceStatus(
   id: string,
-  nextStatus: "approved" | "fulfilled" | "rejected",
+  nextStatus: "approved" | "rejected",
 ): Promise<ActionState> {
   const actor = await requireUser();
+
+  // Approval belongs to HO (and superadmin): an admin is refused before any
+  // read, even for their own location's request.
+  if (actor.role === "admin") {
+    return { ok: false, message: APPROVER_ONLY_MESSAGE };
+  }
 
   const parsed = advanceStatusSchema.safeParse({ id, status: nextStatus });
   if (!parsed.success) {
@@ -481,6 +490,11 @@ export async function advanceStatus(
         .limit(1)
         .for("update");
       if (!row) throw new ActionAbort({ ok: false, message: NOT_FOUND });
+
+      // Daily requests skip approval; the type is only known after the read.
+      if (row.type === "daily") {
+        throw new ActionAbort({ ok: false, message: WEEKLY_ONLY_MESSAGE });
+      }
 
       if (!LEGAL_TRANSITIONS[row.status].includes(parsed.data.status)) {
         throw new ActionAbort({ ok: false, message: ILLEGAL_TRANSITION });

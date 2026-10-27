@@ -520,7 +520,7 @@ describe("request actions: createRequest", () => {
 });
 
 describe("request actions: updateRequestLines", () => {
-  test("edit after the status moved on: blocked", async () => {
+  test("updateRequestLines on an approved request is refused", async () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
@@ -946,9 +946,153 @@ describe("request actions: updateRequestLines", () => {
 });
 
 describe("request actions: advanceStatus", () => {
-  test("legal transition open→approved writes the audit old→new", async () => {
+  async function statusOf(requestId: string) {
+    const [row] = await db
+      .select()
+      .from(mpRequest)
+      .where(eq(mpRequest.id, requestId));
+    return row.status;
+  }
+
+  test("ho approves an open weekly request: status approved + one audit row old→new", async () => {
+    const fx = await seedGlobalData();
+    const creator = makeActor("admin", null, fx.locA1);
+    await seedUser(creator);
+    actor = makeActor("ho", fx.siteA, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: creator.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const result = await advanceStatus(requestId, "approved");
+      expect(result.ok).toBe(true);
+      expect(await statusOf(requestId)).toBe("approved");
+
+      const audits = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.action, "mp_request.status_change"),
+            eq(auditLog.actorId, actor.id),
+          ),
+        );
+      expect(audits).toHaveLength(1);
+      expect(audits[0].details).toEqual({
+        requestId,
+        type: "weekly",
+        oldValue: "open",
+        newValue: "approved",
+      });
+    } finally {
+      await dropAll({ userIds: [actor.id, creator.id], ...fx });
+    }
+  });
+
+  test("superadmin rejects an open weekly request", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const result = await advanceStatus(requestId, "rejected");
+      expect(result.ok).toBe(true);
+      expect(await statusOf(requestId)).toBe("rejected");
+
+      const [audit] = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.action, "mp_request.status_change"),
+            eq(auditLog.actorId, actor.id),
+          ),
+        );
+      expect(audit.details).toEqual({
+        requestId,
+        type: "weekly",
+        oldValue: "open",
+        newValue: "rejected",
+      });
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("admin of the same location is refused with the approver-only message and the row stays open", async () => {
     const fx = await seedGlobalData();
     actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const result = await advanceStatus(requestId, "approved");
+      expect(result).toEqual({
+        ok: false,
+        message: "Only HO can approve or reject requests.",
+      });
+      expect(await statusOf(requestId)).toBe("open");
+
+      const audits = await db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.actorId, actor.id));
+      expect(audits).toHaveLength(0);
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("approved → rejected is refused as an illegal transition", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+      status: "approved",
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const result = await advanceStatus(requestId, "rejected");
+      expect(result).toEqual({
+        ok: false,
+        message: "That status change is not allowed",
+      });
+      expect(await statusOf(requestId)).toBe("approved");
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("approving a daily request is refused with the weekly-only message", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
     await seedUser(actor);
     const requestId = await seedRequest({
       siteId: fx.siteA,
@@ -961,37 +1105,17 @@ describe("request actions: advanceStatus", () => {
     try {
       const { advanceStatus } = await import("./actions");
       const result = await advanceStatus(requestId, "approved");
-      expect(result.ok).toBe(true);
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("approved");
-
-      const [audit] = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "mp_request.status_change"),
-            eq(auditLog.actorId, actor.id),
-          ),
-        );
-      expect(audit).toBeDefined();
-      expect(audit.actorId).toBe(actor.id);
-      expect(audit.details).toEqual({
-        requestId,
-        type: "daily",
-        oldValue: "open",
-        newValue: "approved",
+      expect(result).toEqual({
+        ok: false,
+        message: "Only weekly requests need approval.",
       });
+      expect(await statusOf(requestId)).toBe("open");
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 
-  test("illegal transition open→fulfilled: rejected, status untouched", async () => {
+  test("fulfilled is not a target status: refused at the runtime boundary", async () => {
     const fx = await seedGlobalData();
     actor = makeActor("superadmin", null, null);
     await seedUser(actor);
@@ -999,85 +1123,52 @@ describe("request actions: advanceStatus", () => {
       siteId: fx.siteA,
       siteLocationId: fx.locA1,
       createdBy: actor.id,
-      type: "daily",
-      requestDate: "2026-03-04",
-    });
-
-    try {
-      const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "fulfilled");
-      expect(result.ok).toBe(false);
-      expect(result.message).toBe("That status change is not allowed");
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("open");
-    } finally {
-      await dropAll({ userIds: [actor.id], ...fx });
-    }
-  });
-
-  test("backward transition approved→open: rejected", async () => {
-    const fx = await seedGlobalData();
-    actor = makeActor("superadmin", null, null);
-    await seedUser(actor);
-    const requestId = await seedRequest({
-      siteId: fx.siteA,
-      siteLocationId: fx.locA1,
-      createdBy: actor.id,
-      type: "daily",
-      requestDate: "2026-03-04",
+      type: "weekly",
+      weekStart: MONDAY,
       status: "approved",
     });
 
     try {
       const { advanceStatus } = await import("./actions");
-      // "open" is not even a target status — the runtime boundary must
-      // still answer cleanly, never crash.
       const result = await advanceStatus(
         requestId,
-        "open" as Parameters<typeof advanceStatus>[1],
+        "fulfilled" as Parameters<typeof advanceStatus>[1],
       );
       expect(result.ok).toBe(false);
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("approved");
+      expect(await statusOf(requestId)).toBe("approved");
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 
-  test("advancing twice re-reads the stored status: the second call is rejected", async () => {
+  test("two concurrent approvals: exactly one ok, the other gets the race message", async () => {
     const fx = await seedGlobalData();
-    actor = makeActor("admin", null, fx.locA1);
+    actor = makeActor("superadmin", null, null);
     await seedUser(actor);
     const requestId = await seedRequest({
       siteId: fx.siteA,
       siteLocationId: fx.locA1,
       createdBy: actor.id,
-      type: "daily",
-      requestDate: "2026-03-04",
+      type: "weekly",
+      weekStart: MONDAY,
     });
 
     try {
       const { advanceStatus } = await import("./actions");
-      expect((await advanceStatus(requestId, "approved")).ok).toBe(true);
-
-      // The second call re-reads status "approved" and tries the same edge
-      // again — the guarded WHERE / transition map must refuse it.
-      const second = await advanceStatus(requestId, "approved");
-      expect(second.ok).toBe(false);
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("approved");
+      const results = await Promise.all([
+        advanceStatus(requestId, "approved"),
+        advanceStatus(requestId, "approved"),
+      ]);
+      expect(results.filter((r) => r.ok)).toHaveLength(1);
+      // The loser blocks on the row lock, re-reads "approved" and is refused
+      // as an illegal edge; a loser that read before the winner committed
+      // trips the guarded write instead.
+      const loser = results.find((r) => !r.ok);
+      expect(loser?.message).toBeOneOf([
+        "Request state changed, reload",
+        "That status change is not allowed",
+      ]);
+      expect(await statusOf(requestId)).toBe("approved");
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
     }
