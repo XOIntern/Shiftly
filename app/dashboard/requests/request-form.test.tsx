@@ -48,6 +48,7 @@ const {
   fieldErrorsSummary,
   refusalToast,
   removeAreaValues,
+  shouldResetOnWeekChange,
 } = await import("./request-form");
 
 const SITE_A = "11111111-1111-4111-8111-111111111111";
@@ -1167,6 +1168,26 @@ describe("grouped form markup", () => {
       expect(html.includes("Add rows")).toBeFalse();
       expect(html.includes("Remove row")).toBeFalse();
     }
+  });
+});
+
+describe("shouldResetOnWeekChange (weekly create week edits)", () => {
+  test("another day of the same week changes nothing", () => {
+    expect(shouldResetOnWeekChange("2026-01-05", "2026-01-08", "grid", true)).toBeFalse();
+  });
+
+  test("a different Monday after the grid step resets to the copy step", () => {
+    expect(shouldResetOnWeekChange("2026-01-05", "2026-01-12", "grid", true)).toBeTrue();
+    // Clearing the week also leaves the copied/typed dates behind.
+    expect(shouldResetOnWeekChange("2026-01-05", "", "grid", true)).toBeTrue();
+  });
+
+  test("a different Monday while still on the copy step has nothing to reset", () => {
+    expect(shouldResetOnWeekChange("2026-01-05", "2026-01-12", "copy", true)).toBeFalse();
+  });
+
+  test("edit and daily forms never reset", () => {
+    expect(shouldResetOnWeekChange("2026-01-05", "2026-01-12", "grid", false)).toBeFalse();
   });
 });
 

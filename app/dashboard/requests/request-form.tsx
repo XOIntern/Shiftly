@@ -240,6 +240,21 @@ export function copyWeekValues(
   return { values, areaIds };
 }
 
+// Weekly create: once the user has moved past the copy step, a week edit
+// that lands on another Monday strands the copied/typed cells on the old
+// dates, so the form starts over at the copy step for the new week. Another
+// day inside the same week changes nothing; edit and daily never reset.
+export function shouldResetOnWeekChange(
+  oldWeekStart: string,
+  newWeekStart: string,
+  step: "copy" | "grid",
+  isWeeklyCreate: boolean,
+): boolean {
+  if (!isWeeklyCreate || step !== "grid") return false;
+  const monday = (date: string) => (date ? mondayOf(date) : "");
+  return monday(oldWeekStart) !== monday(newWeekStart);
+}
+
 // Per-row "same all days": one value spread over the row's day cells. An
 // empty spread clears them all.
 export function quickFillCells(count: string, dates: string[]) {
@@ -747,15 +762,33 @@ export function RequestForm({
   // The sections belong to one location's catalog: a location move starts
   // the form over, copy step included (stale cells are also pruned on
   // submit).
+  function resetToCopyStep() {
+    setAreaIds(new Set());
+    setValues({});
+    setQuickFill({});
+    setCollapsed(new Set());
+    setStep("copy");
+  }
+
   function changeLocation(next: string | null) {
-    if (next !== locationId) {
-      setAreaIds(new Set());
-      setValues({});
-      setQuickFill({});
-      setCollapsed(new Set());
-      setStep("copy");
-    }
+    if (next !== locationId) resetToCopyStep();
     setLocationId(next);
+  }
+
+  // A new week (another Monday) after Copy or Start blank goes back to the
+  // copy step, so the offer for the new week is usable again.
+  function changeWeekStart(next: string) {
+    if (
+      shouldResetOnWeekChange(
+        weekStart,
+        next,
+        step,
+        !isEdit && type_ === "weekly",
+      )
+    ) {
+      resetToCopyStep();
+    }
+    setWeekStart(next);
   }
 
   function copyFromSource() {
@@ -949,7 +982,7 @@ export function RequestForm({
               id="request-week-start"
               type="date"
               value={weekStart}
-              onChange={(event) => setWeekStart(event.target.value)}
+              onChange={(event) => changeWeekStart(event.target.value)}
               aria-invalid={fieldErrors.weekStart ? true : undefined}
               disabled={isEdit}
               required
