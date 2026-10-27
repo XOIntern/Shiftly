@@ -7,7 +7,6 @@ import { createColumnHelper } from "@tanstack/react-table";
 
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -16,26 +15,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  RequestStatusBadge,
+  rosterHrefFor,
+} from "@/app/dashboard/requests/request-status";
 import { MpRequestRowActions } from "@/app/dashboard/requests/status-actions";
 import type { MpRequestRow } from "@/types/mp-request";
 
+// The badge and roster link moved to request-status so the detail dialog in
+// status-actions can use them without importing this module (a cycle).
+export { RequestStatusBadge, rosterHrefFor };
+
 const helper = createColumnHelper<typeof dataTableFeatures, MpRequestRow>();
-
-// Badge faces for the manual status machine (code-derived names).
-const STATUS_BADGE: Record<
-  MpRequestRow["status"],
-  { label: string; variant: "default" | "secondary" | "outline" | "success" | "destructive" }
-> = {
-  open: { label: "Open", variant: "outline" },
-  approved: { label: "Approved", variant: "default" },
-  fulfilled: { label: "Fulfilled", variant: "success" },
-  rejected: { label: "Rejected", variant: "destructive" },
-};
-
-export function RequestStatusBadge({ status }: { status: MpRequestRow["status"] }) {
-  const face = STATUS_BADGE[status];
-  return <Badge variant={face.variant}>{face.label}</Badge>;
-}
 
 // The anchor column: weekly requests show their ISO Monday, daily requests
 // the single date (spec §3.3).
@@ -152,14 +143,6 @@ export function RequestTypeFilter() {
     </Select>
   );
 }
-
-// A weekly request that was approved or fulfilled has a roster week to open;
-// locationId lands superadmin and HO on the request's own location.
-export const rosterHrefFor = (request: MpRequestRow): string | null =>
-  request.type === "weekly" &&
-  (request.status === "approved" || request.status === "fulfilled")
-    ? `/dashboard/roster?week=${request.weekStart}&locationId=${request.siteLocationId}`
-    : null;
 
 // Deterministic stamp for the server-rendered updatedAt Date (ISO string
 // once serialized) — UTC, so markup matches across timezones.

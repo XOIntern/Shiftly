@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CheckIcon,
@@ -15,6 +16,10 @@ import { toast } from "sonner";
 import type { MpRequestLineView, MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { advanceStatus } from "@/app/dashboard/requests/actions";
+import {
+  RequestStatusBadge,
+  rosterHrefFor,
+} from "@/app/dashboard/requests/request-status";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -177,11 +182,33 @@ export function MpRequestRowActions({
                   ? `Week of ${request.weekStart}`
                   : `Date ${request.requestDate}`}
               </DialogDescription>
+              <RequestDetailStatus request={request} />
             </DialogHeader>
             <RequestLinesTable lines={request.lines} />
           </DialogContent>
         </Dialog>
       </DropdownMenu>
+    </div>
+  );
+}
+
+// The status row of the detail dialog's header: the badge (its text carries
+// the status, not colour) and the roster link once a weekly request has a
+// roster week. Exported so SSR tests can pin it — the dialog mounts closed,
+// and the dialog title parts cannot render outside an open dialog.
+export function RequestDetailStatus({ request }: { request: MpRequestRow }) {
+  const rosterHref = rosterHrefFor(request);
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <RequestStatusBadge status={request.status} />
+      {rosterHref ? (
+        <Link
+          href={rosterHref}
+          className="text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          View in roster →
+        </Link>
+      ) : null}
     </div>
   );
 }

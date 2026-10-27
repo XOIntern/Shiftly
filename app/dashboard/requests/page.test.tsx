@@ -440,6 +440,27 @@ describe("requests list: approval, roster link and filter", () => {
     ).toBeNull();
   });
 
+  test("the detail dialog of a fulfilled weekly request shows the Fulfilled badge and the roster link; an open request shows its badge and no link", async () => {
+    const { RequestDetailStatus } = await import("./status-actions");
+
+    const fulfilled = renderToStaticMarkup(
+      <RequestDetailStatus request={{ ...baseRow, status: "fulfilled" }} />,
+    );
+    expect(fulfilled.includes("Fulfilled")).toBeTrue();
+    expect(fulfilled.includes("View in roster →")).toBeTrue();
+    expect(
+      fulfilled.includes(
+        'href="/dashboard/roster?week=2026-11-02&amp;locationId=loc-1"',
+      ),
+    ).toBeTrue();
+
+    const open = renderToStaticMarkup(
+      <RequestDetailStatus request={{ ...baseRow, status: "open" }} />,
+    );
+    expect(open.includes("Open")).toBeTrue();
+    expect(open.includes("View in roster")).toBeFalse();
+  });
+
   test("the status filter lists exactly Open, Approved, Fulfilled, Rejected", async () => {
     const { STATUS_OPTIONS } = await import("./requests-table");
     expect(STATUS_OPTIONS.map((option) => option.label)).toEqual([
