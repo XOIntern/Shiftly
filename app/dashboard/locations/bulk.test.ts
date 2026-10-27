@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { site, siteLocation, user } from "@/drizzle/schema";
@@ -89,6 +89,8 @@ describe("locations bulk actions", () => {
     const foreign = randomUUID();
     const adminA = randomUUID();
     const hoActor = randomUUID();
+    // A foreign site's location, never the ho's to touch.
+    const foreignSite = randomUUID();
 
     try {
       await db
@@ -100,8 +102,6 @@ describe("locations bulk actions", () => {
           locationRow(free, siteA, "T4 Loc Free"),
           locationRow(bound, siteA, "T4 Loc Bound"),
         ]);
-      // A foreign site's location, never the ho's to touch.
-      const foreignSite = randomUUID();
       await db
         .insert(site)
         .values([{ id: foreignSite, name: `t4-loc-fs-${foreignSite}` }]);
@@ -163,7 +163,7 @@ describe("locations bulk actions", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, free));
       await db.delete(siteLocation).where(eq(siteLocation.id, bound));
       await db.delete(siteLocation).where(eq(siteLocation.id, foreign));
-      await db.delete(site).where(eq(site.id, siteA));
+      await db.delete(site).where(inArray(site.id, [siteA, foreignSite]));
     }
   });
 

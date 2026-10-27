@@ -260,6 +260,9 @@ async function seedWeeklyDemand(fx: BaseFixture, lines: { workAreaId: string; sh
 afterAll(async () => {
   // Audit pins the actor user; the action-created plans/assignments are
   // deleted by this suite's own locations (presence-scoped, not global).
+  // One statement per table over every tracked location: the discard
+  // describe tracks many locations, and a per-location loop of serial
+  // deletes could outrun the default hook timeout and strand the rows.
   if (createdUserIds.length > 0) {
     await db.delete(auditLog).where(inArray(auditLog.actorId, createdUserIds));
   }
@@ -268,11 +271,15 @@ afterAll(async () => {
       .delete(rosterRuleConfig)
       .where(inArray(rosterRuleConfig.id, createdRuleConfigIds));
   }
-  for (const locId of createdLocationIds) {
-    await db.delete(rosterAssignment).where(eq(rosterAssignment.siteLocationId, locId));
-    await db.delete(rosterPlan).where(eq(rosterPlan.siteLocationId, locId));
-    await db.delete(mpRequestLine).where(eq(mpRequestLine.siteLocationId, locId));
-    await db.delete(mpRequest).where(eq(mpRequest.siteLocationId, locId));
+  if (createdLocationIds.length > 0) {
+    // roster_assignment cascades from roster_plan, mp_request_line from
+    // mp_request; plans go first, they RESTRICT their source request.
+    await db
+      .delete(rosterPlan)
+      .where(inArray(rosterPlan.siteLocationId, createdLocationIds));
+    await db
+      .delete(mpRequest)
+      .where(inArray(mpRequest.siteLocationId, createdLocationIds));
   }
   // Pivots first: they RESTRICT to worker / work_area rows.
   if (createdWorkerIds.length > 0) {
@@ -302,7 +309,7 @@ afterAll(async () => {
   if (createdSiteIds.length > 0) {
     await db.delete(site).where(inArray(site.id, createdSiteIds));
   }
-});
+}, 30_000);
 
 // The trackers must be declared before createBase uses them (hoisting rule
 // of bun's transpiler) — placed down here, the helpers above reference them

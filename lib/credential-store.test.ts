@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { randomBytes, randomUUID } from "node:crypto";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 
@@ -56,6 +56,10 @@ async function cleanup() {
   await db.delete(user).where(eq(user.email, TEST_EMAIL));
 }
 
+// Runs after every test, passed or failed, so a failing assertion cannot
+// strand the fixture user (each test also clears it up front).
+afterEach(cleanup);
+
 async function credentialPasswordHash(userId: string): Promise<string | null> {
   const [row] = await db
     .select({ password: account.password })
@@ -106,8 +110,6 @@ describe("credential store", () => {
     expect(otherRows.length).toBe(1);
     expect(otherRows[0].password).toBeNull();
     expect(otherRows[0].accessToken).toBe("access-token-placeholder");
-
-    await cleanup();
   });
 
   test("resetPassword: sign-in works with the new password and rejects the old", async () => {
@@ -128,7 +130,6 @@ describe("credential store", () => {
         code: (err as { status?: string }).status,
       }));
     expect(failed?.code).toBe("UNAUTHORIZED");
-    await cleanup();
   });
 
   test("resetPassword: returns 0 for a user without a credential account", async () => {
@@ -155,8 +156,6 @@ describe("credential store", () => {
       .from(session)
       .where(eq(session.userId, userId));
     expect(after.length).toBe(0);
-
-    await cleanup();
   });
 });
 
@@ -182,7 +181,5 @@ describe("credential store: direct-inserted sessions", () => {
       .from(session)
       .where(eq(session.userId, userId));
     expect(after.length).toBe(0);
-
-    await cleanup();
   });
 });

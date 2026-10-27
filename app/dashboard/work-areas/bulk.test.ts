@@ -205,13 +205,13 @@ describe("work-areas bulk actions", () => {
         .from(workArea)
         .where(eq(workArea.siteLocationId, locB));
       expect(row?.siteId).toBe(siteB);
-      if (row) {
-        await db
-          .delete(workAreaPosition)
-          .where(eq(workAreaPosition.workAreaId, row.id));
-        await db.delete(workArea).where(eq(workArea.id, row.id));
-      }
     } finally {
+      // The action-created area (and its pivot rows) are found by location,
+      // so they go even when an assertion above failed.
+      await db
+        .delete(workAreaPosition)
+        .where(eq(workAreaPosition.siteLocationId, locB));
+      await db.delete(workArea).where(eq(workArea.siteLocationId, locB));
       await db.delete(position).where(eq(position.id, posB));
       await db.delete(siteLocation).where(eq(siteLocation.id, locB));
       await db.delete(site).where(eq(site.id, siteA));

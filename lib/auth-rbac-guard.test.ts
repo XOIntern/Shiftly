@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, test } from "bun:test";
+import { eq, inArray } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 
 import { auth } from "./auth";
@@ -19,6 +19,7 @@ async function createUser({
   isActive: boolean;
 }): Promise<string> {
   const userId = randomUUID();
+  createdUserIds.push(userId);
   const passwordHash = await hashPassword(TEST_PASSWORD);
   await db.insert(user).values({
     id: userId,
@@ -38,10 +39,14 @@ async function createUser({
   return userId;
 }
 
-async function cleanup(userId: string) {
-  // Cascades to account and session.
-  await db.delete(user).where(eq(user.id, userId));
-}
+// Every user a test provisions, removed after the test whether it passed or
+// failed. Deleting the user cascades to its account and session rows.
+const createdUserIds: string[] = [];
+afterEach(async () => {
+  if (createdUserIds.length === 0) return;
+  await db.delete(user).where(inArray(user.id, createdUserIds));
+  createdUserIds.length = 0;
+});
 
 type SignInResult = { token: string; headers: Headers } | null;
 
@@ -123,8 +128,6 @@ describe("auth rbac guards (final review C1 + I2)", () => {
     expect(row.role).toBe("admin");
     expect(row.isActive).toBe(true);
     expect(row.name).toBe("Renamed While Guarded");
-
-    await cleanup(userId);
   });
 
   test("T3 audit: update-user cannot self-promote to superadmin with a location", async () => {
@@ -159,15 +162,12 @@ describe("auth rbac guards (final review C1 + I2)", () => {
     const [row] = await db.select().from(user).where(eq(user.id, userId));
     expect(row.role).toBe("admin");
     expect(row.siteLocationId).toBeNull();
-
-    await cleanup(userId);
   });
 
   test("I2: sign-in for a deactivated user is refused and mints no session", async () => {
     const userId = await createUser({ isActive: false });
     expect(await signIn(userId)).toBeNull();
     expect(await sessionRowCount(userId)).toBe(0);
-    await cleanup(userId);
   });
 
   test("I2: sign-in for a deactivated user reports the account as inactive", async () => {
@@ -180,7 +180,6 @@ describe("auth rbac guards (final review C1 + I2)", () => {
         message: (err as { body?: { message?: string } }).body?.message ?? "",
       }));
     expect(failure.message).toBe("Your account is inactive.");
-    await cleanup(userId);
   });
 
   test("I2: reactivation wipes stale minted tokens, then sign-in works", async () => {
@@ -212,7 +211,5 @@ describe("auth rbac guards (final review C1 + I2)", () => {
     const fresh = await signIn(userId);
     expect(fresh?.token).toBeTruthy();
     expect(await sessionRowCount(userId)).toBe(1);
-
-    await cleanup(userId);
   });
 });
