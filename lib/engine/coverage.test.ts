@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { computeCoverage, coverageTotals, type CoverageRequirement } from "./coverage";
+import {
+  computeCoverage,
+  coverageTotals,
+  withoutFulfilledDailyFills,
+  type CoverageRequirement,
+} from "./coverage";
 import { computeDeficit } from "./deficit";
 import type { RosterAssignment } from "@/types/engine";
 
@@ -196,5 +201,57 @@ describe("computeCoverage", () => {
     );
     expect(deficitMissing).toBeGreaterThan(0);
     expect(rowsMissing).toBe(deficitMissing);
+  });
+});
+
+describe("withoutFulfilledDailyFills", () => {
+  const fill = (workerId: string, date = "2026-01-07", shiftDefId = "s1"): RosterAssignment => ({
+    workerId,
+    date,
+    shiftDefId,
+    workAreaId: "a1",
+  });
+
+  test("drops as many fills per slot as fulfilled requests demanded there", () => {
+    const kept = withoutFulfilledDailyFills(
+      [fill("w1"), fill("w2"), fill("w3"), fill("w4", "2026-01-08")],
+      [{ workAreaId: "a1", shiftDefId: "s1", date: "2026-01-07", headcount: 2 }],
+    );
+    expect(kept.map((a) => a.workerId)).toEqual(["w3", "w4"]);
+  });
+
+  test("a fulfilled demand larger than the fills leaves nothing on that slot only", () => {
+    const kept = withoutFulfilledDailyFills(
+      [fill("w1"), fill("w2", "2026-01-07", "s2")],
+      [{ workAreaId: "a1", shiftDefId: "s1", date: "2026-01-07", headcount: 5 }],
+    );
+    expect(kept.map((a) => a.workerId)).toEqual(["w2"]);
+  });
+
+  test("with no fulfilled demand every fill is kept", () => {
+    const fills = [fill("w1"), fill("w2")];
+    expect(withoutFulfilledDailyFills(fills, [])).toEqual(fills);
+  });
+
+  test("an open row on a slot shared with a fulfilled sibling shows as short", () => {
+    const rows = computeCoverage(
+      [
+        {
+          source: "daily",
+          workAreaId: "a1",
+          shiftDefId: "s1",
+          positionId: "p1",
+          date: "2026-01-07",
+          headcount: 1,
+          requestId: "open",
+        },
+      ],
+      [],
+      withoutFulfilledDailyFills(
+        [fill("w1")],
+        [{ workAreaId: "a1", shiftDefId: "s1", date: "2026-01-07", headcount: 1 }],
+      ),
+    );
+    expect(rows[0]).toMatchObject({ required: 1, filled: 0 });
   });
 });

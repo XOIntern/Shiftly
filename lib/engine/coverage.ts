@@ -121,3 +121,26 @@ export function coverageTotals(rows: CoverageRow[]): { required: number; filled:
   }
   return { required, filled };
 }
+
+// Daily fills carry no request id, and a date holds one daily plan, so the
+// fills of an already fulfilled daily request sit on the same
+// area · shift · date as an open sibling's demand. Before coverage, drop as
+// many fills per slot as the fulfilled requests demanded there, so only the
+// remainder can count toward the open request.
+export function withoutFulfilledDailyFills(
+  dailyAssignments: RosterAssignment[],
+  fulfilledLines: { workAreaId: string; shiftDefId: string; date: string; headcount: number }[],
+): RosterAssignment[] {
+  const toDrop = new Map<string, number>();
+  for (const line of fulfilledLines) {
+    const key = `${line.workAreaId}|${line.shiftDefId}|${line.date}`;
+    toDrop.set(key, (toDrop.get(key) ?? 0) + line.headcount);
+  }
+  return dailyAssignments.filter((a) => {
+    const key = `${a.workAreaId}|${a.shiftDefId}|${a.date}`;
+    const left = toDrop.get(key) ?? 0;
+    if (left <= 0) return true;
+    toDrop.set(key, left - 1);
+    return false;
+  });
+}

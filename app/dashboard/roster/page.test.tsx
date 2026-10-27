@@ -90,6 +90,8 @@ async function seedRosterFixtures() {
   const reqWeekly = randomUUID();
   const reqDaily = randomUUID();
   const reqDailyDone = randomUUID();
+  const reqDailySibling = randomUUID();
+  const dailyPlan = randomUUID();
   const reqOpenWeek = randomUUID();
   const reqApprovedWeek = randomUUID();
   const reqLate = randomUUID();
@@ -197,6 +199,17 @@ async function seedRosterFixtures() {
       createdBy: creator,
     },
     {
+      // Fulfilled sibling of the open daily request: same date, area and
+      // shift. Its two fills live in the date's daily plan below.
+      id: reqDailySibling,
+      siteId: siteS,
+      siteLocationId: locL1,
+      type: "daily",
+      status: "fulfilled",
+      requestDate: "2026-01-07",
+      createdBy: creator,
+    },
+    {
       id: reqDailyDone,
       siteId: siteS,
       siteLocationId: locL1,
@@ -249,6 +262,7 @@ async function seedRosterFixtures() {
   });
   await db.insert(mpRequestLine).values([
     line(reqDailyDone, "2026-01-08", 1),
+    line(reqDailySibling, "2026-01-07", 2),
     line(reqOpenWeek, OPEN_MONDAY, 1),
     line(reqApprovedWeek, "2026-01-19", 1),
     line(reqApprovedWeek, "2026-01-20", 1),
@@ -378,6 +392,39 @@ async function seedRosterFixtures() {
     shiftDefinitionId: shEarly,
     date: MONDAY,
   });
+  // The 2026-01-07 daily plan holding the fulfilled sibling's two fills.
+  await db.insert(rosterPlan).values({
+    id: dailyPlan,
+    siteId: siteS,
+    siteLocationId: locL1,
+    kind: "daily",
+    requestDate: "2026-01-07",
+    status: "published",
+    version: 1,
+    rulesSnapshot: {
+      c1: { value: 6, source: "default" },
+      c2: { value: 20, source: "default" },
+      c3: { value: false, source: "default" },
+      c4: { value: false, source: "default" },
+      c5: { value: 6, source: "default" },
+      c6: { value: 1, source: "default" },
+      c7: { value: false, source: "default" },
+    },
+    publishedAt: new Date(),
+    publishedBy: creator,
+    generatedBy: creator,
+  });
+  await db.insert(rosterAssignment).values(
+    [workerIds[1], workerIds[2]].map((workerId) => ({
+      planId: dailyPlan,
+      siteId: siteS,
+      siteLocationId: locL1,
+      workerId,
+      workAreaId: waOne,
+      shiftDefinitionId: shEarly,
+      date: "2026-01-07",
+    })),
+  );
 
   return {
     ids: { siteS, locL1, locL2, waOne, waTwo, shEarly, draftL1, draftL2, publishedL1 },
@@ -396,13 +443,15 @@ async function seedRosterFixtures() {
     LATE_MONDAY,
     async cleanup() {
       await db.delete(rosterAssignment).where(eq(rosterAssignment.planId, draftL1));
-      for (const id of [draftL1, draftL2, publishedL1, publishedLate]) {
+      await db.delete(rosterAssignment).where(eq(rosterAssignment.planId, dailyPlan));
+      for (const id of [draftL1, draftL2, publishedL1, publishedLate, dailyPlan]) {
         await db.delete(rosterPlan).where(eq(rosterPlan.id, id));
       }
       for (const id of [
         reqWeekly,
         reqDaily,
         reqDailyDone,
+        reqDailySibling,
         reqOpenWeek,
         reqApprovedWeek,
         reqLate,
@@ -542,8 +591,9 @@ describe("roster page SSR (roster-engine Task 7)", () => {
 
       const page = text(await renderRoster({ week: fx.MONDAY }));
 
-      // Weekly demand 2+2 with one assignment, plus the open daily slot of 2.
-      expect(page).toContain("Draft v1 · 1/6 filled");
+      // The plan's figure is weekly demand only (2+2, one assignment); the
+      // open daily slot is not something a weekly draft can fill.
+      expect(page).toContain("Draft v1 · 1/4 filled");
       expect(page).toContain(`${fx.labels.areaOne} · ${fx.labels.shiftEarly}`);
       expect(page).toContain("1/4");
       expect(page).toContain("3 short");
@@ -563,6 +613,9 @@ describe("roster page SSR (roster-engine Task 7)", () => {
 
       expect(page).toContain("daily · 2026-01-07");
       expect(page).not.toContain("daily · 2026-01-08");
+      // The fulfilled sibling's two fills on the same slot do not cover the
+      // open request: its row stays 0/2 and short.
+      expect(page).toMatch(/0\/2\s*daily · 2026-01-07\s*2 short/);
       expect(page).toContain("Suggest replacements");
       // The old daily table is gone.
       expect(page).not.toContain("Daily requests");

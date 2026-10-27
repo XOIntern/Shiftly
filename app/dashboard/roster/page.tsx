@@ -15,7 +15,11 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { mpRequestListWhere } from "@/lib/mp-request-scope";
 import { mondayOf, weekDates } from "@/lib/week";
-import { computeCoverage, coverageTotals } from "@/lib/engine/coverage";
+import {
+  computeCoverage,
+  coverageTotals,
+  withoutFulfilledDailyFills,
+} from "@/lib/engine/coverage";
 import type { CoverageRequirement, CoverageRow } from "@/lib/engine/coverage";
 import type { EffectiveRules, RosterAssignment } from "@/types/engine";
 import {
@@ -181,6 +185,7 @@ export default async function RosterPage({
     weeklyLines,
     dailyLines,
     dailyAssignments,
+    fulfilledDailyLines,
     approved,
     areaRows,
     shiftRows,
@@ -189,6 +194,7 @@ export default async function RosterPage({
         loadRequirementsForWeek(locationId, week),
         loadDailyRequirements(locationId, dates[0], dates[dates.length - 1]),
         loadDailyAssignments(actor, locationId, dates),
+        loadFulfilledDailyLines(actor, locationId, dates),
         countApproved(actor, locationId, week),
         db
           .select({ id: workArea.id, name: workArea.name })
@@ -218,7 +224,7 @@ export default async function RosterPage({
           )
           .orderBy(asc(shiftDefinition.orderIndex)),
       ])
-    : [[], [], [], { requests: 0, lines: 0 }, [], []];
+    : [[], [], [], [], { requests: 0, lines: 0 }, [], []];
 
   const requirements: CoverageRequirement[] = [
     ...weeklyLines.map((line) => ({ ...line, source: "weekly" as const })),
@@ -239,7 +245,7 @@ export default async function RosterPage({
   const rows: CoverageRow[] = computeCoverage(
     requirements,
     bundle?.assignments ?? [],
-    dailyAssignments,
+    withoutFulfilledDailyFills(dailyAssignments, fulfilledDailyLines),
   ).sort(
     (a, b) =>
       Number(a.source === "daily") - Number(b.source === "daily") ||
@@ -247,6 +253,10 @@ export default async function RosterPage({
       (shiftOrder.get(a.shiftDefId) ?? 0) - (shiftOrder.get(b.shiftDefId) ?? 0) ||
       (a.date ?? "").localeCompare(b.date ?? ""),
   );
+
+  // The plan's "filled" figure: weekly demand only. Daily slots are filled
+  // after a weekly plan is published, so a draft could never cover them.
+  const weeklyRows = rows.filter((r) => r.source === "weekly");
 
   // The selected work area: a URL pick of this location's areas, else the
   // first area with weekly demand, else the first area by name.
@@ -355,7 +365,7 @@ export default async function RosterPage({
       selectedPlanId={chosen?.id ?? null}
       plan={planView}
       gate={gate}
-      totals={rows.length > 0 ? coverageTotals(rows) : null}
+      totals={weeklyRows.length > 0 ? coverageTotals(weeklyRows) : null}
       violationHead={violations
         .slice(0, 3)
         .map((v) => `${v.rule} · ${v.message}`)}
@@ -425,4 +435,35 @@ async function loadDailyAssignments(
       ),
     );
   return rows;
+}
+
+// Lines of the location's fulfilled daily requests dated inside the week:
+// their fills are discounted from the daily coverage (see
+// withoutFulfilledDailyFills).
+async function loadFulfilledDailyLines(
+  actor: Actor,
+  locationId: string,
+  dates: string[],
+): Promise<
+  { workAreaId: string; shiftDefId: string; date: string; headcount: number }[]
+> {
+  return db
+    .select({
+      workAreaId: mpRequestLine.workAreaId,
+      shiftDefId: mpRequestLine.shiftDefinitionId,
+      date: mpRequestLine.date,
+      headcount: mpRequestLine.headcount,
+    })
+    .from(mpRequestLine)
+    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
+    .where(
+      and(
+        eq(mpRequest.type, "daily"),
+        eq(mpRequest.status, "fulfilled"),
+        eq(mpRequest.siteLocationId, locationId),
+        gte(mpRequestLine.date, dates[0]),
+        lte(mpRequestLine.date, dates[dates.length - 1]),
+        mpRequestListWhere(actor),
+      ),
+    );
 }
