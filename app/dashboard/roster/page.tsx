@@ -134,7 +134,7 @@ export default async function RosterPage({
     planRows[0] ??
     null;
 
-  // The generate gate's server truth: received/processing weekly line
+  // The generate gate's server truth: approved weekly line
   // counts per location for the week (an ho never sees the button; the
   // counts still scope to their site for consistency).
   const gateRows = await db
@@ -148,7 +148,7 @@ export default async function RosterPage({
       and(
         eq(mpRequest.type, "weekly"),
         eq(mpRequest.weekStart, week),
-        inArray(mpRequest.status, ["received", "processing"]),
+        inArray(mpRequest.status, ["approved"]),
         mpRequestListWhere(actor),
       ),
     )
@@ -269,13 +269,13 @@ export default async function RosterPage({
     }
   }
 
-  // The daily tab's outstanding lines: received/processing daily requests
+  // The daily tab's outstanding lines: approved daily requests
   // dated within the running week, honoring the shared table's q search
   // (work area, shift, position, location names) and page/pageSize URL state.
   const pattern = ilikePattern(q);
   const dailyWhere = and(
     eq(mpRequest.type, "daily"),
-    inArray(mpRequest.status, ["received", "processing"]),
+    inArray(mpRequest.status, ["approved"]),
     gte(mpRequestLine.date, dates[0]),
     lte(mpRequestLine.date, dates[dates.length - 1]),
     mpRequestListWhere(actor),

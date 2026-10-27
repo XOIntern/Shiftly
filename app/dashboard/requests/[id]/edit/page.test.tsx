@@ -69,9 +69,9 @@ async function expectNotFound(id: string) {
 
 // Fixture: the editing actor's site S holds location LOC with two work
 // areas and two shifts — one active pair, one pair deactivated after the
-// request was filed. A submitted weekly request under LOC carries one line
-// for each pair. A second submitted request lives under another site's
-// location (foreign), and a received one under LOC (non-submitted).
+// request was filed. An open weekly request under LOC carries one line
+// for each pair. A second open request lives under another site's
+// location (foreign), and an approved one under LOC (non-open).
 // Child-first cleanup.
 async function seedEditFixtures() {
   const siteId = randomUUID();
@@ -173,7 +173,7 @@ async function seedEditFixtures() {
       siteId,
       siteLocationId: locId,
       type: "weekly",
-      status: "submitted",
+      status: "open",
       weekStart: monday,
       createdBy: creator,
     },
@@ -182,7 +182,7 @@ async function seedEditFixtures() {
       siteId: otherSiteId,
       siteLocationId: otherLocId,
       type: "weekly",
-      status: "submitted",
+      status: "open",
       weekStart: monday,
       createdBy: creator,
     },
@@ -191,7 +191,7 @@ async function seedEditFixtures() {
       siteId,
       siteLocationId: locId,
       type: "weekly",
-      status: "received",
+      status: "approved",
       weekStart: "2026-01-12", // one open weekly request per location/week
       createdBy: creator,
     },
@@ -293,7 +293,7 @@ describe("edit request page SSR (requests #129)", () => {
     }
   });
 
-  test("a non-submitted request 404s", async () => {
+  test("a non-open request 404s", async () => {
     const fx = await seedEditFixtures();
     actor = makeActor("superadmin", null, null);
     try {

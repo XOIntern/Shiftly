@@ -230,7 +230,7 @@ erDiagram
     }
     MP_REQUEST {
         string type "weekly | daily"
-        string status "submitted | received | processing | fulfilled | rejected"
+        string status "open | approved | fulfilled | rejected"
     }
     ROSTER_PLAN {
         string status "draft | published"

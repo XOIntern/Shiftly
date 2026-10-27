@@ -25,9 +25,8 @@ const STATUS_BADGE: Record<
   MpRequestRow["status"],
   { label: string; variant: "default" | "secondary" | "outline" | "success" | "destructive" }
 > = {
-  submitted: { label: "Submitted", variant: "default" },
-  received: { label: "Received", variant: "secondary" },
-  processing: { label: "Processing", variant: "outline" },
+  open: { label: "Open", variant: "default" },
+  approved: { label: "Approved", variant: "secondary" },
   fulfilled: { label: "Fulfilled", variant: "success" },
   rejected: { label: "Rejected", variant: "destructive" },
 };
@@ -44,16 +43,15 @@ export const requestAnchor = (request: MpRequestRow): string =>
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
-  { value: "submitted", label: "Submitted" },
-  { value: "received", label: "Received" },
-  { value: "processing", label: "Processing" },
+  { value: "open", label: "Open" },
+  { value: "approved", label: "Approved" },
   { value: "fulfilled", label: "Fulfilled" },
   { value: "rejected", label: "Rejected" },
 ];
 
 // Toolbar filter for the request-status column — the same URL contract as
 // the shared isActive StatusFilter, but over the request-status enum
-// (?status=submitted|received|processing|fulfilled|rejected).
+// (?status=open|approved|fulfilled|rejected).
 export function RequestStatusFilter() {
   const router = useRouter();
   const pathname = usePathname();
@@ -62,9 +60,8 @@ export function RequestStatusFilter() {
 
   const raw = searchParams.get("status");
   const allowed = (candidate: string | null): candidate is MpRequestRow["status"] =>
-    candidate === "submitted" ||
-    candidate === "received" ||
-    candidate === "processing" ||
+    candidate === "open" ||
+    candidate === "approved" ||
     candidate === "fulfilled" ||
     candidate === "rejected";
   const value = allowed(raw) ? raw : "all";

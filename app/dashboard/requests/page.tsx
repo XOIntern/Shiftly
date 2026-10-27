@@ -79,9 +79,8 @@ export default async function RequestsPage({
     PAGE_SIZE_OPTIONS,
   );
   const status = whitelistParam(raw, "status", [
-    "submitted",
-    "received",
-    "processing",
+    "open",
+    "approved",
     "fulfilled",
     "rejected",
   ] as const);
@@ -180,7 +179,7 @@ export default async function RequestsPage({
           <h1 className="page-title">Requests</h1>
           <p className="text-sm text-muted-foreground">
             Weekly and daily manpower requests per location, moving through
-            submitted → received → processing → fulfilled/rejected.
+            open → approved → fulfilled/rejected.
           </p>
         </div>
         {canWrite ? (

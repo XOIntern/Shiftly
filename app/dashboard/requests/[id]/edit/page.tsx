@@ -56,7 +56,7 @@ export default async function EditRequestPage({
     // Only editable requests resolve to a page; anything else is 404 —
     // the actor must also be in scope for this row.
     .where(
-      and(mpRequestMutationWhere(actor, id), eq(mpRequest.status, "submitted")),
+      and(mpRequestMutationWhere(actor, id), eq(mpRequest.status, "open")),
     )
     .limit(1);
   if (!row) notFound();

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, test } from "bun:test";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 
 import { db } from "./db";
 import {
@@ -31,7 +31,7 @@ import {
 
 // Loader contract pins (roster-engine task 5): shift order by orderIndex,
 // live-area requirement sets, capability-derived worker pairs, weekly
-// requirement lines from received/processing requests anchored exactly on
+// requirement lines from approved requests anchored exactly on
 // the week, prior assignments from published plans only, and the
 // plan-with-rows bundle. Fixtures prefixed t-roster- and cleaned up
 // FK-safely after the run; asserts are presence/exclusion, never counts.
@@ -171,7 +171,7 @@ async function requireAreaPosition(
 
 interface RequestArgs {
   type?: "weekly" | "daily";
-  status?: "submitted" | "received" | "processing" | "fulfilled" | "rejected";
+  status?: "open" | "approved" | "fulfilled" | "rejected";
   weekStart?: string | null;
   requestDate?: string | null;
 }
@@ -185,7 +185,7 @@ async function createRequest(fx: BaseFixture, args: RequestArgs): Promise<string
     siteId: fx.siteId,
     siteLocationId: fx.locationId,
     type,
-    status: args.status ?? "received",
+    status: args.status ?? "approved",
     ...(type === "weekly"
       ? { weekStart: args.weekStart ?? MON, requestDate: null }
       : { requestDate: args.requestDate ?? TUE, weekStart: null }),
@@ -438,35 +438,31 @@ describe("loadWorkerProfiles", () => {
 });
 
 describe("loadRequirementsForWeek", () => {
-  test("includes received and processing weekly lines anchored exactly on the week", async () => {
+  test("includes approved weekly lines anchored exactly on the week", async () => {
     const fx = await createBase(`t${nextSeq()}`, "week-ok");
     const area = await createWorkArea(fx, "a");
     const shift = await createShift(fx, 1);
     await createShift(fx, 2);
-    const received = await createRequest(fx, { status: "received", weekStart: MON });
-    const pos = await addRequestLine(fx, received, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 3 });
+    const approved = await createRequest(fx, { status: "approved", weekStart: MON });
+    const pos = await addRequestLine(fx, approved, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 3 });
 
     const expected = [{ workAreaId: area, shiftDefId: shift, positionId: pos, date: MON, headcount: 3 }];
-    // received is confirmed demand.
-    expect(await loadRequirementsForWeek(fx.locationId, MON)).toEqual(expected);
-
-    // The week's one open slot flips in place — processing stays demand.
-    await db.update(mpRequest).set({ status: "processing" }).where(eq(mpRequest.id, received));
+    // approved is confirmed demand.
     expect(await loadRequirementsForWeek(fx.locationId, MON)).toEqual(expected);
   });
 
-  test("excludes fulfilled, submitted, other weeks, and daily-type requests", async () => {
+  test("excludes fulfilled, open, other weeks, and daily-type requests", async () => {
     const fx = await createBase(`t${nextSeq()}`, "week-excl");
     const area = await createWorkArea(fx, "a");
     const shift = await createShift(fx, 1);
-    // Same week: fulfilled coexists with the received one (not an open status).
+    // Same week: fulfilled coexists with the approved one (not a slot-holding status).
     const fulfilled = await createRequest(fx, { status: "fulfilled", weekStart: MON });
     await addRequestLine(fx, fulfilled, { workAreaId: area, shiftDefinitionId: shift, date: MON });
-    // Next Monday's submitted request holds ITS week's open slot.
-    const submitted = await createRequest(fx, { status: "submitted", weekStart: NEXT_MON });
-    await addRequestLine(fx, submitted, { workAreaId: area, shiftDefinitionId: shift, date: NEXT_MON });
+    // Next Monday's open request holds ITS week's slot.
+    const open = await createRequest(fx, { status: "open", weekStart: NEXT_MON });
+    await addRequestLine(fx, open, { workAreaId: area, shiftDefinitionId: shift, date: NEXT_MON });
     // A daily-type request of the same week (open slot only affects daily uniques).
-    const daily = await createRequest(fx, { type: "daily", status: "received", requestDate: TUE });
+    const daily = await createRequest(fx, { type: "daily", status: "approved", requestDate: TUE });
     await addRequestLine(fx, daily, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
 
     const lines = await loadRequirementsForWeek(fx.locationId, MON);

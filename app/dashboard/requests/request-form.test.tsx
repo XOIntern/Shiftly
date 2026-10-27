@@ -658,7 +658,7 @@ describe("refusal surfacing (toasts + grid errors)", () => {
           type: "weekly",
           weekStart: MONDAY,
           requestDate: null,
-          status: "submitted",
+          status: "open",
           lines: [
             {
               workAreaId: WA_A1,
@@ -859,7 +859,7 @@ describe("RequestForm markup", () => {
         type,
         weekStart: type === "weekly" ? MONDAY : null,
         requestDate: type === "daily" ? "2026-01-05" : null,
-        status: "submitted",
+        status: "open",
         lines,
       },
     });
@@ -1010,7 +1010,7 @@ describe("RequestForm markup", () => {
           type: "weekly",
           weekStart: MONDAY,
           requestDate: null,
-          status: "submitted",
+          status: "open",
           lines,
         }}
         onSaved={() => {}}
@@ -1035,7 +1035,7 @@ describe("RequestForm markup", () => {
           type: "weekly",
           weekStart: MONDAY,
           requestDate: null,
-          status: "submitted",
+          status: "open",
           lines: [
             {
               workAreaId: "eeeeeeee-1111-1111-1111-111111111111",
@@ -1073,7 +1073,7 @@ describe("RequestForm markup", () => {
           type: "daily",
           weekStart: null,
           requestDate: "2026-01-07",
-          status: "submitted",
+          status: "open",
           lines: [
             {
               workAreaId: "eeeeeeee-1111-1111-1111-111111111111",

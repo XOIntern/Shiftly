@@ -68,7 +68,7 @@ async function renderRoster(
 }
 
 // Shared fixture: site S holds locations L1/L2. L1 carries two work areas,
-// two shifts, 55 workers (one slice + spare), a received weekly request
+// two shifts, 55 workers (one slice + spare), an approved weekly request
 // with two requirement lines for the week, a daily request mid-week, and a
 // DRAFT weekly plan with one assignment. L2 carries a second draft plan for
 // the superadmin scope case. Child-first cleanup.
@@ -173,7 +173,7 @@ async function seedRosterFixtures() {
       siteId: siteS,
       siteLocationId: locL1,
       type: "weekly",
-      status: "received",
+      status: "approved",
       weekStart: MONDAY,
       createdBy: creator,
     },
@@ -182,7 +182,7 @@ async function seedRosterFixtures() {
       siteId: siteS,
       siteLocationId: locL1,
       type: "daily",
-      status: "received",
+      status: "approved",
       requestDate: "2026-01-07",
       createdBy: creator,
     },

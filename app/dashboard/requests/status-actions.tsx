@@ -44,16 +44,18 @@ import {
 // two MUST stay in step): the menu renders ONLY these next statuses, so a
 // terminal request shows no advance items at all.
 type AdvanceItem = {
-  status: "received" | "processing" | "fulfilled" | "rejected";
+  status: "approved" | "fulfilled" | "rejected";
   label: string;
 };
 
 const NEXT_STATUSES: Record<MpRequestRow["status"], AdvanceItem[]> = {
-  submitted: [{ status: "received", label: "Mark received" }],
-  received: [{ status: "processing", label: "Start processing" }],
-  processing: [
+  open: [
+    { status: "approved", label: "Approve" },
+    { status: "rejected", label: "Reject" },
+  ],
+  approved: [
     { status: "fulfilled", label: "Mark fulfilled" },
-    { status: "rejected", label: "Mark rejected" },
+    { status: "rejected", label: "Reject" },
   ],
   fulfilled: [],
   rejected: [],
@@ -62,18 +64,16 @@ const NEXT_STATUSES: Record<MpRequestRow["status"], AdvanceItem[]> = {
 function AdvanceMenu({ request }: { request: MpRequestRow }) {
   const [pending, startTransition] = useTransition();
 
-  function advance(nextStatus: "received" | "processing" | "fulfilled" | "rejected") {
+  function advance(nextStatus: "approved" | "fulfilled" | "rejected") {
     startTransition(async () => {
       const result = await advanceStatus(request.id, nextStatus);
       if (result.ok) {
         toast.success(
-          nextStatus === "received"
-            ? "Request marked received."
-            : nextStatus === "processing"
-              ? "Request started processing."
-              : nextStatus === "fulfilled"
-                ? "Request fulfilled."
-                : "Request rejected.",
+          nextStatus === "approved"
+            ? "Request approved."
+            : nextStatus === "fulfilled"
+              ? "Request fulfilled."
+              : "Request rejected.",
         );
         return;
       }
@@ -112,7 +112,7 @@ export function MpRequestRowActions({
   const [dialog, setDialog] = useState<"lines" | null>(null);
   const router = useRouter();
 
-  const canEdit = canWrite && request.status === "submitted";
+  const canEdit = canWrite && request.status === "open";
 
   return (
     <DropdownMenu>

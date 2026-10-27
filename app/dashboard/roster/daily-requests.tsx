@@ -32,7 +32,7 @@ import type { SuggestedCandidate } from "@/lib/engine/generate";
 export type DailyLineRow = {
   id: string; // mp_request_line id
   requestId: string;
-  requestStatus: string; // outstanding = received | processing
+  requestStatus: string; // outstanding = approved
   date: string;
   headcount: number;
   workAreaId: string;
@@ -176,11 +176,7 @@ export function DailyRequests({
         helper.accessor("requestStatus", {
           header: "Status",
           meta: { thClassName: "w-28" },
-          cell: (info) => (
-            <Badge variant={info.getValue() === "processing" ? "outline" : "secondary"}>
-              {info.getValue() === "processing" ? "Processing" : "Received"}
-            </Badge>
-          ),
+          cell: () => <Badge variant="secondary">Approved</Badge>,
         }),
         ...(showLocation
           ? [

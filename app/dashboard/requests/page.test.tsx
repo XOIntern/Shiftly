@@ -160,7 +160,7 @@ async function seedRequestFixtures() {
       siteId: siteA,
       siteLocationId: locA1,
       type: "weekly",
-      status: "submitted",
+      status: "open",
       weekStart: mondayA1,
       createdBy: creator,
     },
@@ -169,7 +169,7 @@ async function seedRequestFixtures() {
       siteId: siteA,
       siteLocationId: locA2,
       type: "daily",
-      status: "received",
+      status: "approved",
       requestDate: "2026-01-07",
       createdBy: creator,
     },
@@ -178,7 +178,7 @@ async function seedRequestFixtures() {
       siteId: siteB,
       siteLocationId: locB1,
       type: "weekly",
-      status: "submitted",
+      status: "open",
       weekStart: mondayB1,
       createdBy: creator,
     },
@@ -342,7 +342,7 @@ describe("requests page SSR (mp-requests Task 8)", () => {
     try {
       actor = makeActor("ho", fx.ids.siteA, null);
 
-      const html = await renderRequests({ status: "received" });
+      const html = await renderRequests({ status: "approved" });
       expect(html.includes(fx.anchors.rqA1)).toBeFalse();
       expect(html.includes(fx.anchors.rqA2)).toBeTrue();
     } finally {

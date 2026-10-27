@@ -180,7 +180,7 @@ async function requireAreaPosition(
 
 async function createRequest(
   fx: BaseFixture,
-  args: { type: "weekly" | "daily"; status?: "received" | "processing"; weekStart?: string; requestDate?: string },
+  args: { type: "weekly" | "daily"; status?: "approved"; weekStart?: string; requestDate?: string },
 ): Promise<string> {
   const id = randomUUID();
   createdRequestIds.push(id);
@@ -189,7 +189,7 @@ async function createRequest(
     siteId: fx.siteId,
     siteLocationId: fx.locationId,
     type: args.type,
-    status: args.status ?? "received",
+    status: args.status ?? "approved",
     ...(args.type === "weekly"
       ? { weekStart: args.weekStart ?? MON, requestDate: null }
       : { requestDate: args.requestDate ?? TUE, weekStart: null }),

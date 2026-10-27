@@ -132,8 +132,8 @@ export async function loadWorkerProfiles(
 }
 
 // Requirement lines for one Monday-anchored week: lines of the WEEKLY
-// request whose week_start equals the anchor exactly, in received or
-// processing status (submitted is not confirmed demand, fulfilled is done).
+// request whose week_start equals the anchor exactly, in approved
+// status (open is not confirmed demand, fulfilled is done).
 // One open weekly request per location per week by the partial unique, so
 // no aggregation two worlds can collide.
 export async function loadRequirementsForWeek(
@@ -155,7 +155,7 @@ export async function loadRequirementsForWeek(
         eq(mpRequest.siteLocationId, siteLocationId),
         eq(mpRequest.type, "weekly"),
         eq(mpRequest.weekStart, weekStart),
-        inArray(mpRequest.status, ["received", "processing"]),
+        inArray(mpRequest.status, ["approved"]),
       ),
     )
     .orderBy(asc(mpRequestLine.date), asc(mpRequestLine.workAreaId), asc(mpRequestLine.shiftDefinitionId));

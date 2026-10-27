@@ -155,12 +155,7 @@ async function seedRequest(args: {
   type: "weekly" | "daily";
   weekStart?: string;
   requestDate?: string;
-  status?:
-    | "submitted"
-    | "received"
-    | "processing"
-    | "fulfilled"
-    | "rejected";
+  status?: "open" | "approved" | "fulfilled" | "rejected";
 }) {
   const id = randomUUID();
   await db.insert(mpRequest).values({
@@ -298,7 +293,7 @@ describe("request actions: createRequest", () => {
       expect(row.type).toBe("weekly");
       expect(row.weekStart).toBe(MONDAY);
       expect(row.requestDate).toBeNull();
-      expect(row.status).toBe("submitted");
+      expect(row.status).toBe("open");
       expect(row.createdBy).toBe(actor.id);
 
       const lines = await db
@@ -544,7 +539,7 @@ describe("request actions: updateRequestLines", () => {
       createdBy: actor.id,
       type: "weekly",
       weekStart: MONDAY,
-      status: "received",
+      status: "approved",
     });
     await seedLine({
       requestId,
@@ -571,7 +566,7 @@ describe("request actions: updateRequestLines", () => {
 
       expect(result).toEqual({
         ok: false,
-        message: "Only submitted requests can be edited",
+        message: "Only open requests can be edited",
       });
 
       // The refusal wrote nothing: headcount untouched.
@@ -951,7 +946,7 @@ describe("request actions: updateRequestLines", () => {
 });
 
 describe("request actions: advanceStatus", () => {
-  test("legal transition submitted→received writes the audit old→new", async () => {
+  test("legal transition open→approved writes the audit old→new", async () => {
     const fx = await seedGlobalData();
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
@@ -965,14 +960,14 @@ describe("request actions: advanceStatus", () => {
 
     try {
       const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "received");
+      const result = await advanceStatus(requestId, "approved");
       expect(result.ok).toBe(true);
 
       const [row] = await db
         .select()
         .from(mpRequest)
         .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("received");
+      expect(row.status).toBe("approved");
 
       const [audit] = await db
         .select()
@@ -988,15 +983,15 @@ describe("request actions: advanceStatus", () => {
       expect(audit.details).toEqual({
         requestId,
         type: "daily",
-        oldValue: "submitted",
-        newValue: "received",
+        oldValue: "open",
+        newValue: "approved",
       });
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 
-  test("illegal transition submitted→fulfilled: rejected, status untouched", async () => {
+  test("illegal transition open→fulfilled: rejected, status untouched", async () => {
     const fx = await seedGlobalData();
     actor = makeActor("superadmin", null, null);
     await seedUser(actor);
@@ -1018,13 +1013,13 @@ describe("request actions: advanceStatus", () => {
         .select()
         .from(mpRequest)
         .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("submitted");
+      expect(row.status).toBe("open");
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 
-  test("backward transition received→submitted: rejected", async () => {
+  test("backward transition approved→open: rejected", async () => {
     const fx = await seedGlobalData();
     actor = makeActor("superadmin", null, null);
     await seedUser(actor);
@@ -1034,16 +1029,16 @@ describe("request actions: advanceStatus", () => {
       createdBy: actor.id,
       type: "daily",
       requestDate: "2026-03-04",
-      status: "received",
+      status: "approved",
     });
 
     try {
       const { advanceStatus } = await import("./actions");
-      // "submitted" is not even a target status — the runtime boundary must
+      // "open" is not even a target status — the runtime boundary must
       // still answer cleanly, never crash.
       const result = await advanceStatus(
         requestId,
-        "submitted" as Parameters<typeof advanceStatus>[1],
+        "open" as Parameters<typeof advanceStatus>[1],
       );
       expect(result.ok).toBe(false);
 
@@ -1051,7 +1046,7 @@ describe("request actions: advanceStatus", () => {
         .select()
         .from(mpRequest)
         .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("received");
+      expect(row.status).toBe("approved");
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
     }
@@ -1071,18 +1066,18 @@ describe("request actions: advanceStatus", () => {
 
     try {
       const { advanceStatus } = await import("./actions");
-      expect((await advanceStatus(requestId, "received")).ok).toBe(true);
+      expect((await advanceStatus(requestId, "approved")).ok).toBe(true);
 
-      // The second call re-reads status "received" and tries the same edge
+      // The second call re-reads status "approved" and tries the same edge
       // again — the guarded WHERE / transition map must refuse it.
-      const second = await advanceStatus(requestId, "received");
+      const second = await advanceStatus(requestId, "approved");
       expect(second.ok).toBe(false);
 
       const [row] = await db
         .select()
         .from(mpRequest)
         .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("received");
+      expect(row.status).toBe("approved");
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
     }

@@ -23,7 +23,8 @@ import { shiftDefinition } from "./shift-schema";
 // MP requests (Module 3, mp-requests epic): the admin-facing demand channel
 // — one weekly (Monday-anchored) or daily requirement per site_location,
 // filled with per-work-area/per-shift/per-position headcount lines. Two
-// open statuses would collide on the same anchor (partial uniques);
+// slot-holding statuses (open, approved) would collide on the same anchor
+// (partial uniques);
 // rejected/fulfilled frees the slot and history stays as new rows. There
 // is no soft delete: rejection is the void path.
 export const mpRequestTypeEnum = pgEnum("mp_request_type", [
@@ -32,15 +33,14 @@ export const mpRequestTypeEnum = pgEnum("mp_request_type", [
 ]);
 
 export const mpRequestStatusEnum = pgEnum("mp_request_status", [
-  "submitted",
-  "received",
-  "processing",
+  "open",
+  "approved",
   "fulfilled",
   "rejected",
 ]);
 
 // The statuses that hold the anchor slot; mirrored in the partial uniques.
-const OPEN_STATUSES = sql`('submitted','received','processing')`;
+const SLOT_STATUSES = sql`('open','approved')`;
 
 export const mpRequest = pgTable(
   "mp_request",
@@ -49,7 +49,7 @@ export const mpRequest = pgTable(
     siteLocationId: uuid("site_location_id").notNull(),
     siteId: uuid("site_id").notNull(),
     type: mpRequestTypeEnum("type").notNull(),
-    status: mpRequestStatusEnum("status").notNull().default("submitted"),
+    status: mpRequestStatusEnum("status").notNull().default("open"),
     weekStart: date("week_start"),
     requestDate: date("request_date"),
     // auth user.id is a text PK — the FK column type must match (text).
@@ -72,12 +72,12 @@ export const mpRequest = pgTable(
     uniqueIndex("mp_request_weekly_open_unique")
       .on(table.siteLocationId, table.weekStart)
       .where(
-        sql`type = 'weekly' and status in ${OPEN_STATUSES}`,
+        sql`type = 'weekly' and status in ${SLOT_STATUSES}`,
       ),
     uniqueIndex("mp_request_daily_open_unique")
       .on(table.siteLocationId, table.requestDate)
       .where(
-        sql`type = 'daily' and status in ${OPEN_STATUSES}`,
+        sql`type = 'daily' and status in ${SLOT_STATUSES}`,
       ),
     // Weld: the request's location must sit on the SAME site as the
     // denormalized site_id (cross-site insert → 23503).

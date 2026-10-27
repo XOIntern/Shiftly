@@ -46,7 +46,7 @@ type MpRequestStatus = (typeof mpRequestStatusEnum.enumValues)[number];
 const HO_CREATE_MESSAGE = "Only admins enter requests";
 const DUPLICATE_OPEN_SLOT =
   "An open request for this week/date already exists";
-const NOT_EDITABLE = "Only submitted requests can be edited";
+const NOT_EDITABLE = "Only open requests can be edited";
 const RACE_MESSAGE = "Request state changed, reload";
 const NOT_FOUND = "Request not found.";
 const ILLEGAL_TRANSITION = "That status change is not allowed";
@@ -72,9 +72,8 @@ const INACTIVE_POSITION_KEEP_ONLY =
 // stay terminal. The guarded write below still re-checks the CURRENT row
 // status in its WHERE, so a concurrent move turns this into a 0-row no-op.
 const LEGAL_TRANSITIONS: Record<MpRequestStatus, readonly string[]> = {
-  submitted: ["received"],
-  received: ["processing"],
-  processing: ["fulfilled", "rejected"],
+  open: ["approved", "rejected"],
+  approved: ["fulfilled", "rejected"],
   fulfilled: [],
   rejected: [],
 };
@@ -379,7 +378,7 @@ export async function updateRequestLines(
         .limit(1)
         .for("update");
       if (!row) throw new ActionAbort({ ok: false, message: NOT_FOUND });
-      if (row.status !== "submitted") {
+      if (row.status !== "open") {
         throw new ActionAbort({ ok: false, message: NOT_EDITABLE });
       }
 
@@ -458,7 +457,7 @@ export async function updateRequestLines(
 
 export async function advanceStatus(
   id: string,
-  nextStatus: "received" | "processing" | "fulfilled" | "rejected",
+  nextStatus: "approved" | "fulfilled" | "rejected",
 ): Promise<ActionState> {
   const actor = await requireUser();
 
