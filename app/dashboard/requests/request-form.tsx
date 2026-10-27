@@ -2,7 +2,7 @@
 
 import { Fragment, useState, useTransition, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
-import { EraserIcon, SparklesIcon } from "lucide-react";
+import { EraserIcon, SparklesIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ActionState } from "@/types/action-state";
@@ -20,6 +20,17 @@ import {
 } from "@/app/dashboard/requests/actions";
 import type { MpRequestCreateInput } from "@/validation/request-line";
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxValue,
+} from "@/components/ui/combobox";
 import { DialogFooter } from "@/components/ui/dialog";
 import {
   Field,
@@ -94,6 +105,99 @@ export function gridRows(
     }
   }
   return rows;
+}
+
+// gridRows is the catalog of admissible rows (#147): the grid only shows the
+// rows the admin added, keyed `workAreaId|shiftId|positionId`.
+
+// What the Add bar offers: every catalog area and shift (in catalog order),
+// and only the picked area's required positions — no area picked, no
+// positions.
+export function rowPickerOptions(
+  catalog: GridRow[],
+  pickedWorkAreaId: string | null,
+) {
+  const workAreas = new Map<string, string>();
+  const shifts = new Map<string, string>();
+  const positions = new Map<string, string>();
+  for (const row of catalog) {
+    workAreas.set(row.workAreaId, row.workAreaName);
+    shifts.set(row.shiftDefinitionId, row.shiftLabel);
+    if (row.workAreaId === pickedWorkAreaId) {
+      positions.set(row.positionId, row.positionName);
+    }
+  }
+  return {
+    workAreas: [...workAreas].map(([id, name]) => ({ id, name })),
+    shifts: [...shifts].map(([id, label]) => ({ id, label })),
+    positions: [...positions].map(([id, name]) => ({ id, name })),
+  };
+}
+
+// The added keys plus the picked shifts × positions of one area. Walking the
+// catalog makes ids outside it (a stale position pick) add nothing, and the
+// Set makes an already-added combination a no-op.
+export function addRowKeys(
+  catalog: GridRow[],
+  added: ReadonlySet<string>,
+  workAreaId: string,
+  shiftIds: string[],
+  positionIds: string[],
+): Set<string> {
+  const next = new Set(added);
+  for (const row of catalog) {
+    if (
+      row.workAreaId === workAreaId &&
+      shiftIds.includes(row.shiftDefinitionId) &&
+      positionIds.includes(row.positionId)
+    ) {
+      next.add(row.key);
+    }
+  }
+  return next;
+}
+
+// The rows the grid renders: the added catalog rows, in catalog order.
+export function visibleRows(
+  catalog: GridRow[],
+  added: ReadonlySet<string>,
+): GridRow[] {
+  return catalog.filter((row) => added.has(row.key));
+}
+
+// Edit seeds the grid from the stored lines whose triple is in the catalog;
+// triples that left the active masters keep their inactive-pair rows instead.
+export function initialAddedKeys(
+  catalog: GridRow[],
+  lines: MpRequestLineView[],
+): Set<string> {
+  const catalogKeys = new Set(catalog.map((row) => row.key));
+  const keys = new Set<string>();
+  for (const line of lines) {
+    const key = `${line.workAreaId}|${line.shiftDefinitionId}|${line.positionId}`;
+    if (catalogKeys.has(key)) keys.add(key);
+  }
+  return keys;
+}
+
+const rowKeyOfCell = (cellKey: string) => cellKey.split("|").slice(0, 3).join("|");
+
+// Removing a row deletes its cells, so re-adding it starts blank.
+export function dropRowValues(values: GridValues, rowKey: string): GridValues {
+  return Object.fromEntries(
+    Object.entries(values).filter(([cell]) => rowKeyOfCell(cell) !== rowKey),
+  );
+}
+
+// Keeps only the cells of rows still in the grid, so stale values (another
+// location's rows, removed rows) never reach the submit payload.
+export function pruneValues(
+  values: GridValues,
+  keptRowKeys: ReadonlySet<string>,
+): GridValues {
+  return Object.fromEntries(
+    Object.entries(values).filter(([cell]) => keptRowKeys.has(rowKeyOfCell(cell))),
+  );
 }
 
 // Names of the location's areas that render no grid rows because no
@@ -331,6 +435,74 @@ function SelectField({
   );
 }
 
+type PickOption = { id: string; name: string };
+
+// Multi-select of the Add bar: chips over a Combobox, like the work-area
+// form's position picker.
+function MultiPickField({
+  id,
+  label,
+  options,
+  selectedIds,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  options: PickOption[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  placeholder: string;
+  disabled?: boolean;
+}) {
+  // Chips are positional in Base UI, so the value array follows the chip
+  // order; ids no longer on offer drop out.
+  const selected = selectedIds.flatMap((selectedId) => {
+    const option = options.find((candidate) => candidate.id === selectedId);
+    return option ? [option] : [];
+  });
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Combobox
+        multiple
+        items={options}
+        itemToStringLabel={(option) => option.name}
+        isItemEqualToValue={(option, value) => option.id === value.id}
+        value={selected}
+        onValueChange={(next) => onChange(next.map((option) => option.id))}
+        disabled={disabled}
+      >
+        <ComboboxChips>
+          <ComboboxValue>
+            {selected.map((option) => (
+              <ComboboxChip
+                key={option.id}
+                aria-label={option.name}
+                removeLabel={`Remove ${option.name}`}
+              >
+                {option.name}
+              </ComboboxChip>
+            ))}
+          </ComboboxValue>
+          <ComboboxChipsInput id={id} placeholder={placeholder} />
+        </ComboboxChips>
+        <ComboboxContent>
+          <ComboboxEmpty>No matches.</ComboboxEmpty>
+          <ComboboxList>
+            {(option: PickOption) => (
+              <ComboboxItem key={option.id} value={option}>
+                {option.name}
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+    </Field>
+  );
+}
+
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // Headcounts are typed as digits-only strings capped at the schema's 999.
@@ -432,6 +604,20 @@ export function RequestForm({
     ),
   );
   const [removedPairs, setRemovedPairs] = useState<Set<string>>(new Set());
+  // The rows the admin added (#147) and the Add bar's current picks. Create
+  // starts empty; edit seeds the rows from the stored lines (its location is
+  // the immutable prop, so the catalog is already known).
+  const [addedKeys, setAddedKeys] = useState<Set<string>>(() =>
+    request
+      ? initialAddedKeys(
+          gridRows(activeWorkAreas, activeShifts, siteLocationId ?? null),
+          request.lines,
+        )
+      : new Set(),
+  );
+  const [pickedWorkAreaId, setPickedWorkAreaId] = useState<string | null>(null);
+  const [pickedShiftIds, setPickedShiftIds] = useState<string[]>([]);
+  const [pickedPositionIds, setPickedPositionIds] = useState<string[]>([]);
   const [quickFill, setQuickFill] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(
     initialFieldErrors ?? {},
@@ -461,11 +647,13 @@ export function RequestForm({
         : locationId) ?? undefined);
 
   const dates = gridDates(type_, type_ === "weekly" ? weekStart : requestDate);
-  const rows = gridRows(
+  const catalog = gridRows(
     activeWorkAreas,
     activeShifts,
     effectiveLocationId ?? null,
   );
+  const rows = visibleRows(catalog, addedKeys);
+  const picker = rowPickerOptions(catalog, pickedWorkAreaId);
   // Areas rendering no rows because nothing positions them (#137): hinted
   // above the grid — or in the empty state — instead of silent emptiness.
   const configureHint = (() => {
@@ -510,6 +698,59 @@ export function RequestForm({
     );
   }
 
+  // The added rows belong to one location's catalog: a location move starts
+  // the grid over (stale cells are also pruned on submit).
+  function changeLocation(next: string | null) {
+    if (next !== locationId) {
+      setAddedKeys(new Set());
+      setPickedWorkAreaId(null);
+      setPickedShiftIds([]);
+      setPickedPositionIds([]);
+    }
+    setLocationId(next);
+  }
+
+  function pickWorkArea(next: string) {
+    // The positions on offer belong to the picked area.
+    if (next !== pickedWorkAreaId) setPickedPositionIds([]);
+    setPickedWorkAreaId(next);
+  }
+
+  const canAddRows =
+    pickedWorkAreaId !== null &&
+    pickedShiftIds.length > 0 &&
+    pickedPositionIds.length > 0;
+
+  function addRows() {
+    if (!canAddRows) return;
+    setAddedKeys((prev) =>
+      addRowKeys(
+        catalog,
+        prev,
+        pickedWorkAreaId,
+        pickedShiftIds,
+        pickedPositionIds,
+      ),
+    );
+    // The area stays picked so the next shifts/positions can be added fast.
+    setPickedShiftIds([]);
+    setPickedPositionIds([]);
+  }
+
+  function removeRow(row: GridRow) {
+    setAddedKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(row.key);
+      return next;
+    });
+    setValues((prev) => dropRowValues(prev, row.key));
+    setQuickFill((prev) => {
+      const next = { ...prev };
+      delete next[row.key];
+      return next;
+    });
+  }
+
   function applyQuickFill(row: GridRow) {
     const spread = quickFillCells(quickFill[row.key] ?? "", dates);
     setValues((prev) => {
@@ -530,13 +771,18 @@ export function RequestForm({
     setFieldErrors({});
     setMessage(undefined);
 
-    // A removed inactive pair drops its keys before the payload builds.
-    const removedPrefixes = [...removedPairs].map((pairKey) => `${pairKey}|`);
-    const liveValues: GridValues = {};
-    for (const [key, count] of Object.entries(values)) {
-      if (removedPrefixes.some((prefix) => key.startsWith(prefix))) continue;
-      liveValues[key] = count;
-    }
+    // Only the grid's rows travel: the added rows plus the inactive pairs
+    // kept unchanged. Removed pairs and stale cells drop out here.
+    const liveValues = pruneValues(
+      values,
+      new Set([
+        ...rows.map((row) => row.key),
+        ...inactivePairs.map(
+          (pair) =>
+            `${pair.workAreaId}|${pair.shiftDefinitionId}|${pair.positionId}`,
+        ),
+      ]),
+    );
 
     const built = buildCreateInput({
       type: type_,
@@ -592,7 +838,7 @@ export function RequestForm({
                 onChange={(next) => {
                   // A site switch invalidates the location pick — the
                   // previous location may belong to the old site.
-                  setLocationId(null);
+                  changeLocation(null);
                   setSiteId(next);
                 }}
                 error={fieldErrors.siteId}
@@ -614,7 +860,7 @@ export function RequestForm({
                     : toSelectItems(locationOptions, "Select a location")
                 }
                 value={locationId}
-                onChange={setLocationId}
+                onChange={changeLocation}
                 error={fieldErrors.siteLocationId}
               />
             ) : null}
@@ -691,7 +937,7 @@ export function RequestForm({
               ? "Pick a week to open the requirement grid."
               : "Pick a date to open the requirement grid."}
           </p>
-        ) : rows.length === 0 && inactivePairs.length === 0 ? (
+        ) : catalog.length === 0 && inactivePairs.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {configureHint ??
               "This location has no active work areas or shifts yet."}
@@ -701,14 +947,57 @@ export function RequestForm({
           {configureHint ? (
             <p className="text-sm text-muted-foreground">{configureHint}</p>
           ) : null}
+          {catalog.length > 0 ? (
+            <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+              <SelectField
+                id="request-add-work-area"
+                label="Work area"
+                items={toSelectItems(picker.workAreas, "Select a work area")}
+                value={pickedWorkAreaId}
+                onChange={pickWorkArea}
+              />
+              <MultiPickField
+                id="request-add-shifts"
+                label="Shifts"
+                options={picker.shifts.map((shift) => ({
+                  id: shift.id,
+                  name: shift.label,
+                }))}
+                selectedIds={pickedShiftIds}
+                onChange={setPickedShiftIds}
+                placeholder="Select shifts"
+              />
+              <MultiPickField
+                id="request-add-positions"
+                label="Positions"
+                options={picker.positions}
+                selectedIds={pickedPositionIds}
+                onChange={setPickedPositionIds}
+                placeholder={
+                  pickedWorkAreaId === null
+                    ? "Select a work area first"
+                    : "Select positions"
+                }
+                disabled={pickedWorkAreaId === null}
+              />
+              <Button type="button" disabled={!canAddRows} onClick={addRows}>
+                Add rows
+              </Button>
+            </div>
+          ) : null}
           {fieldErrors.lines ? (
             <FieldError errors={[{ message: fieldErrors.lines }]} />
           ) : null}
+          {rows.length === 0 && inactivePairs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Add a work area, shift and position to start.
+            </p>
+          ) : (
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="min-w-[200px] px-3 py-2 text-start font-medium">
+                  <th className="min-w-50 px-3 py-2 text-start font-medium">
                     Work area / shift / position
                   </th>
                   {type_ === "weekly"
@@ -730,6 +1019,9 @@ export function RequestForm({
                       Same all days
                     </th>
                   ) : null}
+                  <th className="w-12 px-2 py-2">
+                    <span className="sr-only">Remove</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -806,6 +1098,17 @@ export function RequestForm({
                         </span>
                       </td>
                     ) : null}
+                    <td className="px-2 py-1.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove row ${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`}
+                        onClick={() => removeRow(row)}
+                      >
+                        <XIcon />
+                      </Button>
+                    </td>
                       </tr>
                       {rowError ? (
                         <tr
@@ -813,7 +1116,7 @@ export function RequestForm({
                           className="border-b"
                         >
                           <td
-                            colSpan={dates.length + (type_ === "weekly" ? 2 : 1)}
+                            colSpan={dates.length + (type_ === "weekly" ? 3 : 2)}
                             className="px-3 py-1 text-xs text-destructive"
                           >
                             {rowError}
@@ -854,6 +1157,7 @@ export function RequestForm({
                         </td>
                       );
                     })}
+                    {type_ === "weekly" ? <td /> : null}
                     <td className="px-2 py-1.5">
                       <Button
                         type="button"
@@ -870,6 +1174,7 @@ export function RequestForm({
               </tbody>
             </table>
           </div>
+          )}
           </div>
         )}
 

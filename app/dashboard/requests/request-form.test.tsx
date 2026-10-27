@@ -31,16 +31,22 @@ import { mpRequestCreateSchema } from "@/validation/request-line";
 // statements in order for ESM evaluated here).
 const {
   RequestForm,
+  addRowKeys,
   areasWithoutPositions,
   buildCreateInput,
   collectLines,
+  dropRowValues,
   gridDates,
   gridRows,
   inactiveLinePairs,
+  initialAddedKeys,
   normalizeHeadcount,
+  pruneValues,
   quickFillCells,
   fieldErrorsSummary,
   refusalToast,
+  rowPickerOptions,
+  visibleRows,
 } = await import("./request-form");
 
 const SITE_A = "11111111-1111-4111-8111-111111111111";
@@ -191,6 +197,183 @@ describe("gridRows (active work areas × shifts × required positions)", () => {
   test("other locations' masters never join the grid", () => {
     const rows = gridRows([waTwoPositions, waNoPositions], activeShifts, LOC_B1);
     expect(rows).toHaveLength(0);
+  });
+});
+
+// Ticket #147: gridRows is only the catalog of admissible rows; the admin
+// adds the rows they need through the Add bar and the helpers below own the
+// pick → rows → payload flow.
+describe("add-rows helpers (catalog → added rows)", () => {
+  const areaOne: MpRequestGridWorkArea = {
+    id: WA_A1,
+    name: "Zone One",
+    siteLocationId: LOC_A1,
+    positions: [
+      { id: POS_A1, name: "Operator" },
+      { id: POS_A2, name: "Technician" },
+    ],
+  };
+  const areaTwo: MpRequestGridWorkArea = {
+    id: WA_A2,
+    name: "Zone Two",
+    siteLocationId: LOC_A1,
+    positions: [{ id: POS_A2, name: "Technician" }],
+  };
+  const areaNoPositions: MpRequestGridWorkArea = {
+    id: "cccc3333-3333-4333-9333-333333333333",
+    name: "Zone Three",
+    siteLocationId: LOC_A1,
+    positions: [],
+  };
+  const catalog = gridRows([areaOne, areaTwo, areaNoPositions], activeShifts, LOC_A1);
+  const key = (wa: string, sh: string, pos: string) => `${wa}|${sh}|${pos}`;
+
+  describe("rowPickerOptions", () => {
+    test("lists the areas that have positions and the shifts; no area picked → no positions", () => {
+      const options = rowPickerOptions(catalog, null);
+
+      expect(options.workAreas).toEqual([
+        { id: WA_A1, name: "Zone One" },
+        { id: WA_A2, name: "Zone Two" },
+      ]);
+      expect(options.shifts).toEqual([
+        { id: SH_A1, label: "Morning" },
+        { id: SH_A2, label: "Evening" },
+      ]);
+      expect(options.positions).toEqual([]);
+    });
+
+    test("the positions are limited to the picked area's required positions", () => {
+      expect(rowPickerOptions(catalog, WA_A1).positions).toEqual([
+        { id: POS_A1, name: "Operator" },
+        { id: POS_A2, name: "Technician" },
+      ]);
+      expect(rowPickerOptions(catalog, WA_A2).positions).toEqual([
+        { id: POS_A2, name: "Technician" },
+      ]);
+    });
+
+    test("an empty catalog offers nothing", () => {
+      expect(rowPickerOptions([], WA_A1)).toEqual({
+        workAreas: [],
+        shifts: [],
+        positions: [],
+      });
+    });
+  });
+
+  describe("addRowKeys", () => {
+    test("adds the shifts × positions cross product of the picked area", () => {
+      const next = addRowKeys(catalog, new Set(), WA_A1, [SH_A1, SH_A2], [POS_A1, POS_A2]);
+
+      expect([...next].sort()).toEqual(
+        [
+          key(WA_A1, SH_A1, POS_A1),
+          key(WA_A1, SH_A1, POS_A2),
+          key(WA_A1, SH_A2, POS_A1),
+          key(WA_A1, SH_A2, POS_A2),
+        ].sort(),
+      );
+    });
+
+    test("never duplicates a combination that is already added", () => {
+      const added = new Set([key(WA_A1, SH_A1, POS_A1)]);
+      const next = addRowKeys(catalog, added, WA_A1, [SH_A1], [POS_A1, POS_A2]);
+
+      expect(next.size).toBe(2);
+      expect(next.has(key(WA_A1, SH_A1, POS_A2))).toBeTrue();
+      // The caller's set is left untouched (React state).
+      expect(added.size).toBe(1);
+    });
+
+    test("ignores ids outside the catalog (a stale position pick adds nothing)", () => {
+      // POS_A1 is not a required position of Zone Two.
+      expect(addRowKeys(catalog, new Set(), WA_A2, [SH_A1], [POS_A1]).size).toBe(0);
+      expect(
+        addRowKeys(catalog, new Set(), WA_A1, ["ffffffff-0000-4000-8000-000000000000"], [POS_A1])
+          .size,
+      ).toBe(0);
+    });
+  });
+
+  describe("visibleRows", () => {
+    test("renders the added rows in catalog order (area → shift → position)", () => {
+      const added = new Set([
+        key(WA_A2, SH_A2, POS_A2),
+        key(WA_A1, SH_A2, POS_A1),
+        key(WA_A1, SH_A1, POS_A2),
+      ]);
+
+      expect(visibleRows(catalog, added).map((row) => row.key)).toEqual([
+        key(WA_A1, SH_A1, POS_A2),
+        key(WA_A1, SH_A2, POS_A1),
+        key(WA_A2, SH_A2, POS_A2),
+      ]);
+    });
+
+    test("nothing added renders nothing; keys outside the catalog are skipped", () => {
+      expect(visibleRows(catalog, new Set())).toEqual([]);
+      expect(visibleRows(catalog, new Set(["x|y|z"]))).toEqual([]);
+    });
+  });
+
+  describe("initialAddedKeys", () => {
+    const line = (workAreaId: string, shiftId: string, positionId: string, date: string) => ({
+      workAreaId,
+      workAreaName: "n",
+      shiftDefinitionId: shiftId,
+      shiftLabel: "s",
+      positionId,
+      positionName: "p",
+      date,
+      headcount: 2,
+    });
+
+    test("seeds the distinct stored triples that are in the catalog", () => {
+      const keys = initialAddedKeys(catalog, [
+        line(WA_A1, SH_A1, POS_A1, "2026-01-05"),
+        line(WA_A1, SH_A1, POS_A1, "2026-01-06"),
+        line(WA_A2, SH_A2, POS_A2, "2026-01-05"),
+      ]);
+
+      expect([...keys].sort()).toEqual(
+        [key(WA_A1, SH_A1, POS_A1), key(WA_A2, SH_A2, POS_A2)].sort(),
+      );
+    });
+
+    test("triples that left the active masters stay out (they keep the inactive-pair rows)", () => {
+      const keys = initialAddedKeys(catalog, [
+        line("eeeeeeee-1111-1111-1111-111111111111", SH_A1, POS_A1, "2026-01-05"),
+        line(WA_A2, SH_A1, POS_A1, "2026-01-05"),
+      ]);
+
+      expect(keys.size).toBe(0);
+    });
+  });
+
+  describe("dropRowValues / pruneValues", () => {
+    const monday = "2026-01-05";
+    const tuesday = "2026-01-06";
+    const values = {
+      [`${key(WA_A1, SH_A1, POS_A1)}|${monday}`]: "3",
+      [`${key(WA_A1, SH_A1, POS_A1)}|${tuesday}`]: "2",
+      [`${key(WA_A2, SH_A2, POS_A2)}|${monday}`]: "5",
+    };
+
+    test("dropRowValues removes only that row's cells", () => {
+      expect(dropRowValues(values, key(WA_A1, SH_A1, POS_A1))).toEqual({
+        [`${key(WA_A2, SH_A2, POS_A2)}|${monday}`]: "5",
+      });
+      // Input is not mutated.
+      expect(Object.keys(values)).toHaveLength(3);
+    });
+
+    test("pruneValues drops the cells of rows that are not kept", () => {
+      expect(pruneValues(values, new Set([key(WA_A2, SH_A2, POS_A2)]))).toEqual({
+        [`${key(WA_A2, SH_A2, POS_A2)}|${monday}`]: "5",
+      });
+      expect(pruneValues(values, new Set())).toEqual({});
+    });
   });
 });
 
@@ -440,7 +623,7 @@ describe("refusal surfacing (toasts + grid errors)", () => {
     expect(html.includes("Duplicate work area, shift and date combination")).toBeTrue();
   });
 
-  test("a lines.<i> refusal renders under the matching grid row", () => {
+  test("fieldErrors.lines stays visible with zero rows, next to the empty-grid hint", () => {
     const html = renderToStaticMarkup(
       <RequestForm
         siteLocations={siteLocations}
@@ -450,6 +633,45 @@ describe("refusal surfacing (toasts + grid errors)", () => {
         type="weekly"
         siteLocationId={LOC_A1}
         defaultWeekStart={MONDAY}
+        initialFieldErrors={{ lines: "Fill at least one headcount" }}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html.includes("Fill at least one headcount")).toBeTrue();
+    expect(
+      html.includes("Add a work area, shift and position to start."),
+    ).toBeTrue();
+  });
+
+  test("a lines.<i> refusal renders under the matching grid row", () => {
+    const html = renderToStaticMarkup(
+      <RequestForm
+        siteLocations={siteLocations}
+        sites={sites}
+        activeWorkAreas={activeWorkAreas}
+        activeShifts={activeShifts}
+        type="weekly"
+        siteLocationId={LOC_A1}
+        request={{
+          id: "99999999-4444-4444-4444-444444444444",
+          type: "weekly",
+          weekStart: MONDAY,
+          requestDate: null,
+          status: "submitted",
+          lines: [
+            {
+              workAreaId: WA_A1,
+              workAreaName: "Zone One",
+              shiftDefinitionId: SH_A1,
+              shiftLabel: "Morning",
+              positionId: POS_A1,
+              positionName: "Operator",
+              date: MONDAY,
+              headcount: 3,
+            },
+          ],
+        }}
         initialFieldErrors={{
           "lines.0.date": "Line date must fall within the request week",
         }}
@@ -590,11 +812,101 @@ describe("RequestForm markup", () => {
     );
   }
 
-  test("weekly create grid: area × shift × position rows and Mon–Sun columns", () => {
+  // The stored lines the edit-variant assertions share: Zone One / Morning /
+  // Operator on Mon + Wed, Zone Two / Evening / Technician on Mon.
+  const storedLines: MpRequestLineView[] = [
+    {
+      workAreaId: WA_A1,
+      workAreaName: "Zone One",
+      shiftDefinitionId: SH_A1,
+      shiftLabel: "Morning",
+      positionId: POS_A1,
+      positionName: "Operator",
+      date: "2026-01-05",
+      headcount: 3,
+    },
+    {
+      workAreaId: WA_A1,
+      workAreaName: "Zone One",
+      shiftDefinitionId: SH_A1,
+      shiftLabel: "Morning",
+      positionId: POS_A1,
+      positionName: "Operator",
+      date: "2026-01-07",
+      headcount: 2,
+    },
+    {
+      workAreaId: WA_A2,
+      workAreaName: "Zone Two",
+      shiftDefinitionId: SH_A2,
+      shiftLabel: "Evening",
+      positionId: POS_A2,
+      positionName: "Technician",
+      date: "2026-01-05",
+      headcount: 5,
+    },
+  ];
+
+  function renderEdit(
+    type: "weekly" | "daily",
+    lines: MpRequestLineView[],
+  ) {
+    return renderForm({
+      type,
+      siteLocationId: LOC_A1,
+      request: {
+        id: "99999999-5555-5555-5555-555555555555",
+        type,
+        weekStart: type === "weekly" ? MONDAY : null,
+        requestDate: type === "daily" ? "2026-01-05" : null,
+        status: "submitted",
+        lines,
+      },
+    });
+  }
+
+  test("create starts empty: the Add bar and the hint render, no rows", () => {
     const html = renderForm({
       siteLocationId: LOC_A1,
       defaultWeekStart: MONDAY,
     });
+
+    expect(html.includes('id="request-add-work-area"')).toBeTrue();
+    expect(html.includes("Add rows")).toBeTrue();
+    expect(
+      html.includes("Add a work area, shift and position to start."),
+    ).toBeTrue();
+    expect(html.includes("Zone One / Morning / Operator")).toBeFalse();
+    expect(html.includes("Zone Two / Evening / Technician")).toBeFalse();
+    expect(html.includes("Headcount Zone One")).toBeFalse();
+  });
+
+  test("the Add rows button is disabled until an area, a shift and a position are picked", () => {
+    const html = renderForm({
+      siteLocationId: LOC_A1,
+      defaultWeekStart: MONDAY,
+    });
+
+    expect(/<button[^>]*disabled=""[^>]*>[^<]*Add rows/.test(html)).toBeTrue();
+  });
+
+  test("a location without areas or shifts keeps its message and shows no Add bar", () => {
+    const html = renderForm({
+      siteLocationId: LOC_A1,
+      defaultWeekStart: MONDAY,
+      activeWorkAreas: [],
+      activeShifts: [],
+    });
+
+    expect(
+      html.includes("This location has no active work areas or shifts yet."),
+    ).toBeTrue();
+    expect(html.includes('id="request-add-work-area"')).toBeFalse();
+    expect(html.includes("Add rows")).toBeFalse();
+  });
+
+  test("weekly edit grid: only the stored rows, Mon–Sun columns and remove controls", () => {
+    const html = renderEdit("weekly", storedLines);
 
     for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
       expect(html.includes(`>${day}<`)).toBeTrue();
@@ -602,11 +914,20 @@ describe("RequestForm markup", () => {
     expect(html.includes("Work area / shift / position")).toBeTrue();
     expect(html.includes("Zone One / Morning / Operator")).toBeTrue();
     expect(html.includes("Zone Two / Evening / Technician")).toBeTrue();
+    // Catalog rows nobody stored stay out of the grid.
+    expect(html.includes("Zone One / Evening / Operator")).toBeFalse();
+    expect(html.includes("Zone Two / Morning / Technician")).toBeFalse();
     // The headcount cells' accessible names cover the position too (#137).
     expect(
       html.includes(
         `aria-label="Headcount Zone One / Morning / Operator / ${MONDAY}"`,
       ),
+    ).toBeTrue();
+    expect(
+      html.includes('aria-label="Remove row Zone One / Morning / Operator"'),
+    ).toBeTrue();
+    expect(
+      html.includes('aria-label="Remove row Zone Two / Evening / Technician"'),
     ).toBeTrue();
   });
 
@@ -631,15 +952,26 @@ describe("RequestForm markup", () => {
     ).toBeFalse();
   });
 
-  test("daily variant: no day columns, one headcount column", () => {
+  test("daily edit keeps the single headcount column and no day columns", () => {
+    const html = renderEdit(
+      "daily",
+      storedLines.filter((line) => line.date === "2026-01-05"),
+    );
+
+    expect(html.includes(">Headcount<")).toBeTrue();
+    expect(html.includes(">Mon<")).toBeFalse();
+    expect(html.includes("Zone One / Morning / Operator")).toBeTrue();
+  });
+
+  test("daily create starts empty with the Add bar", () => {
     const html = renderForm({
       type: "daily",
       siteLocationId: LOC_A1,
       defaultRequestDate: "2026-01-07",
     });
 
-    expect(html.includes("Headcount")).toBeTrue();
-    expect(html.includes(">Mon<")).toBeFalse();
+    expect(html.includes("Add rows")).toBeTrue();
+    expect(html.includes("Zone One / Morning / Operator")).toBeFalse();
   });
 
   test("edit variant pre-fills the grid from the stored lines and freezes the anchor", () => {
