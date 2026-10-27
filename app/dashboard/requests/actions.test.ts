@@ -1310,4 +1310,74 @@ describe("request actions: loadCopySource", () => {
       });
     }
   });
+
+  test("merges every non-rejected request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
+    const fx = await seedGlobalData();
+    const masters = await seedMasters(fx);
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const TUESDAY = "2026-02-03";
+
+    try {
+      const { loadCopySource } = await import("./actions");
+      const line = (requestId: string, date: string, headcount: number) =>
+        seedLine({
+          requestId,
+          siteId: fx.siteA,
+          siteLocationId: fx.locA1,
+          workAreaId: masters.workAreaId,
+          shiftDefinitionId: masters.shiftId,
+          positionId: masters.positionId,
+          date,
+          headcount,
+        });
+
+      // Seeded late-first so insertion order cannot decide the answer.
+      const late = await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 1,
+        status: "approved",
+      });
+      await line(late, TUESDAY, 3);
+      const rejected = await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 5,
+        status: "rejected",
+      });
+      await line(rejected, TUESDAY, 5);
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 2,
+        status: "fulfilled",
+      });
+
+      const source = await loadCopySource(fx.locA1, WEEK_2);
+      const shared = {
+        workAreaId: masters.workAreaId,
+        workAreaName: `t-mp-wa-${masters.workAreaId}`,
+        shiftDefinitionId: masters.shiftId,
+        shiftLabel: `t-mp-shift-${masters.shiftId}`,
+        positionId: masters.positionId,
+        positionName: `t-mp-pos-${masters.positionId}`,
+      };
+      expect(source).toEqual({
+        weekStart: WEEK_1,
+        lines: [
+          { ...shared, date: WEEK_1, headcount: 3 },
+          { ...shared, date: TUESDAY, headcount: 3 },
+        ],
+      });
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [masters.workAreaId],
+        shiftIds: [masters.shiftId],
+        positionIds: [masters.positionId],
+        ...fx,
+      });
+    }
+  });
 });

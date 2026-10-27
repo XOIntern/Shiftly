@@ -20,6 +20,7 @@ import { requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import type { MpRequestLineView } from "@/types/mp-request";
+import { mergeRequestLines } from "@/lib/mp-request-lines";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { weekDates } from "@/lib/week";
 import {
@@ -545,9 +546,11 @@ export async function advanceStatus(
   }
 }
 
-// Read-only lookup behind "copy from last week": the actor's most recent
-// weekly request at that location before the given week, ignoring rejected
-// ones. Network-reachable, so it authenticates and scopes like the writes;
+// Read-only lookup behind "copy from last week": the most recent week before
+// the given one in which the actor has a non-rejected weekly request at that
+// location, returned as the merged lines of every non-rejected weekly
+// request of that week (a fulfilled request plus a later delta request read
+// as one demand). Network-reachable, so it authenticates and scopes like the writes;
 // anything malformed or out of scope is simply "no source".
 export async function loadCopySource(
   siteLocationId: string,
@@ -562,18 +565,16 @@ export async function loadCopySource(
     return null;
   }
 
+  const sourceWhere = and(
+    mpRequestListWhere(actor),
+    eq(mpRequest.siteLocationId, siteLocationId),
+    eq(mpRequest.type, "weekly"),
+    ne(mpRequest.status, "rejected"),
+  );
   const [source] = await db
-    .select({ id: mpRequest.id, weekStart: mpRequest.weekStart })
+    .select({ weekStart: mpRequest.weekStart })
     .from(mpRequest)
-    .where(
-      and(
-        mpRequestListWhere(actor),
-        eq(mpRequest.siteLocationId, siteLocationId),
-        eq(mpRequest.type, "weekly"),
-        ne(mpRequest.status, "rejected"),
-        lt(mpRequest.weekStart, beforeWeekStart),
-      ),
-    )
+    .where(and(sourceWhere, lt(mpRequest.weekStart, beforeWeekStart)))
     .orderBy(desc(mpRequest.weekStart))
     .limit(1);
   if (!source?.weekStart) return null;
@@ -590,13 +591,14 @@ export async function loadCopySource(
       headcount: mpRequestLine.headcount,
     })
     .from(mpRequestLine)
+    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
     .innerJoin(workArea, eq(mpRequestLine.workAreaId, workArea.id))
     .innerJoin(
       shiftDefinition,
       eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
     )
     .innerJoin(position, eq(mpRequestLine.positionId, position.id))
-    .where(eq(mpRequestLine.requestId, source.id));
+    .where(and(sourceWhere, eq(mpRequest.weekStart, source.weekStart)));
 
-  return { weekStart: source.weekStart, lines };
+  return { weekStart: source.weekStart, lines: mergeRequestLines(lines) };
 }
