@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test, beforeEach } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
@@ -20,12 +20,24 @@ mock.module("@/lib/session", () => ({
 mock.module("next/cache", () => ({
   revalidatePath: () => {},
 }));
-mock.module("@/lib/credential-store", () => ({
-  deleteUserSessions: async (userId: string) => {
-    sessionWipes.push(userId);
-  },
-  setCredentialPassword: async () => 0,
-}));
+// bun loads every test file (running its top-level code) before any test
+// runs, so a stub registered at the top level would be what a later file
+// captures as "real". The real module is captured at load, the stub goes in
+// for this file only (beforeAll) and the real module is put back after it
+// (afterAll) — mock.module is process-wide and would otherwise leak into every
+// suite that runs afterwards.
+const realCredentialStore = { ...(await import("@/lib/credential-store")) };
+beforeAll(() => {
+  mock.module("@/lib/credential-store", () => ({
+    deleteUserSessions: async (userId: string) => {
+      sessionWipes.push(userId);
+    },
+    setCredentialPassword: async () => 0,
+  }));
+});
+afterAll(() => {
+  mock.module("@/lib/credential-store", () => realCredentialStore);
+});
 
 function isDeleted(id: string): Promise<boolean> {
   return db

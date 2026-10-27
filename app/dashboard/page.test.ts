@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { SessionUser } from "@/types/session";
@@ -16,16 +16,28 @@ mock.module("@/lib/session", () => ({
   requireSuperadmin: async () => actor,
 }));
 
+// bun loads every test file (running its top-level code) before any test
+// runs, so a stub registered at the top level would be what a later file
+// captures as "real". The real module is captured at load, the stub goes in
+// for this file only (beforeAll) and the real module is put back after it
+// (afterAll) — mock.module is process-wide and would otherwise leak into every
+// suite that runs afterwards (lib/dashboard-counts.test.ts among them).
+const realDashboardCounts = { ...(await import("@/lib/dashboard-counts")) };
 // Task 2's counts module is mocked, not run against the DB — the counts
 // themselves are pinned by lib/dashboard-counts.test.ts.
-mock.module("@/lib/dashboard-counts", () => ({
-  dashboardCounts: async () => ({
-    workers: 12,
-    positions: 8,
-    workAreas: 5,
-    locations: 3,
-  }),
-}));
+beforeAll(() => {
+  mock.module("@/lib/dashboard-counts", () => ({
+    dashboardCounts: async () => ({
+      workers: 12,
+      positions: 8,
+      workAreas: 5,
+      locations: 3,
+    }),
+  }));
+});
+afterAll(() => {
+  mock.module("@/lib/dashboard-counts", () => realDashboardCounts);
+});
 
 // Other suites resolve these navigations; nothing here needs them.
 mock.module("next/navigation", () => ({
