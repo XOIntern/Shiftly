@@ -1,24 +1,6 @@
 import "dotenv/config";
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-
-// The form calls the Task 7 server actions on submit; under bun test the
-// module is swapped for stubs that record calls (the static-markup renders
-// below never fire them, but the swap also keeps the real "use server"
-// module — and its DB client — out of this suite).
-const createCalls: unknown[] = [];
-const updateCalls: unknown[] = [];
-mock.module("@/app/dashboard/requests/actions", () => ({
-  createRequest: async (input: unknown) => {
-    createCalls.push(input);
-    return { ok: true } as const;
-  },
-  updateRequestLines: async (id: string, lines: unknown) => {
-    updateCalls.push({ id, lines });
-    return { ok: true } as const;
-  },
-  loadCopySource: async () => null,
-}));
 
 import type {
   MpRequestGridShift,
@@ -28,9 +10,9 @@ import type {
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 import { mpRequestCreateSchema } from "@/validation/request-line";
 
-// Loaded after the mock above registers (bun executes module-level
-// statements in order for ESM evaluated here).
-const {
+// The form only calls its server actions on submit or click, which static
+// markup never fires, so the real actions module is imported as is.
+import {
   RequestForm,
   areasWithoutPositions,
   buildCreateInput,
@@ -49,7 +31,7 @@ const {
   refusalToast,
   removeAreaValues,
   shouldResetOnWeekChange,
-} = await import("./request-form");
+} from "./request-form";
 
 const SITE_A = "11111111-1111-4111-8111-111111111111";
 const SITE_B = "22222222-2222-4222-9222-222222222222";
