@@ -584,6 +584,57 @@ describe("roster page SSR (roster-engine Task 7)", () => {
     }
   });
 
+  test("the generate reason counts headcount, not request lines", async () => {
+    const fx = await seedRosterFixtures();
+    const requestId = randomUUID();
+    const MULTI_MONDAY = "2026-02-02";
+    try {
+      actor = makeActor("admin", null, fx.ids.locL1);
+      const [creatorRow] = await db
+        .select({ id: user.id })
+        .from(mpRequest)
+        .innerJoin(user, eq(user.id, mpRequest.createdBy))
+        .where(eq(mpRequest.siteLocationId, fx.ids.locL1))
+        .limit(1);
+      await db.insert(mpRequest).values({
+        id: requestId,
+        siteId: fx.ids.siteS,
+        siteLocationId: fx.ids.locL1,
+        type: "weekly",
+        status: "approved",
+        weekStart: MULTI_MONDAY,
+        createdBy: creatorRow.id,
+      });
+      const [posRow] = await db
+        .select({ positionId: mpRequestLine.positionId })
+        .from(mpRequestLine)
+        .where(eq(mpRequestLine.siteLocationId, fx.ids.locL1))
+        .limit(1);
+      const line = (date: string, headcount: number) => ({
+        requestId,
+        siteId: fx.ids.siteS,
+        siteLocationId: fx.ids.locL1,
+        workAreaId: fx.ids.waOne,
+        shiftDefinitionId: fx.ids.shEarly,
+        positionId: posRow.positionId,
+        date,
+        headcount,
+      });
+      await db
+        .insert(mpRequestLine)
+        .values([line("2026-02-02", 3), line("2026-02-03", 2)]);
+
+      const page = text(await renderRoster({ week: MULTI_MONDAY }));
+
+      expect(page).toContain("5 slots from 1 request");
+      expect(page).not.toContain("2 slots from");
+    } finally {
+      await db.delete(mpRequestLine).where(eq(mpRequestLine.requestId, requestId));
+      await db.delete(mpRequest).where(eq(mpRequest.id, requestId));
+      await fx.cleanup();
+    }
+  });
+
   test("draft week shows the filled/required totals and the requirements rows", async () => {
     const fx = await seedRosterFixtures();
     try {

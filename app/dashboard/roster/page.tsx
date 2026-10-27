@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, countDistinct, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import {
   mpRequest,
@@ -224,7 +224,7 @@ export default async function RosterPage({
           )
           .orderBy(asc(shiftDefinition.orderIndex)),
       ])
-    : [[], [], [], [], { requests: 0, lines: 0 }, [], []];
+    : [[], [], [], [], { requests: 0, headcount: 0 }, [], []];
 
   const requirements: CoverageRequirement[] = [
     ...weeklyLines.map((line) => ({ ...line, source: "weekly" as const })),
@@ -284,7 +284,8 @@ export default async function RosterPage({
     canWrite,
     planStatus: chosen?.status ?? null,
     approvedRequestCount: approved.requests,
-    approvedSlotCount: approved.lines,
+    // Headcount (people), the same unit the requirements panel shows.
+    approvedSlotCount: approved.headcount,
     blockingViolationCount,
   });
 
@@ -389,11 +390,11 @@ async function countApproved(
   actor: Actor,
   locationId: string,
   week: string,
-): Promise<{ requests: number; lines: number }> {
+): Promise<{ requests: number; headcount: number }> {
   const [row] = await db
     .select({
       requests: countDistinct(mpRequest.id),
-      lines: count(mpRequestLine.id),
+      headcount: sql<number>`coalesce(sum(${mpRequestLine.headcount}), 0)`.mapWith(Number),
     })
     .from(mpRequest)
     .leftJoin(mpRequestLine, eq(mpRequestLine.requestId, mpRequest.id))
@@ -406,7 +407,7 @@ async function countApproved(
         mpRequestListWhere(actor),
       ),
     );
-  return { requests: row?.requests ?? 0, lines: row?.lines ?? 0 };
+  return { requests: row?.requests ?? 0, headcount: row?.headcount ?? 0 };
 }
 
 // Assignments of the location's daily plans dated inside the week: the

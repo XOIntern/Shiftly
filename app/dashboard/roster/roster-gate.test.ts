@@ -85,10 +85,19 @@ describe("rosterGate", () => {
     ).toEqual(none);
   });
 
-  test("singular wording for one request and one warning", () => {
+  test("singular wording for one slot, one request and one warning", () => {
     expect(
       rosterGate({ ...base, approvedRequestCount: 1, approvedSlotCount: 4 }),
     ).toMatchObject({ reason: "4 slots from 1 request" });
+    expect(
+      rosterGate({ ...base, approvedRequestCount: 1, approvedSlotCount: 1 }),
+    ).toMatchObject({ reason: "1 slot from 1 request" });
+    expect(
+      rosterGate({ ...base, approvedRequestCount: 3, approvedSlotCount: 1 }),
+    ).toMatchObject({ reason: "1 slot from 3 requests" });
+    expect(
+      rosterGate({ ...base, approvedRequestCount: 2, approvedSlotCount: 0 }),
+    ).toMatchObject({ reason: "0 slots from 2 requests" });
     expect(
       rosterGate({ ...base, planStatus: "draft", blockingViolationCount: 1 }),
     ).toMatchObject({

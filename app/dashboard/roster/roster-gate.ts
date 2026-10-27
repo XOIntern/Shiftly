@@ -11,7 +11,7 @@ export function rosterGate(input: {
   canWrite: boolean; // admin or superadmin
   planStatus: "draft" | "published" | null;
   approvedRequestCount: number; // approved weekly requests for the week and location
-  approvedSlotCount: number; // headcount-bearing lines in those requests
+  approvedSlotCount: number; // total headcount (people) across those requests' lines
   blockingViolationCount: number;
 }): RosterGate {
   if (!input.canWrite) return { action: "none" };
@@ -42,6 +42,6 @@ export function rosterGate(input: {
   return {
     action: "generate",
     enabled: true,
-    reason: `${input.approvedSlotCount} slots from ${input.approvedRequestCount} request${input.approvedRequestCount === 1 ? "" : "s"}`,
+    reason: `${input.approvedSlotCount} slot${input.approvedSlotCount === 1 ? "" : "s"} from ${input.approvedRequestCount} request${input.approvedRequestCount === 1 ? "" : "s"}`,
   };
 }
