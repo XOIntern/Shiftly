@@ -139,8 +139,10 @@ export function PublishButton({
           // The plan may have changed elsewhere: re-read it.
           if (shouldRefreshAfter(result)) router.refresh();
         } catch {
+          // A thrown action is a network or server failure, not a stale
+          // plan: a refresh would fail the same way (offline, it falls back
+          // to a full page load and the toast is lost).
           toast.error(GENERIC_ERROR);
-          router.refresh();
         } finally {
           setOpen(false);
         }
@@ -220,8 +222,8 @@ export function DiscardDraftButton({
           toast.error(result.message ?? GENERIC_ERROR);
           if (shouldRefreshAfter(result)) router.refresh();
         } catch {
+          // Not a stale-plan signal: see PublishButton.
           toast.error(GENERIC_ERROR);
-          router.refresh();
         } finally {
           setOpen(false);
         }
@@ -283,10 +285,9 @@ export function RevisePlanButton({ planId }: { planId: string }) {
         );
       } catch {
         // commitRevise already folds a thrown action into a failure; this
-        // catches anything else in the handler so it still toasts and
-        // re-reads the plan.
+        // catches anything else in the handler so it still toasts. No
+        // refresh: a thrown error is not a stale-plan signal.
         toast.error(GENERIC_ERROR);
-        router.refresh();
       }
     });
   }
