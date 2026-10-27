@@ -281,9 +281,12 @@ describe("mpRequestUpdateSchema", () => {
 });
 
 describe("advanceStatusSchema", () => {
-  test("accepts each workflow status", () => {
-    for (const status of ["received", "processing", "fulfilled", "rejected"] as const) {
+  test("accepts approved/rejected and rejects received/processing/fulfilled", () => {
+    for (const status of ["approved", "rejected"] as const) {
       expect(advanceStatusSchema.safeParse({ id: REQUEST_ID, status }).success).toBe(true);
+    }
+    for (const status of ["received", "processing", "fulfilled"]) {
+      expect(advanceStatusSchema.safeParse({ id: REQUEST_ID, status }).success).toBe(false);
     }
   });
 
@@ -293,7 +296,7 @@ describe("advanceStatusSchema", () => {
   });
 
   test("rejects a non-uuid id", () => {
-    const result = advanceStatusSchema.safeParse({ id: "not-a-uuid", status: "received" });
+    const result = advanceStatusSchema.safeParse({ id: "not-a-uuid", status: "approved" });
     expect(result.success).toBe(false);
   });
 });

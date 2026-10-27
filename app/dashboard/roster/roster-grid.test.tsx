@@ -1,36 +1,31 @@
 import "dotenv/config";
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { SetAssignmentResult } from "@/app/dashboard/roster/actions";
 
-// The grid calls the Task 6 server actions from its cell handler; under
-// bun test the actions module is swapped for a recording stub so the real
-// "use server" module (and its DB client) never loads. The mutable holder
-// lets each case script the result the action would return.
-type ScriptedResult = unknown;
+// commitPick and commitRevise take the server action as an injectable
+// argument, so the wiring cases below pass recording stubs instead of
+// swapping the real actions module (a process-wide mock would leak into
+// every other suite that imports it).
 const setCalls: unknown[] = [];
-let nextSetResult: ScriptedResult = { ok: true, data: { violations: [] } };
+let nextSetResult: unknown = { ok: true, data: { violations: [] } };
+const recordSet = async (input: unknown) => {
+  setCalls.push(input);
+  return nextSetResult as SetAssignmentResult;
+};
 const reviseCalls: unknown[] = [];
 let nextRevise: string | Error = "99999999-9999-4999-8999-999999999999";
-mock.module("@/app/dashboard/roster/actions", () => ({
-  setAssignment: async (input: unknown) => {
-    setCalls.push(input);
-    return nextSetResult;
-  },
-  generateRoster: async () => ({ ok: true }),
-  publishRoster: async () => ({ ok: true }),
-  revisePlan: async (planId: string) => {
-    reviseCalls.push(planId);
-    if (nextRevise instanceof Error) throw nextRevise;
-    return { ok: true, draftPlanId: nextRevise };
-  },
-  suggestReplacementsAction: async () => ({ ok: true, data: [] }),
-  fillDailyRequest: async () => ({ ok: true }),
-}));
+const recordRevise = async (planId: string) => {
+  reviseCalls.push(planId);
+  if (nextRevise instanceof Error) throw nextRevise;
+  return { ok: true as const, draftPlanId: nextRevise };
+};
 
 const {
+  RosterGrid,
   assignmentKey,
   badgeText,
   commitPick,
-  generateGateText,
   violationSummary,
   violationsByWorker,
 } = await import("./roster-grid");
@@ -44,6 +39,33 @@ const W1 = "aaaaaaaa-1111-4111-8111-111111111111";
 const W2 = "aaaaaaaa-2222-4222-9222-222222222222";
 const SH1 = "dddddddd-1111-4111-8111-111111111111";
 const MON = "2026-01-05";
+
+describe("RosterGrid", () => {
+  test("grid renders only the selected work area's workers", () => {
+    const html = renderToStaticMarkup(
+      <RosterGrid
+        planId={PLAN}
+        canEdit={false}
+        readOnlyReason="Read-only"
+        workAreaId={AREA}
+        workAreaName="Kitchen"
+        shifts={[{ id: SH1, label: "Early", startTime: "06:00", endTime: "14:00" }]}
+        workers={[{ id: W1, employeeId: "EMP-001" }]}
+        dates={[MON]}
+        cells={{ [`${W1}|${MON}`]: SH1 }}
+        rowPage={1}
+        workerTotal={1}
+        onRowPageChange={() => {}}
+      />,
+    );
+    // The selected area names the grid; no area switcher lives in the grid.
+    expect(html).toContain("Kitchen");
+    expect(html).not.toContain('aria-label="Work area"');
+    expect(html).toContain("EMP-001");
+    expect(html).not.toContain("EMP-002");
+    expect(html).toContain("Early");
+  });
+});
 
 describe("assignmentKey", () => {
   test("keys a cell by worker and date", () => {
@@ -61,7 +83,7 @@ describe("commitPick (the cell-click wiring into setAssignment)", () => {
       workerId: W1,
       date: MON,
       shiftDefId: SH1,
-    });
+    }, recordSet);
     expect(setCalls).toEqual([
       { planId: PLAN, workAreaId: AREA, workerId: W1, date: MON, shiftDefId: SH1 },
     ]);
@@ -77,7 +99,7 @@ describe("commitPick (the cell-click wiring into setAssignment)", () => {
       workerId: W1,
       date: MON,
       shiftDefId: null,
-    });
+    }, recordSet);
     expect(setCalls[0]).toEqual({
       planId: PLAN,
       workerId: W1,
@@ -102,7 +124,7 @@ describe("commitPick (the cell-click wiring into setAssignment)", () => {
       workerId: W1,
       date: MON,
       shiftDefId: SH1,
-    });
+    }, recordSet);
     expect(outcome.ok).toBeTrue();
     expect(outcome.violations?.length).toBe(1);
     const byWorker = violationsByWorker(outcome.violations ?? []);
@@ -122,7 +144,7 @@ describe("commitPick (the cell-click wiring into setAssignment)", () => {
       workerId: W1,
       date: MON,
       shiftDefId: SH1,
-    });
+    }, recordSet);
     expect(outcome.ok).toBeFalse();
     expect(outcome.message).toBe("Plan was published while editing, retry");
   });
@@ -155,16 +177,6 @@ describe("violationsByWorker / badgeText / violationSummary", () => {
   });
 });
 
-describe("generateGateText (the disabled generate explanation)", () => {
-  test("an empty requirement week explains what is missing", () => {
-    expect(generateGateText(0)).toBe("No received requests cover this week.");
-  });
-
-  test("a covered week gates nothing", () => {
-    expect(generateGateText(3)).toBeNull();
-  });
-});
-
 const PUBLISHED = "55555555-5555-4555-8555-555555555555";
 const NEXT_DRAFT = "99999999-9999-4999-8999-999999999999";
 
@@ -172,7 +184,7 @@ describe("commitRevise (the Revise plan wiring into the guarded revisePlan actio
   test("sends the published plan's id and resolves to the new draft id", async () => {
     reviseCalls.length = 0;
     nextRevise = NEXT_DRAFT;
-    const outcome = await commitRevise(PUBLISHED);
+    const outcome = await commitRevise(PUBLISHED, recordRevise);
     expect(reviseCalls).toEqual([PUBLISHED]);
     expect(outcome).toEqual({ ok: true, draftPlanId: NEXT_DRAFT });
   });
@@ -180,7 +192,7 @@ describe("commitRevise (the Revise plan wiring into the guarded revisePlan actio
   test("a thrown refusal becomes an error outcome (toast path)", async () => {
     reviseCalls.length = 0;
     nextRevise = new Error("Roster not found.");
-    const outcome = await commitRevise(PUBLISHED);
+    const outcome = await commitRevise(PUBLISHED, recordRevise);
     expect(reviseCalls).toEqual([PUBLISHED]);
     expect(outcome.ok).toBeFalse();
     expect((outcome as { message: string }).message.length).toBeGreaterThan(0);

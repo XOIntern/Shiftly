@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useTransition } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -15,45 +15,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  RequestStatusBadge,
+  rosterHrefFor,
+} from "@/app/dashboard/requests/request-status";
 import { MpRequestRowActions } from "@/app/dashboard/requests/status-actions";
 import type { MpRequestRow } from "@/types/mp-request";
 
+// The badge and roster link moved to request-status so the detail dialog in
+// status-actions can use them without importing this module (a cycle).
+export { RequestStatusBadge, rosterHrefFor };
+
 const helper = createColumnHelper<typeof dataTableFeatures, MpRequestRow>();
-
-// Badge faces for the manual status machine (code-derived names).
-const STATUS_BADGE: Record<
-  MpRequestRow["status"],
-  { label: string; variant: "default" | "secondary" | "outline" | "success" | "destructive" }
-> = {
-  submitted: { label: "Submitted", variant: "default" },
-  received: { label: "Received", variant: "secondary" },
-  processing: { label: "Processing", variant: "outline" },
-  fulfilled: { label: "Fulfilled", variant: "success" },
-  rejected: { label: "Rejected", variant: "destructive" },
-};
-
-export function RequestStatusBadge({ status }: { status: MpRequestRow["status"] }) {
-  const face = STATUS_BADGE[status];
-  return <Badge variant={face.variant}>{face.label}</Badge>;
-}
 
 // The anchor column: weekly requests show their ISO Monday, daily requests
 // the single date (spec §3.3).
 export const requestAnchor = (request: MpRequestRow): string =>
   request.type === "weekly" ? (request.weekStart ?? "") : (request.requestDate ?? "");
 
-const STATUS_OPTIONS = [
+export const STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
-  { value: "submitted", label: "Submitted" },
-  { value: "received", label: "Received" },
-  { value: "processing", label: "Processing" },
+  { value: "open", label: "Open" },
+  { value: "approved", label: "Approved" },
   { value: "fulfilled", label: "Fulfilled" },
   { value: "rejected", label: "Rejected" },
 ];
 
 // Toolbar filter for the request-status column — the same URL contract as
 // the shared isActive StatusFilter, but over the request-status enum
-// (?status=submitted|received|processing|fulfilled|rejected).
+// (?status=open|approved|fulfilled|rejected).
 export function RequestStatusFilter() {
   const router = useRouter();
   const pathname = usePathname();
@@ -62,9 +52,8 @@ export function RequestStatusFilter() {
 
   const raw = searchParams.get("status");
   const allowed = (candidate: string | null): candidate is MpRequestRow["status"] =>
-    candidate === "submitted" ||
-    candidate === "received" ||
-    candidate === "processing" ||
+    candidate === "open" ||
+    candidate === "approved" ||
     candidate === "fulfilled" ||
     candidate === "rejected";
   const value = allowed(raw) ? raw : "all";
@@ -163,6 +152,7 @@ const formatStamp = (iso: string) =>
 export function RequestsTable({
   requests,
   canWrite,
+  canApprove,
   showSite,
   showLocation,
   pageCount,
@@ -170,8 +160,10 @@ export function RequestsTable({
 }: {
   requests: MpRequestRow[];
   // May the actor write lines (admin + superadmin)? Only the row actions'
-  // edit entry switches on this — an ho keeps the view + status menu.
+  // edit entry switches on this.
   canWrite: boolean;
+  // May the actor approve or reject open weekly requests (ho + superadmin)?
+  canApprove: boolean;
   // Site/location columns only carry information where the actor's scope
   // spans more than one of them: location for ho/superadmin, site for
   // superadmin alone.
@@ -234,6 +226,26 @@ export function RequestsTable({
           ),
         }),
         helper.display({
+          id: "roster",
+          header: "Roster",
+          meta: { thClassName: "min-w-[140px]" },
+          cell: (info) => {
+            const href = rosterHrefFor(info.row.original);
+            return href ? (
+              <Link
+                href={href}
+                className="text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                View in roster →
+              </Link>
+            ) : (
+              <span className="text-muted-foreground">
+                -<span className="sr-only">No roster yet</span>
+              </span>
+            );
+          },
+        }),
+        helper.display({
           id: "actions",
           header: "Actions",
           meta: {
@@ -241,11 +253,15 @@ export function RequestsTable({
             tdClassName: "text-right",
           },
           cell: (info) => (
-            <MpRequestRowActions request={info.row.original} canWrite={canWrite} />
+            <MpRequestRowActions
+              request={info.row.original}
+              canWrite={canWrite}
+              canApprove={canApprove}
+            />
           ),
         }),
       ]),
-    [canWrite, showSite, showLocation],
+    [canWrite, canApprove, showSite, showLocation],
   );
 
   return (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { EraserIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Popover } from "@base-ui/react/popover";
@@ -16,7 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 
-// The weekly grid editor (roster-engine task 7): one work-area card, rows =
+// The weekly grid editor (roster-engine task 7): one work-area card (the
+// area is picked upstream, from the requirements panel), rows =
 // the location's workers as ONE server slice (50/cell-page), columns
 // Mon–Sun. A cell click opens a shift picker popover (NO drag-drop — an
 // explicit product decision); the pick commits through setAssignment and
@@ -32,12 +33,6 @@ export type RosterShiftOption = {
 };
 
 export type GridWorker = { id: string; employeeId: string };
-
-// The disabled-generate explanation: null when the week's demand is
-// covered (the button is enabled), the copy otherwise. Pinned by tests.
-export function generateGateText(requirementCount: number): string | null {
-  return requirementCount === 0 ? "No received requests cover this week." : null;
-}
 
 // A cell is keyed by worker + date; the card's area rides the request.
 export function assignmentKey(workerId: string, date: string): string {
@@ -104,9 +99,8 @@ export function RosterGrid({
   planId,
   canEdit,
   readOnlyReason,
-  workAreas,
   workAreaId,
-  onWorkAreaChange,
+  workAreaName,
   shifts,
   workers,
   dates,
@@ -119,9 +113,8 @@ export function RosterGrid({
   // Admin + draft only: an ho and a published plan render static cells.
   canEdit: boolean;
   readOnlyReason: string;
-  workAreas: { id: string; name: string }[];
   workAreaId: string;
-  onWorkAreaChange: (id: string) => void;
+  workAreaName: string;
   shifts: RosterShiftOption[];
   workers: GridWorker[];
   dates: string[];
@@ -135,6 +128,7 @@ export function RosterGrid({
   // each pick replaces (never accumulates) the map and the summary.
   const [violations, setViolations] = useState<Violation[]>([]);
   const [openCell, setOpenCell] = useState<string | null>(null);
+  const headingId = useId();
 
   const labelOf = new Map(shifts.map((s) => [s.id, s]));
   const rowBadges = violationsByWorker(violations);
@@ -170,21 +164,7 @@ export function RosterGrid({
 
   return (
     <div className="flex flex-col gap-3">
-      {workAreas.length > 1 ? (
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Work area">
-          {workAreas.map((area) => (
-            <Button
-              key={area.id}
-              type="button"
-              size="sm"
-              variant={area.id === workAreaId ? "default" : "outline"}
-              onClick={() => onWorkAreaChange(area.id)}
-            >
-              {area.name}
-            </Button>
-          ))}
-        </div>
-      ) : null}
+      <h2 id={headingId} className="text-sm font-medium break-words">{workAreaName}</h2>
 
       {!canEdit ? (
         <p className="text-sm text-muted-foreground">{readOnlyReason}</p>
@@ -196,7 +176,10 @@ export function RosterGrid({
       ) : null}
 
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full border-collapse text-sm">
+        <table
+          aria-labelledby={headingId}
+          className="w-full border-collapse text-sm"
+        >
           <thead>
             <tr className="border-b bg-muted/50">
               <th className="min-w-[180px] px-3 py-2 text-start font-medium">

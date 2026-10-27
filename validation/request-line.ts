@@ -114,7 +114,7 @@ export const mpRequestUpdateSchema = mpRequestBaseSchema
 
 export const advanceStatusSchema = z.object({
   id: z.uuid(),
-  status: z.enum(["received", "processing", "fulfilled", "rejected"]),
+  status: z.enum(["approved", "rejected"]),
 });
 
 export type MpRequestLineInput = z.infer<typeof mpRequestLineSchema>;

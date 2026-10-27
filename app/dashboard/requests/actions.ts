@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -19,9 +19,14 @@ import { pgErrorConstraint, pgErrorCode } from "@/error/db-errors";
 import { requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
+import type { MpRequestLineView } from "@/types/mp-request";
+import { mergeRequestLines } from "@/lib/mp-request-lines";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { weekDates } from "@/lib/week";
-import { mpRequestMutationWhere } from "@/lib/mp-request-scope";
+import {
+  mpRequestListWhere,
+  mpRequestMutationWhere,
+} from "@/lib/mp-request-scope";
 import { recordMpRequestAudit } from "@/lib/mp-request-audit";
 import {
   advanceStatusSchema,
@@ -42,14 +47,16 @@ class ActionAbort extends Error {
 
 type MpRequestStatus = (typeof mpRequestStatusEnum.enumValues)[number];
 
-// Messages pinned by the plan — the tests assert them verbatim.
+// Messages the tests assert verbatim.
 const HO_CREATE_MESSAGE = "Only admins enter requests";
 const DUPLICATE_OPEN_SLOT =
   "An open request for this week/date already exists";
-const NOT_EDITABLE = "Only submitted requests can be edited";
+const NOT_EDITABLE = "Only open requests can be edited";
 const RACE_MESSAGE = "Request state changed, reload";
 const NOT_FOUND = "Request not found.";
 const ILLEGAL_TRANSITION = "That status change is not allowed";
+const APPROVER_ONLY_MESSAGE = "Only HO can approve or reject requests.";
+const WEEKLY_ONLY_MESSAGE = "Only weekly requests need approval.";
 // The composite weld FKs on mp_request_line (work area / shift +
 // site_location + site) make a cross-location pairing impossible — this is
 // both the pre-check's message for a foreign reference and the catch's net
@@ -68,13 +75,13 @@ const POSITION_NOT_REQUIRED =
 const INACTIVE_POSITION_KEEP_ONLY =
   "Inactive positions can only be kept unchanged, not re-added";
 
-// Manual status machine (spec §4.4): forward-only edges, terminal states
-// stay terminal. The guarded write below still re-checks the CURRENT row
-// status in its WHERE, so a concurrent move turns this into a 0-row no-op.
+// Manual status machine: a weekly request leaves "open" exactly once, for
+// approved or rejected; every other state is terminal here ("fulfilled" is
+// never set by hand). The guarded write below still re-checks the CURRENT
+// row status in its WHERE, so a concurrent move turns this into a 0-row no-op.
 const LEGAL_TRANSITIONS: Record<MpRequestStatus, readonly string[]> = {
-  submitted: ["received"],
-  received: ["processing"],
-  processing: ["fulfilled", "rejected"],
+  open: ["approved", "rejected"],
+  approved: [],
   fulfilled: [],
   rejected: [],
 };
@@ -379,7 +386,7 @@ export async function updateRequestLines(
         .limit(1)
         .for("update");
       if (!row) throw new ActionAbort({ ok: false, message: NOT_FOUND });
-      if (row.status !== "submitted") {
+      if (row.status !== "open") {
         throw new ActionAbort({ ok: false, message: NOT_EDITABLE });
       }
 
@@ -458,9 +465,15 @@ export async function updateRequestLines(
 
 export async function advanceStatus(
   id: string,
-  nextStatus: "received" | "processing" | "fulfilled" | "rejected",
+  nextStatus: "approved" | "rejected",
 ): Promise<ActionState> {
   const actor = await requireUser();
+
+  // Approval belongs to HO (and superadmin): an admin is refused before any
+  // read, even for their own location's request.
+  if (actor.role === "admin") {
+    return { ok: false, message: APPROVER_ONLY_MESSAGE };
+  }
 
   const parsed = advanceStatusSchema.safeParse({ id, status: nextStatus });
   if (!parsed.success) {
@@ -482,6 +495,11 @@ export async function advanceStatus(
         .limit(1)
         .for("update");
       if (!row) throw new ActionAbort({ ok: false, message: NOT_FOUND });
+
+      // Daily requests skip approval; the type is only known after the read.
+      if (row.type === "daily") {
+        throw new ActionAbort({ ok: false, message: WEEKLY_ONLY_MESSAGE });
+      }
 
       if (!LEGAL_TRANSITIONS[row.status].includes(parsed.data.status)) {
         throw new ActionAbort({ ok: false, message: ILLEGAL_TRANSITION });
@@ -526,4 +544,61 @@ export async function advanceStatus(
     if (err instanceof ActionAbort) return err.state;
     return { ok: false, message: GENERIC_ERROR };
   }
+}
+
+// Read-only lookup behind "copy from last week": the most recent week before
+// the given one in which the actor has a non-rejected weekly request at that
+// location, returned as the merged lines of every non-rejected weekly
+// request of that week (a fulfilled request plus a later delta request read
+// as one demand). Network-reachable, so it authenticates and scopes like the writes;
+// anything malformed or out of scope is simply "no source".
+export async function loadCopySource(
+  siteLocationId: string,
+  beforeWeekStart: string,
+): Promise<{ weekStart: string; lines: MpRequestLineView[] } | null> {
+  const actor = await requireUser();
+
+  if (
+    !z.uuid().safeParse(siteLocationId).success ||
+    !z.iso.date().safeParse(beforeWeekStart).success
+  ) {
+    return null;
+  }
+
+  const sourceWhere = and(
+    mpRequestListWhere(actor),
+    eq(mpRequest.siteLocationId, siteLocationId),
+    eq(mpRequest.type, "weekly"),
+    ne(mpRequest.status, "rejected"),
+  );
+  const [source] = await db
+    .select({ weekStart: mpRequest.weekStart })
+    .from(mpRequest)
+    .where(and(sourceWhere, lt(mpRequest.weekStart, beforeWeekStart)))
+    .orderBy(desc(mpRequest.weekStart))
+    .limit(1);
+  if (!source?.weekStart) return null;
+
+  const lines: MpRequestLineView[] = await db
+    .select({
+      workAreaId: mpRequestLine.workAreaId,
+      workAreaName: workArea.name,
+      shiftDefinitionId: mpRequestLine.shiftDefinitionId,
+      shiftLabel: shiftDefinition.label,
+      positionId: mpRequestLine.positionId,
+      positionName: position.name,
+      date: mpRequestLine.date,
+      headcount: mpRequestLine.headcount,
+    })
+    .from(mpRequestLine)
+    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
+    .innerJoin(workArea, eq(mpRequestLine.workAreaId, workArea.id))
+    .innerJoin(
+      shiftDefinition,
+      eq(mpRequestLine.shiftDefinitionId, shiftDefinition.id),
+    )
+    .innerJoin(position, eq(mpRequestLine.positionId, position.id))
+    .where(and(sourceWhere, eq(mpRequest.weekStart, source.weekStart)));
+
+  return { weekStart: source.weekStart, lines: mergeRequestLines(lines) };
 }

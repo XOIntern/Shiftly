@@ -13,6 +13,7 @@ import { shiftDefinition } from "./shift-schema";
 import {
   mpRequest,
   mpRequestLine,
+  mpRequestStatusEnum,
 } from "./mp-request-schema";
 
 // DB-level pins for mp_request / mp_request_line (Module 3, spec §4.2–4.3):
@@ -154,7 +155,7 @@ interface RequestRowArgs {
   type: "weekly" | "daily";
   weekStart?: string;
   requestDate?: string;
-  status?: "submitted" | "received" | "processing" | "fulfilled" | "rejected";
+  status?: "open" | "approved" | "fulfilled" | "rejected";
 }
 
 // Insert a tracked request row; the id is pre-generated so callers that
@@ -255,6 +256,55 @@ afterAll(async () => {
 });
 
 describe("mp_request (Module 3 requests)", () => {
+  test("status enum is open, approved, fulfilled, rejected", () => {
+    expect(mpRequestStatusEnum.enumValues).toEqual([
+      "open",
+      "approved",
+      "fulfilled",
+      "rejected",
+    ]);
+  });
+
+  test("a new request defaults to open", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "def");
+    const requestId = await insertRequest(fx, {
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+    const [row] = await db
+      .select({ status: mpRequest.status })
+      .from(mpRequest)
+      .where(eq(mpRequest.id, requestId));
+    expect(row.status).toBe("open");
+  });
+
+  test("a second open or approved weekly request for the same location and week is refused (23505) but a fulfilled one is not", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "slot");
+    await insertRequest(fx, {
+      type: "weekly",
+      weekStart: MONDAY,
+      status: "approved",
+    });
+
+    for (const status of ["open", "approved"] as const) {
+      const dupeId = randomUUID();
+      let code: string | undefined;
+      try {
+        await insertRequest(fx, { type: "weekly", weekStart: MONDAY, status }, dupeId);
+      } catch (err) {
+        code = pgErrorCode(err);
+      }
+      expect(code).toBe("23505");
+    }
+
+    // A fulfilled request does not hold the slot.
+    await insertRequest(fx, {
+      type: "weekly",
+      weekStart: MONDAY,
+      status: "fulfilled",
+    });
+  });
+
   test("t-mp-anchor: weekly request happy path inserts with defaults", async () => {
     const run = `t${nextSeq()}`;
     const fx = await createBase(run, "a");
@@ -271,7 +321,7 @@ describe("mp_request (Module 3 requests)", () => {
     expect(row.siteId).toBe(fx.siteId);
     expect(row.siteLocationId).toBe(fx.locationId);
     expect(row.type).toBe("weekly");
-    expect(row.status).toBe("submitted");
+    expect(row.status).toBe("open");
     expect(row.weekStart).toBe(MONDAY);
     expect(row.requestDate).toBeNull();
     expect(row.createdBy).toBe(fx.adminId);

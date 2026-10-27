@@ -180,7 +180,7 @@ async function requireAreaPosition(
 
 async function createRequest(
   fx: BaseFixture,
-  args: { type: "weekly" | "daily"; status?: "received" | "processing"; weekStart?: string; requestDate?: string },
+  args: { type: "weekly" | "daily"; status?: "open" | "approved" | "fulfilled" | "rejected"; weekStart?: string; requestDate?: string },
 ): Promise<string> {
   const id = randomUUID();
   createdRequestIds.push(id);
@@ -189,7 +189,7 @@ async function createRequest(
     siteId: fx.siteId,
     siteLocationId: fx.locationId,
     type: args.type,
-    status: args.status ?? "received",
+    status: args.status ?? (args.type === "daily" ? "open" : "approved"),
     ...(args.type === "weekly"
       ? { weekStart: args.weekStart ?? MON, requestDate: null }
       : { requestDate: args.requestDate ?? TUE, weekStart: null }),
@@ -387,7 +387,7 @@ describe("roster actions: generateRoster", () => {
     }
   });
 
-  test("generate without received requirements for the week: refused, nothing written", async () => {
+  test("generate without approved requirements for the week: refused, nothing written", async () => {
     const fx = await createBase(`t6-gn-${randomUUID()}`, "gen-noreq");
     await createWorkArea(fx, "a");
     await createShift(fx, 1);
@@ -400,7 +400,7 @@ describe("roster actions: generateRoster", () => {
       const result = await generateRoster({ weekStart: MON, siteLocationId: fx.locationId });
       expect(result).toEqual({
         ok: false,
-        message: "No received requests cover this week",
+        message: "No approved requests cover this week.",
       });
 
       const plans = await db
@@ -895,6 +895,15 @@ describe("roster actions: fillDailyRequest", () => {
       { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1 },
     ]);
     const requestId = await createRequest(fx, { type: "daily", requestDate: TUE });
+    // Two heads demanded, so the first fill leaves the request open and the
+    // repeat of the same worker reaches the duplicate guard.
+    await addRequestLine(fx, requestId, {
+      workAreaId: area,
+      shiftDefinitionId: shift,
+      date: TUE,
+      headcount: 2,
+      positionId: pos,
+    });
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
@@ -988,6 +997,180 @@ describe("roster actions: fillDailyRequest", () => {
     } finally {
       void fx;
     }
+  });
+
+  // Shared setup for the fulfilment pins: a published week plus an admin
+  // actor, with the daily request's demand on TUE. Returns what the fills need.
+  async function setupDailyFulfilment(
+    tag: string,
+    opts: { headcount: number; workers: number; status?: "open" | "fulfilled" | "rejected" },
+  ) {
+    const fx = await createBase(`t5-${tag}-${randomUUID()}`, `daily-${tag}`);
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    await createShift(fx, 2);
+    const pos = await createPosition(fx, tag);
+    await requireAreaPosition(fx, area, pos);
+    const workers: string[] = [];
+    for (let i = 0; i < opts.workers; i++) {
+      const w = await createWorker(fx, `w${i}`);
+      await giveWorkerPosition(fx, w, pos);
+      workers.push(w);
+    }
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos },
+    ]);
+    const requestId = await createRequest(fx, {
+      type: "daily",
+      status: opts.status,
+      requestDate: TUE,
+    });
+    await addRequestLine(fx, requestId, {
+      workAreaId: area,
+      shiftDefinitionId: shift,
+      date: TUE,
+      headcount: opts.headcount,
+      positionId: pos,
+    });
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [weeklyPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
+
+    const fillInput = (requestIdArg: string, workerId: string) => ({
+      requestId: requestIdArg,
+      workAreaId: area,
+      shiftDefId: shift,
+      date: TUE,
+      positionId: pos,
+      workerId,
+      siteLocationId: fx.locationId,
+    });
+    return { fx, area, shift, pos, workers, requestId, fillInput };
+  }
+
+  async function requestStatus(id: string) {
+    const [row] = await db.select({ status: mpRequest.status }).from(mpRequest).where(eq(mpRequest.id, id));
+    return row.status;
+  }
+
+  // The weekly publish in the setup writes its own status_change rows for the
+  // same actor, so the pins narrow to the request under test.
+  async function statusAudits(requestId: string) {
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "mp_request.status_change"), eq(auditLog.actorId, actor.id)));
+    return rows.filter((r) => (r.details as { requestId?: string }).requestId === requestId);
+  }
+
+  async function dailyAssignmentCount(locationId: string) {
+    const rows = await db
+      .select({ id: rosterAssignment.id })
+      .from(rosterAssignment)
+      .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
+      .where(and(eq(rosterPlan.siteLocationId, locationId), eq(rosterPlan.kind, "daily")));
+    return rows.length;
+  }
+
+  test("filling one of two required heads leaves the daily request open", async () => {
+    const s = await setupDailyFulfilment("part", { headcount: 2, workers: 2 });
+    const { fillDailyRequest } = await import("./actions");
+    const result = await fillDailyRequest(s.fillInput(s.requestId, s.workers[0]));
+    expect(result.ok).toBe(true);
+    expect(await requestStatus(s.requestId)).toBe("open");
+
+    const audits = await statusAudits(s.requestId);
+    expect(audits.length).toBe(0);
+  });
+
+  test("the fill that completes the headcount marks it fulfilled with an auto audit row", async () => {
+    const s = await setupDailyFulfilment("full", { headcount: 2, workers: 2 });
+    const { fillDailyRequest } = await import("./actions");
+    expect((await fillDailyRequest(s.fillInput(s.requestId, s.workers[0]))).ok).toBe(true);
+    expect((await fillDailyRequest(s.fillInput(s.requestId, s.workers[1]))).ok).toBe(true);
+    expect(await requestStatus(s.requestId)).toBe("fulfilled");
+
+    const audits = await statusAudits(s.requestId);
+    expect(audits.length).toBe(1);
+    expect(audits[0].siteId).toBe(s.fx.siteId);
+    expect(audits[0].siteLocationId).toBe(s.fx.locationId);
+    expect(audits[0].details).toEqual({
+      requestId: s.requestId,
+      type: "daily",
+      oldValue: "open",
+      newValue: "fulfilled",
+      auto: true,
+    });
+  });
+
+  test("a second same-slot daily request is not fulfilled by the first request's fills", async () => {
+    const s = await setupDailyFulfilment("seq", { headcount: 2, workers: 4 });
+    const { fillDailyRequest } = await import("./actions");
+    expect((await fillDailyRequest(s.fillInput(s.requestId, s.workers[0]))).ok).toBe(true);
+    expect((await fillDailyRequest(s.fillInput(s.requestId, s.workers[1]))).ok).toBe(true);
+    expect(await requestStatus(s.requestId)).toBe("fulfilled");
+
+    // The first request freed the date's slot: "more people needed today".
+    const second = await createRequest(s.fx, { type: "daily", requestDate: TUE });
+    await addRequestLine(s.fx, second, {
+      workAreaId: s.area,
+      shiftDefinitionId: s.shift,
+      date: TUE,
+      headcount: 2,
+      positionId: s.pos,
+    });
+
+    expect((await fillDailyRequest(s.fillInput(second, s.workers[2]))).ok).toBe(true);
+    expect(await requestStatus(second)).toBe("open");
+    expect((await statusAudits(second)).length).toBe(0);
+
+    expect((await fillDailyRequest(s.fillInput(second, s.workers[3]))).ok).toBe(true);
+    expect(await requestStatus(second)).toBe("fulfilled");
+    expect((await statusAudits(second)).length).toBe(1);
+  });
+
+  test("fill against a fulfilled daily request is refused with REQUEST_GONE and writes no assignment", async () => {
+    const s = await setupDailyFulfilment("done", { headcount: 1, workers: 1, status: "fulfilled" });
+    const { fillDailyRequest } = await import("./actions");
+    const result = await fillDailyRequest(s.fillInput(s.requestId, s.workers[0]));
+    expect(result).toEqual({ ok: false, message: "Daily request not found." });
+    expect(await dailyAssignmentCount(s.fx.locationId)).toBe(0);
+  });
+
+  test("fill against a rejected request is refused", async () => {
+    const s = await setupDailyFulfilment("rej", { headcount: 1, workers: 1, status: "rejected" });
+    const { fillDailyRequest } = await import("./actions");
+    const result = await fillDailyRequest(s.fillInput(s.requestId, s.workers[0]));
+    expect(result).toEqual({ ok: false, message: "Daily request not found." });
+    expect(await dailyAssignmentCount(s.fx.locationId)).toBe(0);
+  });
+
+  test("fill against a weekly request id is refused", async () => {
+    const s = await setupDailyFulfilment("wk", { headcount: 1, workers: 1 });
+    const weeklyOpen = await createRequest(s.fx, { type: "weekly", status: "open", weekStart: NEXT_MON });
+    const { fillDailyRequest } = await import("./actions");
+    const result = await fillDailyRequest(s.fillInput(weeklyOpen, s.workers[0]));
+    expect(result).toEqual({ ok: false, message: "Daily request not found." });
+    expect(await dailyAssignmentCount(s.fx.locationId)).toBe(0);
+    expect(await requestStatus(weeklyOpen)).toBe("open");
+  });
+
+  test("fill against another location's request is refused", async () => {
+    const s = await setupDailyFulfilment("loc", { headcount: 1, workers: 1 });
+    const other = await createBase(`t5-oth-${randomUUID()}`, "daily-other");
+    const foreign = await createRequest(other, { type: "daily", requestDate: TUE });
+    const { fillDailyRequest } = await import("./actions");
+    const result = await fillDailyRequest(s.fillInput(foreign, s.workers[0]));
+    expect(result).toEqual({ ok: false, message: "Daily request not found." });
+    expect(await dailyAssignmentCount(s.fx.locationId)).toBe(0);
+    expect(await requestStatus(foreign)).toBe("open");
   });
 });
 
@@ -1478,5 +1661,209 @@ describe("roster actions: publish gate horizon (retroactive tightening)", () => 
     } finally {
       void fx;
     }
+  });
+});
+
+describe("roster actions: publish fulfils approved requests", () => {
+  async function seedLocation(tag: string) {
+    const fx = await createBase(`t4-${tag}-${randomUUID()}`, tag);
+    const pos = await createPosition(fx, "p");
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shift = await createShift(fx, 1);
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
+    const line = { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos };
+    return { fx, area, shift, pos, line };
+  }
+
+  async function requestStatus(id: string) {
+    const [row] = await db
+      .select({ status: mpRequest.status })
+      .from(mpRequest)
+      .where(eq(mpRequest.id, id));
+    return row.status;
+  }
+
+  async function statusAudits(fx: BaseFixture) {
+    return db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "mp_request.status_change"),
+          eq(auditLog.siteLocationId, fx.locationId),
+        ),
+      );
+  }
+
+  async function generateDraft(fx: BaseFixture, weekStart = MON) {
+    const { generateRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart, siteLocationId: fx.locationId })).ok).toBe(true);
+    const plans = await db
+      .select()
+      .from(rosterPlan)
+      .where(
+        and(
+          eq(rosterPlan.siteLocationId, fx.locationId),
+          eq(rosterPlan.weekStart, weekStart),
+          eq(rosterPlan.status, "draft"),
+        ),
+      );
+    return plans[0];
+  }
+
+  test("publishing a weekly plan flips that location's approved weekly requests for that week to fulfilled, with one audit row each (auto: true)", async () => {
+    const { fx, line } = await seedLocation("flip");
+    const requestId = await seedWeeklyDemand(fx, [line]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { publishRoster } = await import("./actions");
+    const plan = await generateDraft(fx);
+    expect(await requestStatus(requestId)).toBe("approved");
+
+    expect((await publishRoster(plan.id)).ok).toBe(true);
+
+    expect(await requestStatus(requestId)).toBe("fulfilled");
+    const audits = await statusAudits(fx);
+    expect(audits.length).toBe(1);
+    expect(audits[0].actorId).toBe(actor.id);
+    expect(audits[0].siteId).toBe(fx.siteId);
+    expect(audits[0].details).toEqual({
+      requestId,
+      type: "weekly",
+      oldValue: "approved",
+      newValue: "fulfilled",
+      auto: true,
+    });
+  });
+
+  test("requests of another week or another location stay approved", async () => {
+    const { fx, line } = await seedLocation("scope");
+    const other = await seedLocation("scope-other");
+    const target = await seedWeeklyDemand(fx, [line]);
+    const otherWeek = await createRequest(fx, { type: "weekly", weekStart: NEXT_MON });
+    await addRequestLine(fx, otherWeek, { ...line, date: NEXT_MON });
+    const otherLocation = await seedWeeklyDemand(other.fx, [other.line]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { publishRoster } = await import("./actions");
+    const plan = await generateDraft(fx);
+    expect((await publishRoster(plan.id)).ok).toBe(true);
+
+    expect(await requestStatus(target)).toBe("fulfilled");
+    expect(await requestStatus(otherWeek)).toBe("approved");
+    expect(await requestStatus(otherLocation)).toBe("approved");
+    expect((await statusAudits(other.fx)).length).toBe(0);
+  });
+
+  test("an open or rejected request of the same week is untouched", async () => {
+    // A location holds one slot-holding (open/approved) request per week, so
+    // the open case is a request reopened after the draft was generated.
+    const { fx, line } = await seedLocation("nonapproved");
+    const approved = await seedWeeklyDemand(fx, [line]);
+    const rejected = await createRequest(fx, { type: "weekly", status: "rejected", weekStart: MON });
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { publishRoster } = await import("./actions");
+    const plan = await generateDraft(fx);
+    expect((await publishRoster(plan.id)).ok).toBe(true);
+    expect(await requestStatus(approved)).toBe("fulfilled");
+    expect(await requestStatus(rejected)).toBe("rejected");
+    expect((await statusAudits(fx)).length).toBe(1);
+
+    const reopened = await seedLocation("reopened");
+    const openId = await seedWeeklyDemand(reopened.fx, [reopened.line]);
+    actor = makeActor("admin", null, reopened.fx.locationId);
+    await seedUser(actor);
+    const openPlan = await generateDraft(reopened.fx);
+    await db.update(mpRequest).set({ status: "open" }).where(eq(mpRequest.id, openId));
+    expect((await publishRoster(openPlan.id)).ok).toBe(true);
+    expect(await requestStatus(openId)).toBe("open");
+    expect((await statusAudits(reopened.fx)).length).toBe(0);
+  });
+
+  test("a publish refused for blocking violations leaves requests approved", async () => {
+    const { fx, area, pos, line } = await seedLocation("refused");
+    const shiftHigh = await createShift(fx, 2);
+    const requestId = await seedWeeklyDemand(fx, [
+      { ...line, shiftDefinitionId: shiftHigh, positionId: pos },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { publishRoster } = await import("./actions");
+    const plan = await generateDraft(fx);
+    const [row] = await db
+      .select({ workerId: rosterAssignment.workerId })
+      .from(rosterAssignment)
+      .where(eq(rosterAssignment.planId, plan.id));
+    // Plant a TUE row on a LOWER order index right after a MON higher shift:
+    // a C3 downshift inside the plan week.
+    await db.insert(rosterAssignment).values({
+      planId: plan.id,
+      siteId: fx.siteId,
+      siteLocationId: fx.locationId,
+      workerId: row.workerId,
+      workAreaId: area,
+      shiftDefinitionId: line.shiftDefinitionId,
+      date: TUE,
+    });
+
+    const result = await publishRoster(plan.id);
+    expect(result.ok).toBe(false);
+
+    expect(await requestStatus(requestId)).toBe("approved");
+    expect((await statusAudits(fx)).length).toBe(0);
+    const [planAfter] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, plan.id));
+    expect(planAfter.status).toBe("draft");
+  });
+
+  test("publish with no approved request for the week succeeds and writes no mp_request.status_change rows", async () => {
+    const { fx, line } = await seedLocation("noreq");
+    const requestId = await seedWeeklyDemand(fx, [line]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { publishRoster } = await import("./actions");
+    const plan = await generateDraft(fx);
+    // The request leaves the approved state after the draft was generated.
+    await db.update(mpRequest).set({ status: "rejected" }).where(eq(mpRequest.id, requestId));
+
+    expect((await publishRoster(plan.id)).ok).toBe(true);
+
+    expect(await requestStatus(requestId)).toBe("rejected");
+    expect((await statusAudits(fx)).length).toBe(0);
+  });
+
+  test("a late request approved after publish stays approved until the revision is published, then becomes fulfilled", async () => {
+    const { fx, line } = await seedLocation("late");
+    const first = await seedWeeklyDemand(fx, [line]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { publishRoster, revisePlan } = await import("./actions");
+    const v1 = await generateDraft(fx);
+    expect((await publishRoster(v1.id)).ok).toBe(true);
+    expect(await requestStatus(first)).toBe("fulfilled");
+
+    // A second weekly request for the same week can only be approved once
+    // the first left the slot-holding statuses (it is now fulfilled, which
+    // holds no slot), so it lands after the publish.
+    const late = await createRequest(fx, { type: "weekly", weekStart: MON });
+    await addRequestLine(fx, late, line);
+    expect(await requestStatus(late)).toBe("approved");
+
+    const revised = await revisePlan(v1.id);
+    expect(revised.ok).toBe(true);
+    const draftId = (revised as { draftPlanId: string }).draftPlanId;
+    expect(await requestStatus(late)).toBe("approved");
+
+    expect((await publishRoster(draftId)).ok).toBe(true);
+    expect(await requestStatus(late)).toBe("fulfilled");
+    expect(await requestStatus(first)).toBe("fulfilled");
   });
 });

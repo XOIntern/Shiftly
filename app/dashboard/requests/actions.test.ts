@@ -155,12 +155,7 @@ async function seedRequest(args: {
   type: "weekly" | "daily";
   weekStart?: string;
   requestDate?: string;
-  status?:
-    | "submitted"
-    | "received"
-    | "processing"
-    | "fulfilled"
-    | "rejected";
+  status?: "open" | "approved" | "fulfilled" | "rejected";
 }) {
   const id = randomUUID();
   await db.insert(mpRequest).values({
@@ -298,7 +293,7 @@ describe("request actions: createRequest", () => {
       expect(row.type).toBe("weekly");
       expect(row.weekStart).toBe(MONDAY);
       expect(row.requestDate).toBeNull();
-      expect(row.status).toBe("submitted");
+      expect(row.status).toBe("open");
       expect(row.createdBy).toBe(actor.id);
 
       const lines = await db
@@ -525,7 +520,7 @@ describe("request actions: createRequest", () => {
 });
 
 describe("request actions: updateRequestLines", () => {
-  test("edit after the status moved on: blocked", async () => {
+  test("updateRequestLines on an approved request is refused", async () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
@@ -544,7 +539,7 @@ describe("request actions: updateRequestLines", () => {
       createdBy: actor.id,
       type: "weekly",
       weekStart: MONDAY,
-      status: "received",
+      status: "approved",
     });
     await seedLine({
       requestId,
@@ -571,7 +566,7 @@ describe("request actions: updateRequestLines", () => {
 
       expect(result).toEqual({
         ok: false,
-        message: "Only submitted requests can be edited",
+        message: "Only open requests can be edited",
       });
 
       // The refusal wrote nothing: headcount untouched.
@@ -951,28 +946,72 @@ describe("request actions: updateRequestLines", () => {
 });
 
 describe("request actions: advanceStatus", () => {
-  test("legal transition submitted→received writes the audit old→new", async () => {
+  async function statusOf(requestId: string) {
+    const [row] = await db
+      .select()
+      .from(mpRequest)
+      .where(eq(mpRequest.id, requestId));
+    return row.status;
+  }
+
+  test("ho approves an open weekly request: status approved + one audit row old→new", async () => {
     const fx = await seedGlobalData();
-    actor = makeActor("admin", null, fx.locA1);
+    const creator = makeActor("admin", null, fx.locA1);
+    await seedUser(creator);
+    actor = makeActor("ho", fx.siteA, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: creator.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const result = await advanceStatus(requestId, "approved");
+      expect(result.ok).toBe(true);
+      expect(await statusOf(requestId)).toBe("approved");
+
+      const audits = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.action, "mp_request.status_change"),
+            eq(auditLog.actorId, actor.id),
+          ),
+        );
+      expect(audits).toHaveLength(1);
+      expect(audits[0].details).toEqual({
+        requestId,
+        type: "weekly",
+        oldValue: "open",
+        newValue: "approved",
+      });
+    } finally {
+      await dropAll({ userIds: [actor.id, creator.id], ...fx });
+    }
+  });
+
+  test("superadmin rejects an open weekly request", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
     await seedUser(actor);
     const requestId = await seedRequest({
       siteId: fx.siteA,
       siteLocationId: fx.locA1,
       createdBy: actor.id,
-      type: "daily",
-      requestDate: "2026-03-04",
+      type: "weekly",
+      weekStart: MONDAY,
     });
 
     try {
       const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "received");
+      const result = await advanceStatus(requestId, "rejected");
       expect(result.ok).toBe(true);
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("received");
+      expect(await statusOf(requestId)).toBe("rejected");
 
       const [audit] = await db
         .select()
@@ -983,81 +1022,18 @@ describe("request actions: advanceStatus", () => {
             eq(auditLog.actorId, actor.id),
           ),
         );
-      expect(audit).toBeDefined();
-      expect(audit.actorId).toBe(actor.id);
       expect(audit.details).toEqual({
         requestId,
-        type: "daily",
-        oldValue: "submitted",
-        newValue: "received",
+        type: "weekly",
+        oldValue: "open",
+        newValue: "rejected",
       });
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
     }
   });
 
-  test("illegal transition submitted→fulfilled: rejected, status untouched", async () => {
-    const fx = await seedGlobalData();
-    actor = makeActor("superadmin", null, null);
-    await seedUser(actor);
-    const requestId = await seedRequest({
-      siteId: fx.siteA,
-      siteLocationId: fx.locA1,
-      createdBy: actor.id,
-      type: "daily",
-      requestDate: "2026-03-04",
-    });
-
-    try {
-      const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "fulfilled");
-      expect(result.ok).toBe(false);
-      expect(result.message).toBe("That status change is not allowed");
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("submitted");
-    } finally {
-      await dropAll({ userIds: [actor.id], ...fx });
-    }
-  });
-
-  test("backward transition received→submitted: rejected", async () => {
-    const fx = await seedGlobalData();
-    actor = makeActor("superadmin", null, null);
-    await seedUser(actor);
-    const requestId = await seedRequest({
-      siteId: fx.siteA,
-      siteLocationId: fx.locA1,
-      createdBy: actor.id,
-      type: "daily",
-      requestDate: "2026-03-04",
-      status: "received",
-    });
-
-    try {
-      const { advanceStatus } = await import("./actions");
-      // "submitted" is not even a target status — the runtime boundary must
-      // still answer cleanly, never crash.
-      const result = await advanceStatus(
-        requestId,
-        "submitted" as Parameters<typeof advanceStatus>[1],
-      );
-      expect(result.ok).toBe(false);
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("received");
-    } finally {
-      await dropAll({ userIds: [actor.id], ...fx });
-    }
-  });
-
-  test("advancing twice re-reads the stored status: the second call is rejected", async () => {
+  test("admin of the same location is refused with the approver-only message and the row stays open", async () => {
     const fx = await seedGlobalData();
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
@@ -1065,26 +1041,343 @@ describe("request actions: advanceStatus", () => {
       siteId: fx.siteA,
       siteLocationId: fx.locA1,
       createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const result = await advanceStatus(requestId, "approved");
+      expect(result).toEqual({
+        ok: false,
+        message: "Only HO can approve or reject requests.",
+      });
+      expect(await statusOf(requestId)).toBe("open");
+
+      const audits = await db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.actorId, actor.id));
+      expect(audits).toHaveLength(0);
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("approved → rejected is refused as an illegal transition", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+      status: "approved",
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const result = await advanceStatus(requestId, "rejected");
+      expect(result).toEqual({
+        ok: false,
+        message: "That status change is not allowed",
+      });
+      expect(await statusOf(requestId)).toBe("approved");
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("approving a daily request is refused with the weekly-only message", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
       type: "daily",
       requestDate: "2026-03-04",
     });
 
     try {
       const { advanceStatus } = await import("./actions");
-      expect((await advanceStatus(requestId, "received")).ok).toBe(true);
-
-      // The second call re-reads status "received" and tries the same edge
-      // again — the guarded WHERE / transition map must refuse it.
-      const second = await advanceStatus(requestId, "received");
-      expect(second.ok).toBe(false);
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.id, requestId));
-      expect(row.status).toBe("received");
+      const result = await advanceStatus(requestId, "approved");
+      expect(result).toEqual({
+        ok: false,
+        message: "Only weekly requests need approval.",
+      });
+      expect(await statusOf(requestId)).toBe("open");
     } finally {
       await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("fulfilled is not a target status: refused at the runtime boundary", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+      status: "approved",
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const result = await advanceStatus(
+        requestId,
+        "fulfilled" as Parameters<typeof advanceStatus>[1],
+      );
+      expect(result.ok).toBe(false);
+      expect(await statusOf(requestId)).toBe("approved");
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+
+  test("two concurrent approvals: exactly one ok, the other gets the race message", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { advanceStatus } = await import("./actions");
+      const results = await Promise.all([
+        advanceStatus(requestId, "approved"),
+        advanceStatus(requestId, "approved"),
+      ]);
+      expect(results.filter((r) => r.ok)).toHaveLength(1);
+      // The loser blocks on the row lock, re-reads "approved" and is refused
+      // as an illegal edge; a loser that read before the winner committed
+      // trips the guarded write instead.
+      const loser = results.find((r) => !r.ok);
+      expect(loser?.message).toBeOneOf([
+        "Request state changed, reload",
+        "That status change is not allowed",
+      ]);
+      expect(await statusOf(requestId)).toBe("approved");
+    } finally {
+      await dropAll({ userIds: [actor.id], ...fx });
+    }
+  });
+});
+
+describe("request actions: loadCopySource", () => {
+  const WEEK_1 = "2026-02-02";
+  const WEEK_2 = "2026-02-09";
+  const WEEK_3 = "2026-02-16";
+
+  async function seedMasters(
+    fx: Awaited<ReturnType<typeof seedGlobalData>>,
+    siteLocationId: string = fx.locA1,
+  ) {
+    const workAreaId = await seedWorkArea({ siteId: fx.siteA, siteLocationId });
+    const shiftId = await seedShift({ siteId: fx.siteA, siteLocationId });
+    const positionId = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId,
+      positionId,
+      siteId: fx.siteA,
+      siteLocationId,
+    });
+    return { workAreaId, shiftId, positionId };
+  }
+
+  async function seedWeek(
+    fx: Awaited<ReturnType<typeof seedGlobalData>>,
+    masters: Awaited<ReturnType<typeof seedMasters>>,
+    args: {
+      createdBy: string;
+      weekStart: string;
+      headcount: number;
+      status?: "open" | "approved" | "fulfilled" | "rejected";
+      siteLocationId?: string;
+    },
+  ) {
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: args.siteLocationId ?? fx.locA1,
+      createdBy: args.createdBy,
+      type: "weekly",
+      weekStart: args.weekStart,
+      status: args.status,
+    });
+    await seedLine({
+      requestId,
+      siteId: fx.siteA,
+      siteLocationId: args.siteLocationId ?? fx.locA1,
+      workAreaId: masters.workAreaId,
+      shiftDefinitionId: masters.shiftId,
+      positionId: masters.positionId,
+      date: args.weekStart,
+      headcount: args.headcount,
+    });
+    return requestId;
+  }
+
+  test("returns the latest non-rejected earlier week, skips rejected, returns null when none, and never returns another location's request for an admin", async () => {
+    const fx = await seedGlobalData();
+    const masters = await seedMasters(fx);
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const otherAdmin = makeActor("admin", null, fx.locA2);
+    await seedUser(otherAdmin);
+    let otherMasters: Awaited<ReturnType<typeof seedMasters>> | undefined;
+
+    try {
+      const { loadCopySource } = await import("./actions");
+
+      // Nothing yet.
+      expect(await loadCopySource(fx.locA1, WEEK_3)).toBeNull();
+
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 2,
+        status: "approved",
+      });
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_2,
+        headcount: 7,
+        status: "rejected",
+      });
+
+      // The newer rejected week is skipped for the older approved one.
+      const skipped = await loadCopySource(fx.locA1, WEEK_3);
+      expect(skipped?.weekStart).toBe(WEEK_1);
+      expect(skipped?.lines).toHaveLength(1);
+      expect(skipped?.lines[0]).toMatchObject({
+        workAreaId: masters.workAreaId,
+        workAreaName: `t-mp-wa-${masters.workAreaId}`,
+        shiftDefinitionId: masters.shiftId,
+        shiftLabel: `t-mp-shift-${masters.shiftId}`,
+        positionId: masters.positionId,
+        positionName: `t-mp-pos-${masters.positionId}`,
+        date: WEEK_1,
+        headcount: 2,
+      });
+
+      // An open later week wins; only weeks strictly before the anchor count.
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_3,
+        headcount: 9,
+        status: "open",
+      });
+      const latest = await loadCopySource(fx.locA1, "2026-02-23");
+      expect(latest?.weekStart).toBe(WEEK_3);
+      expect(latest?.lines[0].headcount).toBe(9);
+      expect((await loadCopySource(fx.locA1, WEEK_3))?.weekStart).toBe(WEEK_1);
+      expect(await loadCopySource(fx.locA1, WEEK_1)).toBeNull();
+
+      // Another location's request never leaks to an admin.
+      const mastersA2 = await seedMasters(fx, fx.locA2);
+      otherMasters = mastersA2;
+      await seedWeek(fx, mastersA2, {
+        createdBy: otherAdmin.id,
+        weekStart: WEEK_2,
+        headcount: 4,
+        status: "approved",
+        siteLocationId: fx.locA2,
+      });
+      expect(await loadCopySource(fx.locA2, "2026-03-02")).toBeNull();
+      expect((await loadCopySource(fx.locA1, "2026-03-02"))?.weekStart).toBe(WEEK_3);
+
+      // Malformed input fails closed.
+      expect(await loadCopySource("not-a-uuid", WEEK_3)).toBeNull();
+      expect(await loadCopySource(fx.locA1, "soon")).toBeNull();
+    } finally {
+      await dropAll({
+        userIds: [actor.id, otherAdmin.id],
+        workAreaIds: [masters.workAreaId, ...(otherMasters ? [otherMasters.workAreaId] : [])],
+        shiftIds: [masters.shiftId, ...(otherMasters ? [otherMasters.shiftId] : [])],
+        positionIds: [masters.positionId, ...(otherMasters ? [otherMasters.positionId] : [])],
+        ...fx,
+      });
+    }
+  });
+
+  test("merges every non-rejected request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
+    const fx = await seedGlobalData();
+    const masters = await seedMasters(fx);
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    const TUESDAY = "2026-02-03";
+
+    try {
+      const { loadCopySource } = await import("./actions");
+      const line = (requestId: string, date: string, headcount: number) =>
+        seedLine({
+          requestId,
+          siteId: fx.siteA,
+          siteLocationId: fx.locA1,
+          workAreaId: masters.workAreaId,
+          shiftDefinitionId: masters.shiftId,
+          positionId: masters.positionId,
+          date,
+          headcount,
+        });
+
+      // Seeded late-first so insertion order cannot decide the answer.
+      const late = await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 1,
+        status: "approved",
+      });
+      await line(late, TUESDAY, 3);
+      const rejected = await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 5,
+        status: "rejected",
+      });
+      await line(rejected, TUESDAY, 5);
+      await seedWeek(fx, masters, {
+        createdBy: actor.id,
+        weekStart: WEEK_1,
+        headcount: 2,
+        status: "fulfilled",
+      });
+
+      const source = await loadCopySource(fx.locA1, WEEK_2);
+      const shared = {
+        workAreaId: masters.workAreaId,
+        workAreaName: `t-mp-wa-${masters.workAreaId}`,
+        shiftDefinitionId: masters.shiftId,
+        shiftLabel: `t-mp-shift-${masters.shiftId}`,
+        positionId: masters.positionId,
+        positionName: `t-mp-pos-${masters.positionId}`,
+      };
+      expect(source).toEqual({
+        weekStart: WEEK_1,
+        lines: [
+          { ...shared, date: WEEK_1, headcount: 3 },
+          { ...shared, date: TUESDAY, headcount: 3 },
+        ],
+      });
+    } finally {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [masters.workAreaId],
+        shiftIds: [masters.shiftId],
+        positionIds: [masters.positionId],
+        ...fx,
+      });
     }
   });
 });

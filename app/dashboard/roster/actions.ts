@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import {
   mpRequest,
+  mpRequestLine,
   rosterAssignment,
   rosterPlan,
   shiftDefinition,
@@ -20,6 +21,7 @@ import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { mondayOf, weekDates } from "@/lib/week";
+import { withoutFulfilledDailyFills } from "@/lib/engine/coverage";
 import { computeDeficit } from "@/lib/engine/deficit";
 import { generateDraft } from "@/lib/engine/generate";
 import type { RequirementLine, SuggestedCandidate } from "@/lib/engine/generate";
@@ -41,11 +43,13 @@ import {
   rosterPlanMutationWhere,
   rosterPlanOwnedByActor,
 } from "@/lib/roster-scope";
+import { recordMpRequestAudit } from "@/lib/mp-request-audit";
 import { recordRosterAudit } from "@/lib/roster-audit";
 import {
   ActionAbort,
   applyAssignmentEdit,
   ensureDraftVersion,
+  splitViolationsByHorizon,
   type SetAssignmentInput,
   type SetAssignmentResult,
 } from "@/lib/roster-plan-mutations";
@@ -97,7 +101,7 @@ const HO_EDIT_MESSAGE = "Only admins edit rosters";
 const HO_PUBLISH_MESSAGE = "Only admins publish rosters";
 const HO_FILL_MESSAGE = "Only admins fill daily requests";
 const HO_REVISE_MESSAGE = "Only admins revise rosters";
-const NO_REQUIREMENTS = "No received requests cover this week";
+const NO_REQUIREMENTS = "No approved requests cover this week.";
 const DRAFT_EXISTS = "Draft already exists";
 const NOT_FOUND = "Roster not found.";
 const ALREADY_PUBLISHED = "Roster is already published";
@@ -481,24 +485,7 @@ export async function publishRoster(planId: string): Promise<ActionState> {
     }
   }
 
-  // Retroactive rule tightening must not deadlock future publishes: the
-  // merged evaluation keeps the prior history, but only violations dated
-  // INSIDE the plan's own horizon refuse the publish — the rows a publish
-  // can actually change. Violations on prior (immutable, published) dates
-  // surface as warnings in the result message but do not block.
-  const horizon = new Set(
-    weekDates(
-      plan.kind === "weekly"
-        ? (plan.weekStart as string)
-        : mondayOf(plan.requestDate as string),
-    ),
-  );
-  const blocking = violations.filter(
-    (v) => v.date === undefined || horizon.has(v.date),
-  );
-  const historical = violations.filter(
-    (v) => v.date !== undefined && !horizon.has(v.date),
-  );
+  const { blocking, historical } = splitViolationsByHorizon(violations, plan);
 
   if (blocking.length > 0) {
     return { ok: false, message: violationMessage(blocking) };
@@ -542,6 +529,44 @@ export async function publishRoster(planId: string): Promise<ActionState> {
           deficitCount: deficits.length,
         },
       });
+
+      // Only after the guarded plan update succeeded, so a refused or raced
+      // publish leaves the requests untouched. A weekly publish fulfils every
+      // approved weekly request of its location and week (a late request
+      // approved after an earlier publish is picked up by the revision's).
+      if (plan.kind === "weekly") {
+        const fulfilled = await tx
+          .update(mpRequest)
+          .set({ status: "fulfilled", updatedAt: new Date() })
+          .where(
+            and(
+              eq(mpRequest.siteLocationId, siteLocationId),
+              eq(mpRequest.type, "weekly"),
+              eq(mpRequest.weekStart, plan.weekStart as string),
+              eq(mpRequest.status, "approved"),
+            ),
+          )
+          .returning({
+            id: mpRequest.id,
+            siteId: mpRequest.siteId,
+            siteLocationId: mpRequest.siteLocationId,
+          });
+        for (const request of fulfilled) {
+          await recordMpRequestAudit(tx, {
+            actorId: actor.id,
+            action: "mp_request.status_change",
+            siteId: request.siteId,
+            siteLocationId: request.siteLocationId,
+            details: {
+              requestId: request.id,
+              type: "weekly",
+              oldValue: "approved",
+              newValue: "fulfilled",
+              auto: true,
+            },
+          });
+        }
+      }
     });
   } catch (err) {
     if (err instanceof ActionAbort) return err.state;
@@ -685,11 +710,18 @@ export async function fillDailyRequest(
     .select({
       id: mpRequest.id,
       siteLocationId: mpRequest.siteLocationId,
+      type: mpRequest.type,
+      status: mpRequest.status,
     })
     .from(mpRequest)
     .where(eq(mpRequest.id, input.requestId))
     .limit(1);
-  if (!request || request.siteLocationId !== siteLocationId) {
+  if (
+    !request ||
+    request.siteLocationId !== siteLocationId ||
+    request.type !== "daily" ||
+    request.status !== "open"
+  ) {
     return { ok: false, message: REQUEST_GONE };
   }
 
@@ -870,6 +902,89 @@ export async function fillDailyRequest(
           positionId: input.positionId,
         },
       });
+
+      // A daily request has no approval step: it is fulfilled the moment
+      // every one of its lines has its full headcount. Assignments carry no
+      // position, so the check is per (area, shift, date).
+      const lineRows = await tx
+        .select({
+          workAreaId: mpRequestLine.workAreaId,
+          shiftDefId: mpRequestLine.shiftDefinitionId,
+          positionId: mpRequestLine.positionId,
+          date: mpRequestLine.date,
+          headcount: mpRequestLine.headcount,
+        })
+        .from(mpRequestLine)
+        .where(eq(mpRequestLine.requestId, input.requestId));
+      const filledRows = await tx
+        .select({
+          workerId: rosterAssignment.workerId,
+          date: rosterAssignment.date,
+          shiftDefinitionId: rosterAssignment.shiftDefinitionId,
+          workAreaId: rosterAssignment.workAreaId,
+        })
+        .from(rosterAssignment)
+        .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
+        .where(
+          and(
+            eq(rosterPlan.siteLocationId, siteLocationId),
+            eq(rosterPlan.kind, "daily"),
+            eq(rosterPlan.requestDate, input.date),
+          ),
+        );
+      // The date's daily plan also holds the fills of the location's
+      // earlier daily requests that are already fulfilled (a fulfilled
+      // request frees the date for a new one). Those fills are discounted
+      // first, as the roster page does, so they never count toward this one.
+      const fulfilledLines = await tx
+        .select({
+          workAreaId: mpRequestLine.workAreaId,
+          shiftDefId: mpRequestLine.shiftDefinitionId,
+          date: mpRequestLine.date,
+          headcount: mpRequestLine.headcount,
+        })
+        .from(mpRequestLine)
+        .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
+        .where(
+          and(
+            eq(mpRequest.type, "daily"),
+            eq(mpRequest.status, "fulfilled"),
+            eq(mpRequest.siteLocationId, siteLocationId),
+            ne(mpRequest.id, input.requestId),
+            eq(mpRequestLine.date, input.date),
+          ),
+        );
+      const remaining = computeDeficit(
+        lineRows,
+        withoutFulfilledDailyFills(filledRows.map(engineShape), fulfilledLines),
+      );
+      if (remaining.length === 0) {
+        const fulfilled = await tx
+          .update(mpRequest)
+          .set({ status: "fulfilled", updatedAt: new Date() })
+          .where(
+            and(
+              eq(mpRequest.id, input.requestId),
+              eq(mpRequest.status, "open"),
+            ),
+          )
+          .returning({ id: mpRequest.id });
+        if (fulfilled.length > 0) {
+          await recordMpRequestAudit(tx, {
+            actorId: actor.id,
+            action: "mp_request.status_change",
+            siteId: weekly.siteId,
+            siteLocationId,
+            details: {
+              requestId: input.requestId,
+              type: "daily",
+              oldValue: "open",
+              newValue: "fulfilled",
+              auto: true,
+            },
+          });
+        }
+      }
     });
   } catch (err) {
     const code = pgErrorCode(err);

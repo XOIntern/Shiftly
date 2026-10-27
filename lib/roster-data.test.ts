@@ -1,13 +1,14 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, test } from "bun:test";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 
 import { db } from "./db";
 import {
   latestPublishedWeeklyPlan,
   loadAreaRequirements,
   loadPlanWithRows,
+  loadDailyRequirements,
   loadPriorAssignments,
   loadRequirementsForWeek,
   loadShiftOrder,
@@ -31,8 +32,8 @@ import {
 
 // Loader contract pins (roster-engine task 5): shift order by orderIndex,
 // live-area requirement sets, capability-derived worker pairs, weekly
-// requirement lines from received/processing requests anchored exactly on
-// the week, prior assignments from published plans only, and the
+// requirement lines from approved and fulfilled requests anchored exactly on
+// the week, open daily requirement lines, prior assignments from published plans only, and the
 // plan-with-rows bundle. Fixtures prefixed t-roster- and cleaned up
 // FK-safely after the run; asserts are presence/exclusion, never counts.
 
@@ -171,7 +172,7 @@ async function requireAreaPosition(
 
 interface RequestArgs {
   type?: "weekly" | "daily";
-  status?: "submitted" | "received" | "processing" | "fulfilled" | "rejected";
+  status?: "open" | "approved" | "fulfilled" | "rejected";
   weekStart?: string | null;
   requestDate?: string | null;
 }
@@ -185,7 +186,7 @@ async function createRequest(fx: BaseFixture, args: RequestArgs): Promise<string
     siteId: fx.siteId,
     siteLocationId: fx.locationId,
     type,
-    status: args.status ?? "received",
+    status: args.status ?? "approved",
     ...(type === "weekly"
       ? { weekStart: args.weekStart ?? MON, requestDate: null }
       : { requestDate: args.requestDate ?? TUE, weekStart: null }),
@@ -197,19 +198,27 @@ async function createRequest(fx: BaseFixture, args: RequestArgs): Promise<string
 async function addRequestLine(
   fx: BaseFixture,
   requestId: string,
-  args: { workAreaId: string; shiftDefinitionId: string; date: string; headcount?: number },
+  args: {
+    workAreaId: string;
+    shiftDefinitionId: string;
+    date: string;
+    headcount?: number;
+    positionId?: string;
+  },
 ): Promise<string> {
   const id = randomUUID();
   createdRequestLineIds.push(id);
   // A line demands one exact position (#135): default to a freshly created
-  // position, pivoted onto the area.
-  const positionId = randomUUID();
-  createdPositionIds.push(positionId);
-  await db.insert(position).values({
-    id: positionId,
-    siteId: fx.siteId,
-    name: `t-roster-pos-auto-${positionId}`,
-  });
+  // position, pivoted onto the area; pass positionId to reuse one.
+  const positionId = args.positionId ?? randomUUID();
+  if (!args.positionId) {
+    createdPositionIds.push(positionId);
+    await db.insert(position).values({
+      id: positionId,
+      siteId: fx.siteId,
+      name: `t-roster-pos-auto-${positionId}`,
+    });
+  }
   await db
     .insert(workAreaPosition)
     .values({ workAreaId: args.workAreaId, positionId, siteId: fx.siteId, siteLocationId: fx.locationId })
@@ -438,40 +447,114 @@ describe("loadWorkerProfiles", () => {
 });
 
 describe("loadRequirementsForWeek", () => {
-  test("includes received and processing weekly lines anchored exactly on the week", async () => {
+  test("includes approved weekly lines anchored exactly on the week", async () => {
     const fx = await createBase(`t${nextSeq()}`, "week-ok");
     const area = await createWorkArea(fx, "a");
     const shift = await createShift(fx, 1);
     await createShift(fx, 2);
-    const received = await createRequest(fx, { status: "received", weekStart: MON });
-    const pos = await addRequestLine(fx, received, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 3 });
+    const approved = await createRequest(fx, { status: "approved", weekStart: MON });
+    const pos = await addRequestLine(fx, approved, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 3 });
 
     const expected = [{ workAreaId: area, shiftDefId: shift, positionId: pos, date: MON, headcount: 3 }];
-    // received is confirmed demand.
-    expect(await loadRequirementsForWeek(fx.locationId, MON)).toEqual(expected);
-
-    // The week's one open slot flips in place — processing stays demand.
-    await db.update(mpRequest).set({ status: "processing" }).where(eq(mpRequest.id, received));
+    // approved is confirmed demand.
     expect(await loadRequirementsForWeek(fx.locationId, MON)).toEqual(expected);
   });
 
-  test("excludes fulfilled, submitted, other weeks, and daily-type requests", async () => {
+  test("loadRequirementsForWeek returns approved and fulfilled lines and excludes open and rejected", async () => {
     const fx = await createBase(`t${nextSeq()}`, "week-excl");
     const area = await createWorkArea(fx, "a");
     const shift = await createShift(fx, 1);
-    // Same week: fulfilled coexists with the received one (not an open status).
+    const approved = await createRequest(fx, { status: "approved", weekStart: MON });
+    const approvedPos = await addRequestLine(fx, approved, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 2 });
     const fulfilled = await createRequest(fx, { status: "fulfilled", weekStart: MON });
-    await addRequestLine(fx, fulfilled, { workAreaId: area, shiftDefinitionId: shift, date: MON });
-    // Next Monday's submitted request holds ITS week's open slot.
-    const submitted = await createRequest(fx, { status: "submitted", weekStart: NEXT_MON });
-    await addRequestLine(fx, submitted, { workAreaId: area, shiftDefinitionId: shift, date: NEXT_MON });
-    // A daily-type request of the same week (open slot only affects daily uniques).
-    const daily = await createRequest(fx, { type: "daily", status: "received", requestDate: TUE });
-    await addRequestLine(fx, daily, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+    const fulfilledPos = await addRequestLine(fx, fulfilled, { workAreaId: area, shiftDefinitionId: shift, date: TUE, headcount: 4 });
+    const rejected = await createRequest(fx, { status: "rejected", weekStart: MON });
+    await addRequestLine(fx, rejected, { workAreaId: area, shiftDefinitionId: shift, date: MON });
+    // Open holds a slot, so it sits on a different week anchor than the approved one.
+    const open = await createRequest(fx, { status: "open", weekStart: NEXT_MON });
+    await addRequestLine(fx, open, { workAreaId: area, shiftDefinitionId: shift, date: NEXT_MON });
 
     const lines = await loadRequirementsForWeek(fx.locationId, MON);
 
-    expect(lines).toEqual([]);
+    expect(lines).toHaveLength(2);
+    expect(lines).toContainEqual({ workAreaId: area, shiftDefId: shift, positionId: approvedPos, date: MON, headcount: 2 });
+    expect(lines).toContainEqual({ workAreaId: area, shiftDefId: shift, positionId: fulfilledPos, date: TUE, headcount: 4 });
+    expect(await loadRequirementsForWeek(fx.locationId, NEXT_MON)).toEqual([]);
+  });
+
+  test("other weeks and daily-type requests contribute nothing to the week", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "week-other");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const otherWeek = await createRequest(fx, { status: "approved", weekStart: NEXT_MON });
+    await addRequestLine(fx, otherWeek, { workAreaId: area, shiftDefinitionId: shift, date: NEXT_MON });
+    const daily = await createRequest(fx, { type: "daily", status: "approved", requestDate: TUE });
+    await addRequestLine(fx, daily, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+
+    expect(await loadRequirementsForWeek(fx.locationId, MON)).toEqual([]);
+  });
+
+  test("two requests of one week (one fulfilled, one approved) both contribute their lines, including identical area/shift/position/date lines, unmerged", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "week-two");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const fulfilled = await createRequest(fx, { status: "fulfilled", weekStart: MON });
+    const pos = await addRequestLine(fx, fulfilled, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 2 });
+    const approved = await createRequest(fx, { status: "approved", weekStart: MON });
+    await addRequestLine(fx, approved, { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 3, positionId: pos });
+    await addRequestLine(fx, approved, { workAreaId: area, shiftDefinitionId: shift, date: TUE, headcount: 1, positionId: pos });
+
+    const lines = await loadRequirementsForWeek(fx.locationId, MON);
+
+    expect(lines).toHaveLength(3);
+    expect(lines.filter((l) => l.date === MON).map((l) => l.headcount).sort()).toEqual([2, 3]);
+    expect(lines.filter((l) => l.date === TUE)).toEqual([
+      { workAreaId: area, shiftDefId: shift, positionId: pos, date: TUE, headcount: 1 },
+    ]);
+  });
+});
+
+describe("loadDailyRequirements", () => {
+  test("loadDailyRequirements returns only open daily lines inside the range and carries requestId", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "daily-open");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const inRange = await createRequest(fx, { type: "daily", status: "open", requestDate: TUE });
+    const pos = await addRequestLine(fx, inRange, { workAreaId: area, shiftDefinitionId: shift, date: TUE, headcount: 5 });
+    const outOfRange = await createRequest(fx, { type: "daily", status: "open", requestDate: "2026-02-10" });
+    await addRequestLine(fx, outOfRange, { workAreaId: area, shiftDefinitionId: shift, date: "2026-02-10" });
+    // A weekly request never counts as a daily slot.
+    const weekly = await createRequest(fx, { type: "weekly", status: "open", weekStart: MON });
+    await addRequestLine(fx, weekly, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+
+    const lines = await loadDailyRequirements(fx.locationId, MON, NEXT_MON);
+
+    expect(lines).toEqual([
+      { requestId: inRange, workAreaId: area, shiftDefId: shift, positionId: pos, date: TUE, headcount: 5 },
+    ]);
+  });
+
+  test("loadDailyRequirements ignores fulfilled daily requests", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "daily-done");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const fulfilled = await createRequest(fx, { type: "daily", status: "fulfilled", requestDate: TUE });
+    await addRequestLine(fx, fulfilled, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+    const rejected = await createRequest(fx, { type: "daily", status: "rejected", requestDate: TUE });
+    await addRequestLine(fx, rejected, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+
+    expect(await loadDailyRequirements(fx.locationId, MON, NEXT_MON)).toEqual([]);
+  });
+
+  test("other locations' daily requests never leak in", async () => {
+    const mine = await createBase(`t${nextSeq()}`, "daily-mine");
+    const theirs = await createBase(`t${nextSeq()}`, "daily-theirs");
+    const area = await createWorkArea(theirs, "a");
+    const shift = await createShift(theirs, 1);
+    const req = await createRequest(theirs, { type: "daily", status: "open", requestDate: TUE });
+    await addRequestLine(theirs, req, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+
+    expect(await loadDailyRequirements(mine.locationId, MON, NEXT_MON)).toEqual([]);
   });
 });
 
