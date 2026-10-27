@@ -5,13 +5,14 @@ import { db } from "./db";
 // writer always rides the caller's tx (pattern: lib/mp-request-audit.ts).
 type RosterTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-// The five audit entries the roster actions write; a literal union so a
+// The six audit entries the roster actions write; a literal union so a
 // typo in an action fails tsc instead of silently skipping the trail.
 export const ROSTER_AUDIT_ACTIONS = [
   "roster.generate",
   "roster.regenerate",
   "roster.revise",
   "roster.publish",
+  "roster.discard",
   "roster.daily_request.fill",
 ] as const;
 

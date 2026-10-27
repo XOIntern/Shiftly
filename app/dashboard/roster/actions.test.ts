@@ -1867,3 +1867,334 @@ describe("roster actions: publish fulfils approved requests", () => {
     expect(await requestStatus(first)).toBe("fulfilled");
   });
 });
+
+describe("roster actions: discardDraft", () => {
+  async function seedDiscardFixture(tag: string) {
+    const fx = await createBase(`t4-dd-${tag}-${randomUUID()}`, tag);
+    const pos = await createPosition(fx, "p");
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shift = await createShift(fx, 1);
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
+    const requestId = await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos },
+    ]);
+    return { fx, area, shift, w, requestId };
+  }
+
+  async function generateWeeklyDraft(fx: BaseFixture) {
+    const { generateRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.status, "draft")));
+    return plan;
+  }
+
+  async function plansOf(fx: BaseFixture) {
+    return db.select().from(rosterPlan).where(eq(rosterPlan.siteLocationId, fx.locationId));
+  }
+
+  async function rowsOf(planId: string) {
+    return db.select().from(rosterAssignment).where(eq(rosterAssignment.planId, planId));
+  }
+
+  async function discardAudits(fx: BaseFixture) {
+    return db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "roster.discard"), eq(auditLog.siteLocationId, fx.locationId)));
+  }
+
+  test("admin discards a first draft: plan and its assignments are gone and one roster.discard audit row records it", async () => {
+    const { fx } = await seedDiscardFixture("first");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { discardDraft } = await import("./actions");
+    const plan = await generateWeeklyDraft(fx);
+    const before = await rowsOf(plan.id);
+    expect(before.length).toBeGreaterThan(0);
+
+    const result = await discardDraft(plan.id);
+    expect(result.ok).toBe(true);
+
+    expect(await plansOf(fx)).toEqual([]);
+    expect(await rowsOf(plan.id)).toEqual([]);
+
+    const audits = await discardAudits(fx);
+    expect(audits.length).toBe(1);
+    expect(audits[0].actorId).toBe(actor.id);
+    expect(audits[0].siteId).toBe(fx.siteId);
+    expect(audits[0].details).toEqual({
+      planId: plan.id,
+      version: 1,
+      weekStart: MON,
+      assignmentCount: before.length,
+    });
+  });
+
+  test("discarding a revision draft (version 2) leaves the published version 1 and all of its assignments intact and frees the draft slot", async () => {
+    const { fx } = await seedDiscardFixture("revision");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { publishRoster, revisePlan, discardDraft } = await import("./actions");
+    const v1 = await generateWeeklyDraft(fx);
+    expect((await publishRoster(v1.id)).ok).toBe(true);
+    const v1Rows = await rowsOf(v1.id);
+    expect(v1Rows.length).toBeGreaterThan(0);
+
+    const revised = await revisePlan(v1.id);
+    expect(revised.ok).toBe(true);
+    const v2Id = (revised as { draftPlanId: string }).draftPlanId;
+    const [v2] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, v2Id));
+    expect(v2.version).toBe(2);
+    expect(v2.status).toBe("draft");
+    const v2Rows = await rowsOf(v2Id);
+
+    expect((await discardDraft(v2Id)).ok).toBe(true);
+
+    expect(await db.select().from(rosterPlan).where(eq(rosterPlan.id, v2Id))).toEqual([]);
+    expect(await rowsOf(v2Id)).toEqual([]);
+    const [v1After] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, v1.id));
+    expect(v1After.status).toBe("published");
+    expect((await rowsOf(v1.id)).length).toBe(v1Rows.length);
+
+    const [audit] = await discardAudits(fx);
+    expect(audit.details).toEqual({
+      planId: v2Id,
+      version: 2,
+      weekStart: MON,
+      assignmentCount: v2Rows.length,
+    });
+
+    // The one-live-draft slot is free again.
+    expect((await revisePlan(v1.id)).ok).toBe(true);
+  });
+
+  test("a published plan is refused with the only-drafts message and nothing is deleted", async () => {
+    const { fx } = await seedDiscardFixture("published");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { publishRoster, discardDraft } = await import("./actions");
+    const plan = await generateWeeklyDraft(fx);
+    expect((await publishRoster(plan.id)).ok).toBe(true);
+    const rows = await rowsOf(plan.id);
+
+    expect(await discardDraft(plan.id)).toEqual({
+      ok: false,
+      message: "Only drafts can be discarded.",
+    });
+
+    const [after] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, plan.id));
+    expect(after.status).toBe("published");
+    expect((await rowsOf(plan.id)).length).toBe(rows.length);
+    expect(await discardAudits(fx)).toEqual([]);
+  });
+
+  test("a daily plan is refused with the only-weekly message and nothing is deleted", async () => {
+    const { fx, area, shift, w } = await seedDiscardFixture("daily");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    // A daily plan carries the default draft status, so only the kind
+    // check keeps it from being deleted.
+    const [daily] = await db
+      .insert(rosterPlan)
+      .values({
+        siteId: fx.siteId,
+        siteLocationId: fx.locationId,
+        kind: "daily",
+        requestDate: TUE,
+        weekStart: null,
+        rulesSnapshot: {},
+        generatedBy: actor.id,
+      })
+      .returning();
+    expect(daily.status).toBe("draft");
+    await db.insert(rosterAssignment).values({
+      planId: daily.id,
+      siteId: fx.siteId,
+      siteLocationId: fx.locationId,
+      workerId: w,
+      workAreaId: area,
+      shiftDefinitionId: shift,
+      date: TUE,
+    });
+
+    const { discardDraft } = await import("./actions");
+    expect(await discardDraft(daily.id)).toEqual({
+      ok: false,
+      message: "Only weekly rosters can be discarded.",
+    });
+
+    expect((await plansOf(fx)).length).toBe(1);
+    expect((await rowsOf(daily.id)).length).toBe(1);
+    expect(await discardAudits(fx)).toEqual([]);
+  });
+
+  test("another location's plan is not found for an admin and stays intact", async () => {
+    const own = await seedDiscardFixture("own");
+    const foreign = await seedDiscardFixture("foreign");
+    actor = makeActor("admin", null, foreign.fx.locationId);
+    await seedUser(actor);
+    const { discardDraft } = await import("./actions");
+    const plan = await generateWeeklyDraft(foreign.fx);
+    const rows = await rowsOf(plan.id);
+
+    actor = makeActor("admin", null, own.fx.locationId);
+    await seedUser(actor);
+
+    expect(await discardDraft(plan.id)).toEqual({ ok: false, message: "Roster not found." });
+    expect((await plansOf(foreign.fx)).length).toBe(1);
+    expect((await rowsOf(plan.id)).length).toBe(rows.length);
+    expect(await discardAudits(foreign.fx)).toEqual([]);
+  });
+
+  test("HO is refused with the HO message before any read and the plan is untouched", async () => {
+    const { fx } = await seedDiscardFixture("ho");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    const { discardDraft } = await import("./actions");
+    const plan = await generateWeeklyDraft(fx);
+    const rows = await rowsOf(plan.id);
+
+    actor = makeActor("ho", fx.siteId, null);
+    await seedUser(actor);
+
+    // A malformed id would be "not found" if any read ran first.
+    expect(await discardDraft("not-a-uuid")).toEqual({
+      ok: false,
+      message: "Only admins discard drafts",
+    });
+    expect(await discardDraft(plan.id)).toEqual({
+      ok: false,
+      message: "Only admins discard drafts",
+    });
+    expect((await plansOf(fx)).length).toBe(1);
+    expect((await rowsOf(plan.id)).length).toBe(rows.length);
+  });
+
+  test("superadmin may discard any weekly draft", async () => {
+    const { fx } = await seedDiscardFixture("super");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    const { discardDraft } = await import("./actions");
+    const plan = await generateWeeklyDraft(fx);
+
+    actor = makeActor("superadmin", null, null);
+    await seedUser(actor);
+
+    expect((await discardDraft(plan.id)).ok).toBe(true);
+    expect(await plansOf(fx)).toEqual([]);
+    expect(await rowsOf(plan.id)).toEqual([]);
+    const [audit] = await discardAudits(fx);
+    expect(audit.actorId).toBe(actor.id);
+    expect(audit.siteLocationId).toBe(fx.locationId);
+  });
+
+  test("approved requests of the week keep their status after a discard", async () => {
+    const { fx, requestId } = await seedDiscardFixture("req");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    const { discardDraft } = await import("./actions");
+    const plan = await generateWeeklyDraft(fx);
+
+    expect((await discardDraft(plan.id)).ok).toBe(true);
+
+    const [request] = await db.select().from(mpRequest).where(eq(mpRequest.id, requestId));
+    expect(request.status).toBe("approved");
+    const statusAudits = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "mp_request.status_change"),
+          eq(auditLog.siteLocationId, fx.locationId),
+        ),
+      );
+    expect(statusAudits).toEqual([]);
+  });
+
+  test("a plan published before the delete runs is not deleted", async () => {
+    const { fx } = await seedDiscardFixture("race");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    const { discardDraft } = await import("./actions");
+    const plan = await generateWeeklyDraft(fx);
+    const rows = await rowsOf(plan.id);
+
+    // Another session publishes the plan and holds its row lock; discard
+    // passes the ownership pre-check, then waits on the plan row. Once
+    // the publish commits, the discard must see "published" and refuse.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const publisher = db.transaction(async (tx) => {
+      await tx
+        .update(rosterPlan)
+        .set({ status: "published", publishedAt: new Date(), publishedBy: actor.id })
+        .where(eq(rosterPlan.id, plan.id));
+      locked();
+      await gate;
+    });
+    await lockTaken;
+
+    const discarding = discardDraft(plan.id);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+    await publisher;
+    const result = await discarding;
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe("Only drafts can be discarded.");
+    const [after] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, plan.id));
+    expect(after.status).toBe("published");
+    expect((await rowsOf(plan.id)).length).toBe(rows.length);
+    expect(await discardAudits(fx)).toEqual([]);
+  });
+
+  test("a discard racing a publish leaves one consistent outcome: exactly one wins and no plan loses its rows", async () => {
+    const { fx } = await seedDiscardFixture("concurrent");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    const { discardDraft, publishRoster } = await import("./actions");
+    const plan = await generateWeeklyDraft(fx);
+    const rows = await rowsOf(plan.id);
+
+    const [discarded, published] = await Promise.all([
+      discardDraft(plan.id),
+      publishRoster(plan.id),
+    ]);
+
+    expect([discarded.ok, published.ok].filter(Boolean).length).toBe(1);
+    const remaining = await plansOf(fx);
+    if (discarded.ok) {
+      expect(remaining).toEqual([]);
+      expect(await rowsOf(plan.id)).toEqual([]);
+    } else {
+      expect(remaining.length).toBe(1);
+      expect(remaining[0].status).toBe("published");
+      expect((await rowsOf(plan.id)).length).toBe(rows.length);
+    }
+  });
+
+  test("a malformed id returns not found", async () => {
+    const fx = await createBase(`t4-dd-bad-${randomUUID()}`, "bad");
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    const { discardDraft } = await import("./actions");
+
+    expect(await discardDraft("not-a-uuid")).toEqual({ ok: false, message: "Roster not found." });
+    expect(await discardDraft(randomUUID())).toEqual({ ok: false, message: "Roster not found." });
+  });
+});
