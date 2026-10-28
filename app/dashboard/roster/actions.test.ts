@@ -1261,6 +1261,123 @@ describe("roster actions: suggestReplacementsAction", () => {
       void fx;
     }
   });
+
+  // A published week plus an open daily request for two heads on TUE, four
+  // position holders, an admin actor. `idle` are the workers the weekly plan left off
+  // MON, so their week counters only move through daily fills.
+  async function setupDailySuggest(tag: string) {
+    const fx = await createBase(`t159-${tag}-${randomUUID()}`, `suggest-${tag}`);
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    await createShift(fx, 2);
+    const pos = await createPosition(fx, tag);
+    await requireAreaPosition(fx, area, pos);
+    const workers: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const w = await createWorker(fx, `w${i}`);
+      await giveWorkerPosition(fx, w, pos);
+      workers.push(w);
+    }
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos },
+    ]);
+    const tueRequest = await createRequest(fx, { type: "daily", requestDate: TUE });
+    await addRequestLine(fx, tueRequest, {
+      workAreaId: area,
+      shiftDefinitionId: shift,
+      date: TUE,
+      headcount: 2,
+      positionId: pos,
+    });
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [weeklyPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
+    const monRows = await readPlanRows(weeklyPlan.id);
+    const idle = workers.filter((w) => !monRows.some((r) => r.workerId === w));
+
+    const suggest = async (date: string) => {
+      const { suggestReplacementsAction } = await import("./actions");
+      const result = (await suggestReplacementsAction({
+        workAreaId: area,
+        shiftDefId: shift,
+        date,
+        positionId: pos,
+      })) as { ok: true; data: { workerId: string; reason: string }[] };
+      expect(result.ok).toBe(true);
+      return result.data;
+    };
+    const fill = async (requestId: string, workerId: string, date: string) => {
+      const { fillDailyRequest } = await import("./actions");
+      return fillDailyRequest({
+        requestId,
+        workAreaId: area,
+        shiftDefId: shift,
+        date,
+        positionId: pos,
+        workerId,
+        siteLocationId: fx.locationId,
+      });
+    };
+    return { fx, area, shift, pos, idle, tueRequest, suggest, fill };
+  }
+
+  test("a worker already filled on the date through a daily request is not suggested for a second slot", async () => {
+    const s = await setupDailySuggest("dup");
+    const [filled] = s.idle;
+    expect((await s.suggest(TUE)).map((c) => c.workerId)).toContain(filled);
+
+    expect((await s.fill(s.tueRequest, filled, TUE)).ok).toBe(true);
+
+    expect((await s.suggest(TUE)).map((c) => c.workerId)).not.toContain(filled);
+  });
+
+  test("an earlier daily fill of the week is counted in the suggestion's week counter", async () => {
+    const s = await setupDailySuggest("week");
+    const [filled, untouched] = s.idle;
+    expect((await s.fill(s.tueRequest, filled, TUE)).ok).toBe(true);
+
+    const wed = await s.suggest("2026-01-07");
+    expect(wed.find((c) => c.workerId === filled)!.reason).toContain("1 work days this week");
+    expect(wed.find((c) => c.workerId === untouched)!.reason).toContain("0 work days this week");
+  });
+
+  test("another location's daily fill on the same date does not change the suggestions", async () => {
+    const s = await setupDailySuggest("foreign");
+    const before = await s.suggest(TUE);
+
+    const other = await createBase(`t159-oth-${randomUUID()}`, "suggest-other");
+    const otherArea = await createWorkArea(other, "a");
+    const otherShift = await createShift(other, 1);
+    const otherWorker = await createWorker(other, "w");
+    const planId = randomUUID();
+    await db.insert(rosterPlan).values({
+      id: planId,
+      siteId: other.siteId,
+      siteLocationId: other.locationId,
+      kind: "daily",
+      requestDate: TUE,
+      status: "published",
+      rulesSnapshot: {},
+    });
+    await db.insert(rosterAssignment).values({
+      planId,
+      siteId: other.siteId,
+      siteLocationId: other.locationId,
+      workerId: otherWorker,
+      workAreaId: otherArea,
+      shiftDefinitionId: otherShift,
+      date: TUE,
+    });
+
+    expect(await s.suggest(TUE)).toEqual(before);
+  });
 });
 
 describe("roster actions: session scope", () => {

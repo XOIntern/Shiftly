@@ -221,6 +221,36 @@ export async function loadDailyRequirements(
   return rows;
 }
 
+// Assignment rows of the location's DAILY plans with a date in
+// [fromDate, toDate], any plan status: the same scope fillDailyRequest reads
+// for its date. A daily fill is an exception on top of the published week, so
+// anything that reasons about a worker's week has to see these rows too.
+export async function loadDailyAssignmentsInRange(
+  siteLocationId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<RosterAssignment[]> {
+  const rows = await db
+    .select({
+      workerId: rosterAssignment.workerId,
+      date: rosterAssignment.date,
+      shiftDefId: rosterAssignment.shiftDefinitionId,
+      workAreaId: rosterAssignment.workAreaId,
+    })
+    .from(rosterAssignment)
+    .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
+    .where(
+      and(
+        eq(rosterPlan.siteLocationId, siteLocationId),
+        eq(rosterPlan.kind, "daily"),
+        gte(rosterAssignment.date, fromDate),
+        lte(rosterAssignment.date, toDate),
+      ),
+    )
+    .orderBy(asc(rosterAssignment.date), asc(rosterAssignment.workerId));
+  return rows;
+}
+
 // Prior history for C1/C2/C5/C6: assignment rows of PUBLISHED plans of the
 // location with date < beforeDate, in the engine shape. After a revise the
 // old version stays published alongside the new one — only the LATEST

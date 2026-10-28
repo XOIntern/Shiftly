@@ -33,6 +33,7 @@ import { loadEffectiveRules } from "@/lib/rule-config";
 import {
   latestPublishedWeeklyPlan,
   loadAreaRequirements,
+  loadDailyAssignmentsInRange,
   loadPlanWithRows,
   loadPriorAssignments,
   loadRequirementsForWeek,
@@ -724,9 +725,13 @@ export async function suggestReplacementsAction(
       }))
     : [];
 
-  const [prior, workers, shiftOrder, areaRequirements, rules] =
+  // Daily fills of the week sit on top of the published plan; leaving them
+  // out would suggest a worker already filled today and undercount the week.
+  const week = weekDates(weekStart);
+  const [prior, dailyRows, workers, shiftOrder, areaRequirements, rules] =
     await Promise.all([
-      loadPriorAssignments(siteLocationId, weekDates(weekStart)[0]),
+      loadPriorAssignments(siteLocationId, week[0]),
+      loadDailyAssignmentsInRange(siteLocationId, week[0], week[6]),
       loadWorkerProfiles(siteLocationId, input.workAreaId),
       loadShiftOrder(siteLocationId),
       loadAreaRequirements(siteLocationId),
@@ -741,7 +746,7 @@ export async function suggestReplacementsAction(
       date: input.date,
       headcount: 1,
     },
-    weeklyRows,
+    [...weeklyRows, ...dailyRows],
     prior,
     workers,
     shiftOrder,
