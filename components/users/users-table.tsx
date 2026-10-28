@@ -10,6 +10,7 @@ import {
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { DeletedListFilter } from "@/components/deleted-list-filter";
 import { RoleFilter } from "@/components/role-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
@@ -127,6 +128,7 @@ export function UsersTable({
         <>
           <RoleFilter />
           <StatusFilter />
+          <DeletedListFilter singular="user" plural="users" />
         </>
       }
       // Unmanageable rows (the ho's own, foreign accounts) render no

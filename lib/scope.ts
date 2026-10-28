@@ -88,3 +88,28 @@ export function userScopeFilter(actor: {
     isNull(user.deletedAt),
   );
 }
+
+// Listing filter for the deleted-users view: exactly the soft-deleted users
+// the actor could restore. A superadmin gets no WHERE (undefined = unfiltered:
+// every deleted user, whatever the role); an ho sees only the admins bound to
+// a location of its own site, DELETED LOCATIONS INCLUDED (the restore is
+// refused for those, with the reason, so the row has to be reachable) — never
+// a deleted ho, a deleted superadmin, an unbound admin or another site's
+// admin. An ho with no site binds the empty set, and any other role sees
+// nothing. The caller adds the deleted_at predicate: this filter carries only
+// the reach, so the live list's filter above stays untouched.
+export function deletedUserScopeFilter(actor: {
+  role: Role;
+  siteId: string | null;
+}): SQL | undefined {
+  if (actor.role === "superadmin") return undefined;
+  if (actor.role !== "ho" || actor.siteId === null) return sql`false`;
+  const siteLocations = db
+    .select({ id: siteLocation.id })
+    .from(siteLocation)
+    .where(eq(siteLocation.siteId, actor.siteId));
+  return and(
+    eq(user.role, "admin"),
+    inArray(user.siteLocationId, siteLocations),
+  );
+}

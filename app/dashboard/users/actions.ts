@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/error/db-errors";
 import { canManageActorTarget } from "@/lib/scope";
 import type { Role } from "@/types/domain";
-import { requireHO } from "@/lib/session";
+import { requireHO, requireSuperadmin } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
@@ -18,6 +18,10 @@ import {
   deleteUserSessions,
   setCredentialPassword,
 } from "@/lib/credential-store";
+import { nounFor } from "@/lib/bulk-summary";
+import { runPerRow } from "@/lib/run-per-row";
+import { purgeUserGuarded } from "@/lib/user-purge";
+import { restoreUserGuarded } from "@/lib/user-restore";
 import {
   parseUserCreate,
   parseUserUpdate,
@@ -498,4 +502,98 @@ export async function deleteUser(id: string): Promise<ActionState> {
 
   revalidatePath("/dashboard/users");
   return { ok: true };
+}
+
+// A driver error thrown while restoring or purging a user: the live-email
+// unique index reads like the guard's refusal, the RESTRICT backstop means
+// something still points at the user, anything else is generic.
+function userRowError(err: unknown): ActionState {
+  const mapped = mapDbError(err, { kind: "email" });
+  return { ok: false, message: mapped ?? GENERIC_ERROR };
+}
+
+// user.id is text (see setActiveBulk): the check is "non-empty", not a uuid.
+// An unknown id simply matches no row and fails closed in the guard.
+const validUserId = (id: string) => id.length > 0;
+
+// Brings a soft-deleted user back (lib/user-restore.ts), inside the actor's
+// reach: a superadmin restores anyone, an HO only the admins of their own
+// site's locations, and anything else answers the plain not-found message.
+// Only the user row returns, with is_active and credentials as they were; a
+// deleted location or site, or an email now held by a live user, refuses.
+export async function restoreUser(id: string): Promise<ActionState> {
+  const actor = await requireHO();
+
+  if (!validUserId(id)) {
+    return { ok: false, message: "Invalid user id." };
+  }
+
+  let result: Awaited<ReturnType<typeof restoreUserGuarded>>;
+  try {
+    result = await db.transaction((tx) => restoreUserGuarded(tx, actor, id));
+  } catch (err) {
+    return userRowError(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/users");
+  return { ok: true };
+}
+
+// Permanent delete of a soft-deleted user (superadmin only). Guards and the
+// write share one transaction (lib/user-purge.ts); a user who authored an
+// audit row, generated or published a roster plan or created a request
+// refuses, and sessions and accounts go through the foreign-key cascade.
+export async function purgeUser(id: string): Promise<ActionState> {
+  await requireSuperadmin();
+
+  if (!validUserId(id)) {
+    return { ok: false, message: "Invalid user id." };
+  }
+
+  let result: Awaited<ReturnType<typeof purgeUserGuarded>>;
+  try {
+    result = await db.transaction((tx) => purgeUserGuarded(tx, id));
+  } catch (err) {
+    return userRowError(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/users");
+  return { ok: true };
+}
+
+const perUser = {
+  emptyMessage: "No users selected.",
+  noun: nounFor("user"),
+  mapError: (err: unknown) => userRowError(err).message ?? GENERIC_ERROR,
+  validId: validUserId,
+};
+
+// Bulk restore of soft-deleted users, inside the actor's reach: rows outside
+// it are skipped like any other refusal.
+export async function restoreUserBulk(ids: string[]): Promise<ActionState> {
+  const actor = await requireHO();
+  const result = await runPerRow(
+    ids,
+    (tx, id) => restoreUserGuarded(tx, actor, id),
+    perUser,
+  );
+  if (result.ok) revalidatePath("/dashboard/users");
+  return result;
+}
+
+// Bulk permanent delete of soft-deleted users (superadmin only). Each user
+// runs the same guarded purge as purgeUser; one with history is skipped.
+export async function purgeUserBulk(ids: string[]): Promise<ActionState> {
+  await requireSuperadmin();
+  const result = await runPerRow(ids, purgeUserGuarded, perUser);
+  if (result.ok) revalidatePath("/dashboard/users");
+  return result;
 }
