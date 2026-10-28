@@ -319,6 +319,15 @@ export default async function RosterPage({
       if (row.workAreaId !== workAreaId) continue;
       cells[`${row.workerId}|${row.date}`] = row.shiftDefinitionId;
     }
+    // Daily fills of this area, read-only in the grid: a weekly cell of the
+    // same worker-day always wins.
+    const dailyCells: Record<string, string> = {};
+    for (const row of dailyAssignments) {
+      if (row.workAreaId !== workAreaId) continue;
+      const key = `${row.workerId}|${row.date}`;
+      if (key in cells) continue;
+      dailyCells[key] = row.shiftDefId;
+    }
 
     planView = {
       id: chosen.id,
@@ -344,6 +353,7 @@ export default async function RosterPage({
       rowPage,
       dates,
       cells,
+      dailyCells,
     };
   }
 

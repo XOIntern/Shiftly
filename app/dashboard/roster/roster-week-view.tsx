@@ -44,6 +44,7 @@ export type GridPlanView = {
   rowPage: number;
   dates: string[];
   cells: Record<string, string>;
+  dailyCells: Record<string, string>;
 };
 
 export type RequirementsView = {
@@ -192,6 +193,7 @@ export function RosterWeekView({
               workers={plan.workers}
               dates={plan.dates}
               cells={plan.cells}
+              dailyCells={plan.dailyCells}
               rowPage={plan.rowPage}
               workerTotal={plan.workerTotal}
               onRowPageChange={setRowPage}

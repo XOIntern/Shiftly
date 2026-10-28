@@ -105,6 +105,7 @@ export function RosterGrid({
   workers,
   dates,
   cells,
+  dailyCells,
   rowPage,
   workerTotal,
   onRowPageChange,
@@ -119,6 +120,9 @@ export function RosterGrid({
   workers: GridWorker[];
   dates: string[];
   cells: Record<string, string>;
+  // Daily-plan fills of this area on days without a weekly cell: shown
+  // read-only (never a picker), tagged so they read apart from weekly cells.
+  dailyCells: Record<string, string>;
   rowPage: number;
   workerTotal: number;
   onRowPageChange: (page: number) => void;
@@ -217,6 +221,31 @@ export function RosterGrid({
                   const key = assignmentKey(row.id, date);
                   const shiftDefId = cells[key];
                   const shift = shiftDefId ? labelOf.get(shiftDefId) : undefined;
+                  const dailyShiftId = shiftDefId ? undefined : dailyCells[key];
+                  if (dailyShiftId) {
+                    const dailyShift = labelOf.get(dailyShiftId);
+                    return (
+                      <td key={date} className={canEdit ? "p-0.5" : undefined}>
+                        <span
+                          className="block rounded border border-dashed bg-muted px-1 py-1 text-center text-xs"
+                          title="Daily fill, not editable here"
+                        >
+                          {dailyShift ? (
+                            <>
+                              {dailyShift.label}
+                              <span className="block font-normal tabular-nums text-muted-foreground">
+                                {dailyShift.startTime}–{dailyShift.endTime}
+                              </span>
+                            </>
+                          ) : null}
+                          <span className="block font-normal text-muted-foreground">
+                            Daily
+                            <span className="sr-only"> fill, not editable here</span>
+                          </span>
+                        </span>
+                      </td>
+                    );
+                  }
                   const cell = (
                     <span
                       className={cn(
