@@ -13,3 +13,13 @@ export type WorkAreaRow = {
   locationName?: string | null;
   positions: { id: string; name: string; isActive: boolean }[];
 };
+
+// One row of the deleted-work-areas table. deletedAt travels as an ISO string
+// so the server and the client render the same text.
+export type DeletedWorkAreaRow = {
+  id: string;
+  name: string;
+  siteName: string;
+  locationName: string;
+  deletedAt: string;
+};

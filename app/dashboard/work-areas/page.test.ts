@@ -353,3 +353,246 @@ describe("work-areas create dialog positions", () => {
     expect(ids).not.toContain(pos.posB);
   });
 });
+
+// The deleted view (?show=deleted) lists soft-deleted work areas inside the
+// actor's scope; every other value of show is the live list.
+describe("work areas page deleted view", () => {
+  type DeletedRow = {
+    id: string;
+    name: string;
+    siteName: string;
+    locationName: string;
+    deletedAt: string;
+  };
+
+  function actorOf(
+    role: SessionUser["role"],
+    siteId: string | null = null,
+    siteLocationId: string | null = null,
+  ): SessionUser {
+    return {
+      id: randomUUID(),
+      name: "Area Deleted Actor",
+      email: `t191-page-${randomUUID()}@shiftly.test`,
+      role,
+      siteId,
+      siteLocationId,
+      isActive: true,
+    };
+  }
+
+  async function renderDeleted(
+    searchParams: Record<string, string | string[] | undefined> = {},
+  ) {
+    const props = await renderWorkAreas({ show: "deleted", ...searchParams });
+    return {
+      ...props,
+      workAreas: props.workAreas as unknown as DeletedRow[],
+    };
+  }
+
+  // One site with two locations and work areas seeded straight into the table
+  // so each row can carry its own deletedAt. The site name doubles as the
+  // search token; `loc` picks which location an area goes under.
+  async function seedSiteWith(
+    rows: Array<{
+      suffix: string;
+      deletedAt: Date | null;
+      isActive?: boolean;
+      loc?: "a" | "b";
+    }>,
+  ) {
+    const siteId = randomUUID();
+    const locA = randomUUID();
+    const locB = randomUUID();
+    const token = `t191-page-${randomUUID().slice(0, 8)}`;
+    fixtureCleanup.defer(async () => {
+      await db.delete(workArea).where(eq(workArea.siteId, siteId));
+      await db.delete(siteLocation).where(eq(siteLocation.siteId, siteId));
+      await db.delete(site).where(eq(site.id, siteId));
+    });
+    await db.insert(site).values({ id: siteId, name: token });
+    await db.insert(siteLocation).values([
+      { id: locA, siteId, name: `${token}-loc-a` },
+      { id: locB, siteId, name: `${token}-loc-b` },
+    ]);
+    const ids = rows.map(() => randomUUID());
+    await db.insert(workArea).values(
+      rows.map((row, i) => ({
+        id: ids[i],
+        siteId,
+        siteLocationId: row.loc === "b" ? locB : locA,
+        name: `${token}-${row.suffix}`,
+        isActive: row.isActive ?? true,
+        deletedAt: row.deletedAt,
+      })),
+    );
+    return { siteId, locA, locB, token, ids };
+  }
+
+  test("lists only soft-deleted work areas, newest deletion first, with location and date", async () => {
+    const { siteId, token, ids } = await seedSiteWith([
+      { suffix: "live", deletedAt: null },
+      { suffix: "older", deletedAt: new Date("2026-01-01T10:00:00Z") },
+      { suffix: "newer", deletedAt: new Date("2026-02-01T10:00:00Z") },
+    ]);
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ siteId });
+
+    expect(props.workAreas.map((w) => w.id)).toEqual([ids[2], ids[1]]);
+    expect(props.workAreas[0].deletedAt).toBe("2026-02-01T10:00:00.000Z");
+    expect(props.workAreas[0].siteName).toBe(token);
+    expect(props.workAreas[0].locationName).toBe(`${token}-loc-a`);
+    expect(props.total).toBe(2);
+  });
+
+  test("q narrows within the deleted view", async () => {
+    const { token, ids } = await seedSiteWith([
+      { suffix: "alpha", deletedAt: new Date("2026-01-01T10:00:00Z") },
+      { suffix: "beta", deletedAt: new Date("2026-01-02T10:00:00Z") },
+    ]);
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ q: `${token}-alpha` });
+
+    expect(props.workAreas.map((w) => w.id)).toEqual([ids[0]]);
+  });
+
+  test("the status filter applies to the deleted list too", async () => {
+    const { siteId, ids } = await seedSiteWith([
+      {
+        suffix: "on",
+        deletedAt: new Date("2026-01-01T10:00:00Z"),
+        isActive: true,
+      },
+      {
+        suffix: "off",
+        deletedAt: new Date("2026-01-02T10:00:00Z"),
+        isActive: false,
+      },
+    ]);
+    actor = actorOf("superadmin");
+
+    const inactive = await renderDeleted({ siteId, status: "inactive" });
+
+    expect(inactive.workAreas.map((w) => w.id)).toEqual([ids[1]]);
+  });
+
+  test("the site filter applies to the deleted list for a superadmin", async () => {
+    const a = await seedSiteWith([
+      { suffix: "a", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    const b = await seedSiteWith([
+      { suffix: "b", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ siteId: a.siteId });
+
+    expect(props.workAreas.map((w) => w.id)).toEqual([a.ids[0]]);
+    expect(props.workAreas.map((w) => w.id)).not.toContain(b.ids[0]);
+  });
+
+  test("sort=name:asc orders by name; sort=deletedAt:asc by date; sort=locationName:desc by location", async () => {
+    const { siteId, ids } = await seedSiteWith([
+      { suffix: "b", deletedAt: new Date("2026-02-01T10:00:00Z"), loc: "a" },
+      { suffix: "a", deletedAt: new Date("2026-03-01T10:00:00Z"), loc: "b" },
+    ]);
+    actor = actorOf("superadmin");
+
+    const byName = await renderDeleted({ siteId, sort: "name:asc" });
+    expect(byName.workAreas.map((w) => w.id)).toEqual([ids[1], ids[0]]);
+
+    const byDate = await renderDeleted({ siteId, sort: "deletedAt:asc" });
+    expect(byDate.workAreas.map((w) => w.id)).toEqual([ids[0], ids[1]]);
+
+    const byLocation = await renderDeleted({
+      siteId,
+      sort: "locationName:desc",
+    });
+    expect(byLocation.workAreas.map((w) => w.id)).toEqual([ids[1], ids[0]]);
+  });
+
+  test("work areas deleted at the same instant list by ascending id, whatever the insert order", async () => {
+    const sameInstant = new Date("2026-01-01T10:00:00Z");
+    const { siteId, ids } = await seedSiteWith(
+      Array.from({ length: 4 }, (_, i) => ({
+        suffix: `s${i}`,
+        deletedAt: sameInstant,
+      })),
+    );
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ siteId });
+
+    expect(props.workAreas.map((w) => w.id)).toEqual([...ids].sort());
+  });
+
+  test("an HO sees only their own site's deleted work areas", async () => {
+    const own = await seedSiteWith([
+      { suffix: "own", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    const foreign = await seedSiteWith([
+      { suffix: "foreign", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    actor = actorOf("ho", own.siteId);
+
+    // A crafted siteId param must not widen the scope.
+    const props = await renderDeleted({ siteId: foreign.siteId });
+
+    expect(props.workAreas.map((w) => w.id)).toEqual([own.ids[0]]);
+  });
+
+  test("an admin sees only the deleted work areas of their own location", async () => {
+    const seeded = await seedSiteWith([
+      { suffix: "mine", deletedAt: new Date("2026-01-01T10:00:00Z"), loc: "a" },
+      { suffix: "sibling", deletedAt: new Date("2026-01-02T10:00:00Z"), loc: "b" },
+    ]);
+    actor = actorOf("admin", seeded.siteId, seeded.locA);
+
+    const props = await renderDeleted({ q: seeded.token });
+
+    expect(props.workAreas.map((w) => w.id)).toEqual([seeded.ids[0]]);
+  });
+
+  test("an unbound HO and an unbound admin see nothing", async () => {
+    for (const unbound of [actorOf("ho", null), actorOf("admin", null, null)]) {
+      actor = unbound;
+
+      const props = await renderDeleted();
+
+      expect(props.workAreas).toEqual([]);
+      expect(props.total).toBe(0);
+    }
+  });
+
+  test("pagination math holds in the deleted view", async () => {
+    const { siteId } = await seedSiteWith(
+      Array.from({ length: 12 }, (_, i) => ({
+        suffix: String(i).padStart(2, "0"),
+        deletedAt: new Date("2026-01-01T10:00:00Z"),
+      })),
+    );
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ siteId, page: "999" });
+
+    expect(props.total).toBe(12);
+    expect(props.pageCount).toBe(2);
+    expect(props.workAreas).toHaveLength(2);
+  });
+
+  test("no show, an unknown show and a repeated show keep listing live work areas only", async () => {
+    const { siteId, ids } = await seedSiteWith([
+      { suffix: "live", deletedAt: null },
+      { suffix: "gone", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    actor = actorOf("superadmin");
+
+    for (const show of [undefined, "bogus", "DELETED", ["deleted", "deleted"]]) {
+      const props = await renderWorkAreas({ siteId, show });
+      expect(props.workAreas.map((w) => w.id)).toEqual([ids[0]]);
+    }
+  });
+});
