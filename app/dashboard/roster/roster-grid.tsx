@@ -225,7 +225,7 @@ export function RosterGrid({
                   if (dailyShiftId) {
                     const dailyShift = labelOf.get(dailyShiftId);
                     return (
-                      <td key={date}>
+                      <td key={date} className={canEdit ? "p-0.5" : undefined}>
                         <span
                           className="block rounded border border-dashed bg-muted px-1 py-1 text-center text-xs"
                           title="Daily fill, not editable here"
