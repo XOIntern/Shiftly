@@ -52,6 +52,7 @@ export function validateRoster(
   rules: EffectiveRules,
   shiftOrder: readonly string[],
   areaRequirements: Record<string, readonly string[]>,
+  shiftLabels?: Readonly<Record<string, string>>,
 ): Violation[] {
   const violations: Violation[] = [];
   const indexOf = new Map<string, number>(
@@ -81,7 +82,7 @@ export function validateRoster(
     const days = [...list].sort((a, b) => a.date.localeCompare(b.date));
     checkWeekLimit(days, workerId, rules, violations);
     checkMonthLimit(days, workerId, rules, violations);
-    checkRotation(days, workerId, rules, violations, indexOf);
+    checkRotation(days, workerId, rules, violations, indexOf, shiftLabels);
     checkRestAfterLastShift(days, workerId, rules, violations, indexOf);
     checkMandatoryBreak(days, workerId, rules, violations);
     checkQualification(
@@ -152,8 +153,11 @@ function checkRotation(
   rules: EffectiveRules,
   violations: Violation[],
   indexOf: ReadonlyMap<string, number>,
+  shiftLabels?: Readonly<Record<string, string>>,
 ): void {
   if (!rules.c3.value) return;
+  // A shift missing from the lookup (or no lookup) reads as its raw id.
+  const label = (id: string) => shiftLabels?.[id] ?? id;
   let prev: RosterAssignment | undefined;
   for (const a of days) {
     if (
@@ -165,7 +169,7 @@ function checkRotation(
         rule: "C3",
         workerId,
         date: a.date,
-        message: `Shift downshift from ${prev.shiftDefId} to ${a.shiftDefId} on consecutive days (${prev.date} → ${a.date})`,
+        message: `Shift downshift from ${label(prev.shiftDefId)} to ${label(a.shiftDefId)} on consecutive days (${prev.date} → ${a.date})`,
       });
     }
     prev = a;

@@ -114,6 +114,45 @@ describe("validateRoster (roster-engine task 1)", () => {
     ]);
   });
 
+  test("C3 message uses shift labels", () => {
+    const assignments = [
+      assign("w1", "2026-01-05", "s2"),
+      assign("w1", "2026-01-06", "s0"),
+    ];
+    const labels = { s0: "Morning", s1: "Afternoon", s2: "Night" };
+
+    const [c3] = validateRoster(
+      assignments,
+      workers,
+      rules({ c4: false }),
+      mkShift(3),
+      {},
+      labels,
+    );
+
+    expect(c3.message).toContain("from Night to Morning");
+    expect(c3.message).not.toContain("s2");
+  });
+
+  test("C3 message falls back to the shift id when a label is missing", () => {
+    const assignments = [
+      assign("w1", "2026-01-05", "s2"),
+      assign("w1", "2026-01-06", "s0"),
+    ];
+    const run = (labels?: Record<string, string>) =>
+      validateRoster(
+        assignments,
+        workers,
+        rules({ c4: false }),
+        mkShift(3),
+        {},
+        labels,
+      )[0].message;
+
+    expect(run({ s2: "Night" })).toContain("from Night to s0");
+    expect(run()).toContain("from s2 to s0");
+  });
+
   test("C3 accepts forward rotation through increasing order", () => {
     const assignments = [
       assign("w1", "2026-01-05", "s0"),

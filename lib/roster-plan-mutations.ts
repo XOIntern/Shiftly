@@ -10,6 +10,7 @@ import type { ActionState } from "@/types/action-state";
 import {
   loadAreaRequirements,
   loadPriorAssignments,
+  loadShiftLabels,
   loadShiftOrder,
   loadWorkerProfiles,
 } from "./roster-data";
@@ -195,8 +196,9 @@ export async function planViolations(
   rows: RosterAssignment[],
 ): Promise<Violation[]> {
   const weekStart = mondayOf(rows[0]?.date ?? "1970-01-05");
-  const [shiftOrder, areaRequirements, profiles, prior] = await Promise.all([
+  const [shiftOrder, shiftLabels, areaRequirements, profiles, prior] = await Promise.all([
     loadShiftOrder(siteLocationId),
+    loadShiftLabels(siteLocationId),
     loadAreaRequirements(siteLocationId),
     loadWorkerProfiles(siteLocationId),
     loadPriorAssignments(siteLocationId, weekDates(weekStart)[0]),
@@ -207,6 +209,7 @@ export async function planViolations(
     rules,
     shiftOrder,
     areaRequirements,
+    shiftLabels,
   );
 }
 

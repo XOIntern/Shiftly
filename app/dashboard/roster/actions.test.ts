@@ -132,6 +132,7 @@ async function createWorkArea(fx: BaseFixture, tag: string): Promise<string> {
 async function createShift(
   fx: BaseFixture,
   orderIndex: number,
+  label?: string,
 ): Promise<string> {
   const id = randomUUID();
   createdShiftIds.push(id);
@@ -139,7 +140,7 @@ async function createShift(
     id,
     siteId: fx.siteId,
     siteLocationId: fx.locationId,
-    label: `t-roster-shift-${orderIndex}-${id}`,
+    label: label ?? `t-roster-shift-${orderIndex}-${id}`,
     orderIndex,
     startTime: "07:00",
     endTime: "15:00",
@@ -536,8 +537,8 @@ describe("roster actions: publishRoster", () => {
     const pos = await createPosition(fx, "pd");
     const area = await createWorkArea(fx, "a");
     await requireAreaPosition(fx, area, pos);
-    const shiftLow = await createShift(fx, 1);
-    const shiftHigh = await createShift(fx, 2);
+    const shiftLow = await createShift(fx, 1, "Morning");
+    const shiftHigh = await createShift(fx, 2, "Night");
     const w = await createWorker(fx, "w");
     await giveWorkerPosition(fx, w, pos);
     await seedWeeklyDemand(fx, [
@@ -571,6 +572,9 @@ describe("roster actions: publishRoster", () => {
       expect(result.ok).toBe(false);
       expect(result.message).toContain("downshift");
       expect(result.message).toContain(TUE);
+      expect(result.message).toContain("from Night to Morning");
+      expect(result.message).not.toContain(shiftHigh);
+      expect(result.message).not.toContain(shiftLow);
 
       const [planAfter] = await db
         .select()
@@ -657,6 +661,30 @@ describe("roster actions: publishRoster", () => {
     } finally {
       void fx;
     }
+  });
+});
+
+describe("planViolations", () => {
+  test("a planted downshift is reported with the shift labels, not the ids", async () => {
+    const fx = await createBase(`t6-pv-${randomUUID()}`, "pv");
+    const area = await createWorkArea(fx, "a");
+    const shiftLow = await createShift(fx, 1, "Morning");
+    const shiftHigh = await createShift(fx, 2, "Night");
+    const w = await createWorker(fx, "w");
+
+    const { planViolations } = await import("@/lib/roster-plan-mutations");
+    const violations = await planViolations(
+      fx.locationId,
+      await loadEffectiveRules(fx.locationId),
+      [
+        { workerId: w, date: MON, shiftDefId: shiftHigh, workAreaId: area },
+        { workerId: w, date: TUE, shiftDefId: shiftLow, workAreaId: area },
+      ],
+    );
+
+    const c3 = violations.find((v) => v.rule === "C3");
+    expect(c3?.message).toContain("from Night to Morning");
+    expect(c3?.message).not.toContain(shiftHigh);
   });
 });
 

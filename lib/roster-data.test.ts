@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, test } from "bun:test";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { db } from "./db";
 import {
@@ -11,6 +11,7 @@ import {
   loadDailyRequirements,
   loadPriorAssignments,
   loadRequirementsForWeek,
+  loadShiftLabels,
   loadShiftOrder,
   loadWorkerProfiles,
 } from "./roster-data";
@@ -352,6 +353,37 @@ describe("loadShiftOrder", () => {
     await createShift(foreign, 1);
 
     expect(await loadShiftOrder(fx.locationId)).toEqual([own]);
+  });
+});
+
+describe("loadShiftLabels", () => {
+  const labelOf = async (id: string) =>
+    (await db.select({ label: shiftDefinition.label }).from(shiftDefinition).where(eq(shiftDefinition.id, id)))[0]
+      .label;
+
+  test("maps id to label for active and inactive live shifts, omitting deleted ones", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "labels");
+    const active = await createShift(fx, 1);
+    const inactive = await createShift(fx, 2, { inactive: true });
+    const deleted = await createShift(fx, 3, { deleted: true });
+
+    const labels = await loadShiftLabels(fx.locationId);
+
+    expect(labels[active]).toBe(await labelOf(active));
+    expect(labels[inactive]).toBe(await labelOf(inactive));
+    expect(labels).not.toHaveProperty(deleted);
+  });
+
+  test("other locations' shift definitions are excluded", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "labels-own");
+    const foreign = await createBase(`t${nextSeq()}`, "labels-foreign");
+    const own = await createShift(fx, 1);
+    const other = await createShift(foreign, 1);
+
+    const labels = await loadShiftLabels(fx.locationId);
+
+    expect(Object.keys(labels)).toEqual([own]);
+    expect(labels).not.toHaveProperty(other);
   });
 });
 

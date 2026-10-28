@@ -36,6 +36,7 @@ import {
   loadPlanWithRows,
   loadPriorAssignments,
   loadRequirementsForWeek,
+  loadShiftLabels,
   loadShiftOrder,
   loadWorkerProfiles,
 } from "@/lib/roster-data";
@@ -513,9 +514,10 @@ export async function publishRoster(planId: string): Promise<ActionState> {
       : mondayOf(plan.requestDate as string),
   )[0];
   const rules = await loadEffectiveRules(siteLocationId);
-  const [shiftOrder, areaRequirements, prior, profiles, requirements] =
+  const [shiftOrder, shiftLabels, areaRequirements, prior, profiles, requirements] =
     await Promise.all([
       loadShiftOrder(siteLocationId),
+      loadShiftLabels(siteLocationId),
       loadAreaRequirements(siteLocationId),
       loadPriorAssignments(siteLocationId, horizonStart),
       loadWorkerProfiles(siteLocationId),
@@ -530,6 +532,7 @@ export async function publishRoster(planId: string): Promise<ActionState> {
     rules,
     shiftOrder,
     areaRequirements,
+    shiftLabels,
   );
 
   // Workers deactivated (or removed) after generation never reach the
@@ -854,10 +857,11 @@ export async function fillDailyRequest(
   // Admission, not trust: the candidate is validated over the merged week
   // context — the published week's rows, any rows the daily plan already
   // holds, and the prior history. Rejected candidates never reach the write.
-  const [rules, shiftOrder, areaRequirements, prior, profiles, weeklyRows, dailyRows] =
+  const [rules, shiftOrder, shiftLabels, areaRequirements, prior, profiles, weeklyRows, dailyRows] =
     await Promise.all([
       loadEffectiveRules(siteLocationId),
       loadShiftOrder(siteLocationId),
+      loadShiftLabels(siteLocationId),
       loadAreaRequirements(siteLocationId),
       loadPriorAssignments(siteLocationId, weekDates(weekStart)[0]),
       loadWorkerProfiles(siteLocationId),
@@ -920,6 +924,7 @@ export async function fillDailyRequest(
     rules,
     shiftOrder,
     areaRequirements,
+    shiftLabels,
   );
   if (violations.length > 0) {
     return { ok: false, message: violationMessage(violations) };
