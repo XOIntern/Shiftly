@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ilike, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, isNotNull, isNull } from "drizzle-orm";
 
 import { site } from "@/drizzle/schema";
 import { db } from "@/lib/db";
@@ -9,8 +9,10 @@ import {
   parseTableSearchParams,
 } from "@/lib/table-params";
 import { requireSuperadmin } from "@/lib/session";
+import { parseSitesView } from "@/lib/sites-view";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateSiteButton } from "@/components/sites/site-form";
+import { DeletedSitesTable } from "@/components/sites/deleted-sites-table";
 import { SitesTable } from "@/components/sites/sites-table";
 
 // Deliberate block: the page queries master data behind the superadmin session
@@ -22,6 +24,10 @@ export const instant = false;
 // the URL may name, never composed from user input.
 const SORTABLE = { name: site.name, isActive: site.isActive };
 const DEFAULT_ORDER = [asc(site.name)];
+// The deleted view sorts by name or by when the site was deleted, newest
+// deletion first by default.
+const SORTABLE_DELETED = { name: site.name, deletedAt: site.deletedAt };
+const DEFAULT_ORDER_DELETED = [desc(site.deletedAt)];
 
 // The reference algorithm every master-data page follows (epic #24):
 // validate URL state, count first for pageCount, clamp the page, then fetch
@@ -30,23 +36,31 @@ export default async function SitesPage({
   searchParams,
 }: PageProps<"/dashboard/sites">) {
   await requireSuperadmin();
+  const params = await searchParams;
+  // ?show=deleted picks the soft-deleted list; it is not part of the shared
+  // table params, so it is read off the raw search params.
+  const view = parseSitesView(params.show);
   const { q, status, page, sorts, pageSize } = parseTableSearchParams(
-    await searchParams,
+    params,
     PAGE_SIZE_OPTIONS,
   );
   const pattern = ilikePattern(q);
+  const deletedView = view === "deleted";
   // Null-safe and(...) composes search + filters. The deletedAt predicate
-  // keeps soft-deleted sites (soft-delete epic #40) out of both the count
-  // and the listing — this one `where` feeds both queries below.
+  // splits the live list from the deleted one (soft-delete epic #40) and
+  // feeds both the count and the listing — this one `where` serves both
+  // queries below.
   const where = and(
-    isNull(site.deletedAt),
+    deletedView ? isNotNull(site.deletedAt) : isNull(site.deletedAt),
     ...(pattern ? [ilike(site.name, pattern)] : []),
     ...(status ? [eq(site.isActive, status === "active")] : []),
   );
   // buildOrder own-property checks the whitelist: a plain truthiness guard
   // would admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which
   // drizzle rejects mid-render.
-  const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
+  const order = deletedView
+    ? buildOrder(sorts, SORTABLE_DELETED, DEFAULT_ORDER_DELETED)
+    : buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
   const [{ count: rowCount }] = await db
     .select({ count: count() })
@@ -55,8 +69,13 @@ export default async function SitesPage({
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
-  const sites = await db
-    .select({ id: site.id, name: site.name, isActive: site.isActive })
+  const rows = await db
+    .select({
+      id: site.id,
+      name: site.name,
+      isActive: site.isActive,
+      deletedAt: site.deletedAt,
+    })
     .from(site)
     .where(where)
     .orderBy(...order)
@@ -77,7 +96,27 @@ export default async function SitesPage({
       </div>
       <Card>
         <CardContent>
-          <SitesTable sites={sites} pageCount={pageCount} total={rowCount} />
+          {deletedView ? (
+            <DeletedSitesTable
+              sites={rows.map(({ id, name, deletedAt }) => ({
+                id,
+                name,
+                deletedAt: (deletedAt as Date).toISOString(),
+              }))}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          ) : (
+            <SitesTable
+              sites={rows.map(({ id, name, isActive }) => ({
+                id,
+                name,
+                isActive,
+              }))}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          )}
         </CardContent>
       </Card>
     </div>

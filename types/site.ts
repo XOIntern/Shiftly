@@ -14,3 +14,11 @@ export type SiteRow = {
   name: string;
   isActive: boolean;
 };
+
+// One row of the deleted-sites table. deletedAt travels as an ISO string so
+// the server and the client render the same text.
+export type DeletedSiteRow = {
+  id: string;
+  name: string;
+  deletedAt: string;
+};

@@ -407,3 +407,141 @@ describe("sites page server queries (issue #20)", () => {
     expect(props.total).toBe(1);
   });
 });
+
+// The deleted view (?show=deleted) lists soft-deleted sites; every other value
+// of show is the live list.
+describe("sites page deleted view", () => {
+  function asSuperadmin() {
+    actor = {
+      id: randomUUID(),
+      name: "Sites Page Sa",
+      email: `t185-sites-page-${randomUUID()}@shiftly.test`,
+      role: "superadmin",
+      siteId: null,
+      siteLocationId: null,
+      isActive: true,
+    };
+  }
+
+  type DeletedRow = { id: string; name: string; deletedAt: string };
+
+  async function renderDeleted(
+    searchParams: Record<string, string | string[] | undefined> = {},
+  ) {
+    const props = await renderSites({ show: "deleted", ...searchParams });
+    return { ...props, sites: props.sites as unknown as DeletedRow[] };
+  }
+
+  async function seed(
+    token: string,
+    rows: Array<{ suffix: string; deletedAt: Date | null }>,
+  ): Promise<string[]> {
+    const ids = rows.map(() => randomUUID());
+    fixtureCleanup.defer(async () => {
+      for (const id of ids) await db.delete(site).where(eq(site.id, id));
+    });
+    await db.insert(site).values(
+      rows.map((row, i) => ({
+        id: ids[i],
+        name: `${token}-${row.suffix}`,
+        isActive: false,
+        deletedAt: row.deletedAt,
+      })),
+    );
+    return ids;
+  }
+
+  test("lists only soft-deleted sites, newest deletion first, with the deleted date", async () => {
+    const token = `t185-del-${randomUUID().slice(0, 8)}`;
+    const [live, older, newer] = await seed(token, [
+      { suffix: "live", deletedAt: null },
+      { suffix: "older", deletedAt: new Date("2026-01-01T10:00:00Z") },
+      { suffix: "newer", deletedAt: new Date("2026-02-01T10:00:00Z") },
+    ]);
+    asSuperadmin();
+
+    const props = await renderDeleted({ q: token });
+
+    expect(props.sites.map((row) => row.id)).toEqual([newer, older]);
+    expect(props.sites.map((row) => row.id)).not.toContain(live);
+    expect(props.total).toBe(2);
+    expect(props.sites[0].deletedAt).toBe("2026-02-01T10:00:00.000Z");
+  });
+
+  test("q narrows within the deleted view", async () => {
+    const token = `t185-del-${randomUUID().slice(0, 8)}`;
+    const [alpha] = await seed(token, [
+      { suffix: "alpha", deletedAt: new Date("2026-01-01T10:00:00Z") },
+      { suffix: "beta", deletedAt: new Date("2026-01-02T10:00:00Z") },
+    ]);
+    asSuperadmin();
+
+    const props = await renderDeleted({ q: `${token}-alpha` });
+
+    expect(props.sites.map((row) => row.id)).toEqual([alpha]);
+    expect(props.total).toBe(1);
+  });
+
+  test("sort=name:asc orders the deleted rows by name", async () => {
+    const token = `t185-del-${randomUUID().slice(0, 8)}`;
+    const [b, a] = await seed(token, [
+      { suffix: "b", deletedAt: new Date("2026-02-01T10:00:00Z") },
+      { suffix: "a", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    asSuperadmin();
+
+    const props = await renderDeleted({ q: token, sort: "name:asc" });
+
+    expect(props.sites.map((row) => row.id)).toEqual([a, b]);
+  });
+
+  test("the status filter applies to the deleted list too", async () => {
+    const token = `t185-del-${randomUUID().slice(0, 8)}`;
+    const [id] = await seed(token, [
+      { suffix: "x", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    asSuperadmin();
+
+    // The seeded row is inactive (deleting a site requires deactivating it).
+    const inactive = await renderDeleted({ q: token, status: "inactive" });
+    expect(inactive.sites.map((row) => row.id)).toEqual([id]);
+
+    const active = await renderDeleted({ q: token, status: "active" });
+    expect(active.sites).toEqual([]);
+    expect(active.total).toBe(0);
+  });
+
+  test("pagination math holds in the deleted view", async () => {
+    const token = `t185-del-${randomUUID().slice(0, 8)}`;
+    await seed(
+      token,
+      Array.from({ length: 15 }, (_, i) => ({
+        suffix: String(i + 1).padStart(2, "0"),
+        deletedAt: new Date("2026-01-01T10:00:00Z"),
+      })),
+    );
+    asSuperadmin();
+
+    const props = await renderDeleted();
+
+    expect(props.total).toBeGreaterThanOrEqual(15);
+    expect(props.pageCount).toBe(Math.max(1, Math.ceil(props.total! / 10)));
+    expect(props.sites.length).toBe(Math.min(10, props.total!));
+  });
+
+  test("no show and an unknown show keep listing live sites only", async () => {
+    const token = `t185-del-${randomUUID().slice(0, 8)}`;
+    const [live, gone] = await seed(token, [
+      { suffix: "live", deletedAt: null },
+      { suffix: "gone", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    asSuperadmin();
+
+    for (const show of [undefined, "bogus", "DELETED"]) {
+      const props = await renderSites({ q: token, show });
+      const ids = props.sites.map((row) => row.id);
+      expect(ids).toEqual([live]);
+      expect(ids).not.toContain(gone);
+    }
+  });
+});
