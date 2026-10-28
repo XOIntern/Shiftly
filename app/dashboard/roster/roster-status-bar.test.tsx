@@ -13,8 +13,13 @@ mock.module("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-const { RosterStatusBar, discardDialogCopy, publishDialogCopy, warningsText } =
-  await import("./roster-status-bar");
+const {
+  RosterStatusBar,
+  blockingNote,
+  discardDialogCopy,
+  publishDialogCopy,
+  warningsText,
+} = await import("./roster-status-bar");
 type BarProps = Parameters<typeof RosterStatusBar>[0];
 
 const PLAN_A = "11111111-1111-4111-8111-111111111111";
@@ -387,5 +392,22 @@ describe("publishDialogCopy", () => {
     expect(publishDialogCopy(4, { required: 10, filled: 3 }).body).toBe(
       `${LOCKS} 7 slots are still unfilled.`,
     );
+  });
+});
+
+describe("blockingNote", () => {
+  test("no note when there are no warnings, all of them block, or the plan is not a draft", () => {
+    expect(blockingNote(0, 0, true)).toBeNull();
+    expect(blockingNote(3, 3, true)).toBeNull();
+    expect(blockingNote(5, 2, false)).toBeNull();
+  });
+
+  test("a draft with none blocking says none of them block publishing", () => {
+    expect(blockingNote(4, 0, true)).toBe("None of these block publishing");
+  });
+
+  test("a draft with some blocking counts them", () => {
+    expect(blockingNote(5, 2, true)).toBe("2 of 5 block publishing");
+    expect(blockingNote(3, 1, true)).toBe("1 of 3 block publishing");
   });
 });

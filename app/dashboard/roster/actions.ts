@@ -702,8 +702,9 @@ export async function suggestReplacementsAction(
 
   // Context = the LATEST published weekly plan of the date's week (a
   // revised plan republishes at a higher version; only its rows count) +
-  // the location's prior history. The SAME helper fillDailyRequest uses —
-  // the two picks cannot drift.
+  // the location's prior history. The weekly-plan pick is the SAME helper
+  // fillDailyRequest uses; the daily rows below are the whole week's, while
+  // the fill check reads only its own date's.
   const weeklyPlan = await latestPublishedWeeklyPlan(siteLocationId, weekStart);
 
   const weeklyRows: RosterAssignment[] = weeklyPlan

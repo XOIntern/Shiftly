@@ -383,6 +383,19 @@ export function warningsText(
     : `${base}, ${blocking} blocking`;
 }
 
+// The line that explains the trigger label inside the popover; null when
+// the label already says everything (all warnings block, or no publish gate).
+export function blockingNote(
+  total: number,
+  blocking: number,
+  draft: boolean,
+): string | null {
+  if (total === 0 || !draft || blocking === total) return null;
+  return blocking === 0
+    ? "None of these block publishing"
+    : `${blocking} of ${total} block publishing`;
+}
+
 function StatusText({
   planStatus,
   planVersion,
@@ -410,12 +423,11 @@ function StatusText({
     blockingViolationCount,
     planStatus === "draft",
   );
-  const blockNote =
-    planStatus !== "draft" || blockingViolationCount === violationCount
-      ? null
-      : blockingViolationCount === 0
-        ? "None of these block publishing"
-        : `${blockingViolationCount} of ${violationCount} block publishing`;
+  const blockNote = blockingNote(
+    violationCount,
+    blockingViolationCount,
+    planStatus === "draft",
+  );
 
   return (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">

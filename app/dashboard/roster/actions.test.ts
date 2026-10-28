@@ -1344,8 +1344,8 @@ describe("roster actions: suggestReplacementsAction", () => {
     expect((await s.fill(s.tueRequest, filled, TUE)).ok).toBe(true);
 
     const wed = await s.suggest("2026-01-07");
-    expect(wed.find((c) => c.workerId === filled)!.reason).toContain("1 work days this week");
-    expect(wed.find((c) => c.workerId === untouched)!.reason).toContain("0 work days this week");
+    expect(wed.find((c) => c.workerId === filled)!.reason).toMatch(/^1 work days this week/);
+    expect(wed.find((c) => c.workerId === untouched)!.reason).toMatch(/^0 work days this week/);
   });
 
   test("another location's daily fill on the same date does not change the suggestions", async () => {
