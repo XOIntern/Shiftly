@@ -351,3 +351,255 @@ describe("workers page server queries", () => {
     expect(positionIds).toContain(fx.ids.posAOff);
   });
 });
+
+// The deleted view (?show=deleted) lists soft-deleted workers inside the
+// actor's scope; every other value of show is the live list.
+describe("workers page deleted view", () => {
+  type DeletedRow = {
+    id: string;
+    employeeId: string;
+    name: string;
+    siteName: string;
+    locationName: string;
+    deletedAt: string;
+  };
+
+  function actorOf(
+    role: SessionUser["role"],
+    siteId: string | null = null,
+    siteLocationId: string | null = null,
+  ): SessionUser {
+    return {
+      id: randomUUID(),
+      name: "Worker Deleted Actor",
+      email: `t192-page-${randomUUID()}@shiftly.test`,
+      role,
+      siteId,
+      siteLocationId,
+      isActive: true,
+    };
+  }
+
+  async function renderDeleted(
+    searchParams: Record<string, string | string[] | undefined> = {},
+  ) {
+    const props = await renderWorkers({ show: "deleted", ...searchParams });
+    return { ...props, workers: props.workers as unknown as DeletedRow[] };
+  }
+
+  // One site with two locations and workers seeded straight into the table so
+  // each row can carry its own deletedAt. The site name doubles as the
+  // search token; `loc` picks which location a worker goes under.
+  async function seedSiteWith(
+    rows: Array<{
+      suffix: string;
+      deletedAt: Date | null;
+      isActive?: boolean;
+      loc?: "a" | "b";
+      name?: string;
+    }>,
+  ) {
+    const siteId = randomUUID();
+    const locA = randomUUID();
+    const locB = randomUUID();
+    const token = `t192-page-${randomUUID().slice(0, 8)}`;
+    fixtureCleanup.defer(async () => {
+      await db.delete(worker).where(eq(worker.siteId, siteId));
+      await db.delete(siteLocation).where(eq(siteLocation.siteId, siteId));
+      await db.delete(site).where(eq(site.id, siteId));
+    });
+    await db.insert(site).values({ id: siteId, name: token });
+    await db.insert(siteLocation).values([
+      { id: locA, siteId, name: `${token}-loc-a` },
+      { id: locB, siteId, name: `${token}-loc-b` },
+    ]);
+    const ids = rows.map(() => randomUUID());
+    await db.insert(worker).values(
+      rows.map((row, i) => ({
+        id: ids[i],
+        siteId,
+        siteLocationId: row.loc === "b" ? locB : locA,
+        employeeId: `${token}-${row.suffix}`,
+        name: row.name ?? `Name ${row.suffix}`,
+        isActive: row.isActive ?? true,
+        deletedAt: row.deletedAt,
+      })),
+    );
+    return { siteId, locA, locB, token, ids };
+  }
+
+  test("lists only soft-deleted workers, newest deletion first, with location and date", async () => {
+    const { siteId, token, ids } = await seedSiteWith([
+      { suffix: "live", deletedAt: null },
+      { suffix: "older", deletedAt: new Date("2026-01-01T10:00:00Z") },
+      { suffix: "newer", deletedAt: new Date("2026-02-01T10:00:00Z") },
+    ]);
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ siteId });
+
+    expect(props.workers.map((w) => w.id)).toEqual([ids[2], ids[1]]);
+    expect(props.workers[0].deletedAt).toBe("2026-02-01T10:00:00.000Z");
+    expect(props.workers[0].siteName).toBe(token);
+    expect(props.workers[0].locationName).toBe(`${token}-loc-a`);
+    expect(props.total).toBe(2);
+  });
+
+  test("q matches the name or the employee id within the deleted view", async () => {
+    const { token, ids } = await seedSiteWith([
+      {
+        suffix: "one",
+        deletedAt: new Date("2026-01-01T10:00:00Z"),
+        name: "Budi Santoso",
+      },
+      {
+        suffix: "two",
+        deletedAt: new Date("2026-01-02T10:00:00Z"),
+        name: "Siti Aminah",
+      },
+    ]);
+    actor = actorOf("superadmin");
+
+    const byId = await renderDeleted({ q: `${token}-one` });
+    expect(byId.workers.map((w) => w.id)).toEqual([ids[0]]);
+
+    const byName = await renderDeleted({ q: "Aminah", siteId: undefined });
+    expect(byName.workers.map((w) => w.id)).toContain(ids[1]);
+    expect(byName.workers.map((w) => w.id)).not.toContain(ids[0]);
+  });
+
+  test("the status filter applies to the deleted list too", async () => {
+    const { siteId, ids } = await seedSiteWith([
+      {
+        suffix: "on",
+        deletedAt: new Date("2026-01-01T10:00:00Z"),
+        isActive: true,
+      },
+      {
+        suffix: "off",
+        deletedAt: new Date("2026-01-02T10:00:00Z"),
+        isActive: false,
+      },
+    ]);
+    actor = actorOf("superadmin");
+
+    const inactive = await renderDeleted({ siteId, status: "inactive" });
+
+    expect(inactive.workers.map((w) => w.id)).toEqual([ids[1]]);
+  });
+
+  test("the site filter applies to the deleted list for a superadmin", async () => {
+    const a = await seedSiteWith([
+      { suffix: "a", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    const b = await seedSiteWith([
+      { suffix: "b", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ siteId: a.siteId });
+
+    expect(props.workers.map((w) => w.id)).toEqual([a.ids[0]]);
+    expect(props.workers.map((w) => w.id)).not.toContain(b.ids[0]);
+  });
+
+  test("sort=employeeId:asc orders by employee id; sort=deletedAt:asc by date", async () => {
+    const { siteId, ids } = await seedSiteWith([
+      { suffix: "b", deletedAt: new Date("2026-02-01T10:00:00Z") },
+      { suffix: "a", deletedAt: new Date("2026-03-01T10:00:00Z") },
+    ]);
+    actor = actorOf("superadmin");
+
+    const byId = await renderDeleted({ siteId, sort: "employeeId:asc" });
+    expect(byId.workers.map((w) => w.id)).toEqual([ids[1], ids[0]]);
+
+    const byDate = await renderDeleted({ siteId, sort: "deletedAt:asc" });
+    expect(byDate.workers.map((w) => w.id)).toEqual([ids[0], ids[1]]);
+  });
+
+  test("workers deleted at the same instant list by ascending id, whatever the insert order", async () => {
+    const sameInstant = new Date("2026-01-01T10:00:00Z");
+    const { siteId, ids } = await seedSiteWith(
+      Array.from({ length: 4 }, (_, i) => ({
+        suffix: `s${i}`,
+        deletedAt: sameInstant,
+      })),
+    );
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ siteId });
+
+    expect(props.workers.map((w) => w.id)).toEqual([...ids].sort());
+  });
+
+  test("an HO sees only their own site's deleted workers", async () => {
+    const own = await seedSiteWith([
+      { suffix: "own", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    const foreign = await seedSiteWith([
+      { suffix: "foreign", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    actor = actorOf("ho", own.siteId);
+
+    // A crafted siteId param must not widen the scope.
+    const props = await renderDeleted({ siteId: foreign.siteId });
+
+    expect(props.workers.map((w) => w.id)).toEqual([own.ids[0]]);
+  });
+
+  test("an admin sees only the deleted workers of their own location", async () => {
+    const seeded = await seedSiteWith([
+      { suffix: "mine", deletedAt: new Date("2026-01-01T10:00:00Z"), loc: "a" },
+      {
+        suffix: "sibling",
+        deletedAt: new Date("2026-01-02T10:00:00Z"),
+        loc: "b",
+      },
+    ]);
+    actor = actorOf("admin", seeded.siteId, seeded.locA);
+
+    const props = await renderDeleted({ q: seeded.token });
+
+    expect(props.workers.map((w) => w.id)).toEqual([seeded.ids[0]]);
+  });
+
+  test("an unbound HO and an unbound admin see nothing", async () => {
+    for (const unbound of [actorOf("ho", null), actorOf("admin", null, null)]) {
+      actor = unbound;
+
+      const props = await renderDeleted();
+
+      expect(props.workers).toEqual([]);
+      expect(props.total).toBe(0);
+    }
+  });
+
+  test("pagination math holds in the deleted view", async () => {
+    const { siteId } = await seedSiteWith(
+      Array.from({ length: 12 }, (_, i) => ({
+        suffix: String(i).padStart(2, "0"),
+        deletedAt: new Date("2026-01-01T10:00:00Z"),
+      })),
+    );
+    actor = actorOf("superadmin");
+
+    const props = await renderDeleted({ siteId, page: "999" });
+
+    expect(props.total).toBe(12);
+    expect(props.pageCount).toBe(2);
+    expect(props.workers).toHaveLength(2);
+  });
+
+  test("no show, an unknown show and a repeated show keep listing live workers only", async () => {
+    const { siteId, ids } = await seedSiteWith([
+      { suffix: "live", deletedAt: null },
+      { suffix: "gone", deletedAt: new Date("2026-01-01T10:00:00Z") },
+    ]);
+    actor = actorOf("superadmin");
+
+    for (const show of [undefined, "bogus", "DELETED", ["deleted", "deleted"]]) {
+      const props = await renderWorkers({ siteId, show });
+      expect(props.workers.map((w) => w.id)).toEqual([ids[0]]);
+    }
+  });
+});

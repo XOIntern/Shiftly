@@ -12,7 +12,7 @@ import {
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/error/db-errors";
-import { requireUser } from "@/lib/session";
+import { requireSuperadmin, requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
@@ -25,6 +25,10 @@ import {
   workerMutationWhere,
   workerOwnedByActor,
 } from "@/lib/worker-scope";
+import { purgeWorkerGuarded } from "@/lib/worker-purge";
+import { restoreWorkerGuarded } from "@/lib/worker-restore";
+import { nounFor } from "@/lib/bulk-summary";
+import { runPerRow } from "@/lib/run-per-row";
 
 // Thrown inside updateWorker's transaction so the pivot delete that ran
 // before the welded update is rolled back, not committed. A returned value
@@ -425,4 +429,86 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
   } catch (err) {
     return dbResult(err);
   }
+}
+
+// Brings a soft-deleted worker back (lib/worker-restore.ts), inside the
+// actor's scope: an HO only reaches their own site's rows, an admin their own
+// location's, and anything else answers the plain not-found message. Only the
+// worker row returns; a deleted location, a deleted held position or an
+// employee id now used by a live worker refuses, the id through the guard or
+// through the unique-index backstop.
+export async function restoreWorker(id: string): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid worker id." };
+  }
+
+  let result: Awaited<ReturnType<typeof restoreWorkerGuarded>>;
+  try {
+    result = await db.transaction((tx) => restoreWorkerGuarded(tx, actor, id));
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/workers");
+  return { ok: true };
+}
+
+// Permanent delete of a soft-deleted worker (superadmin only). Guards and
+// writes share one transaction (lib/worker-purge.ts); a roster assignment
+// refuses, and the FK backstop is mapped by dbResult.
+export async function purgeWorker(id: string): Promise<ActionState> {
+  await requireSuperadmin();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid worker id." };
+  }
+
+  let result: Awaited<ReturnType<typeof purgeWorkerGuarded>>;
+  try {
+    result = await db.transaction((tx) => purgeWorkerGuarded(tx, id));
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/workers");
+  return { ok: true };
+}
+
+const perWorker = {
+  emptyMessage: "No workers selected.",
+  noun: nounFor("worker"),
+  mapError: (err: unknown) => dbResult(err).message ?? GENERIC_ERROR,
+};
+
+// Bulk restore of soft-deleted workers, inside the actor's scope: rows of
+// another site or location are skipped like any other refusal.
+export async function restoreBulk(ids: string[]): Promise<ActionState> {
+  const actor = await requireUser();
+  const result = await runPerRow(
+    ids,
+    (tx, id) => restoreWorkerGuarded(tx, actor, id),
+    perWorker,
+  );
+  if (result.ok) revalidatePath("/dashboard/workers");
+  return result;
+}
+
+// Bulk permanent delete of soft-deleted workers (superadmin only). Each
+// worker runs the same guarded purge as purgeWorker; one with roster history
+// is skipped.
+export async function purgeBulk(ids: string[]): Promise<ActionState> {
+  await requireSuperadmin();
+  const result = await runPerRow(ids, purgeWorkerGuarded, perWorker);
+  if (result.ok) revalidatePath("/dashboard/workers");
+  return result;
 }

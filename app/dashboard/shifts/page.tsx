@@ -1,4 +1,14 @@
-import { and, asc, count, eq, ilike, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { site, siteLocation, shiftDefinition } from "@/drizzle/schema";
@@ -9,10 +19,12 @@ import {
   ilikePattern,
   parseTableSearchParams,
 } from "@/lib/table-params";
+import { parseListView } from "@/lib/list-view";
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateShiftButton } from "@/app/dashboard/shifts/shift-dialog";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
+import { DeletedShiftsTable } from "@/app/dashboard/shifts/deleted-shifts-table";
 import { ShiftsTable } from "@/app/dashboard/shifts/shifts-table";
 
 // Deliberate block: the page queries master data behind the session check,
@@ -33,6 +45,21 @@ const DEFAULT_ORDER = [
   asc(siteLocation.name),
   asc(shiftDefinition.orderIndex),
 ];
+// The deleted view sorts by order, label, start time or when the shift was
+// deleted, newest deletion first by default. buildOrder trails every user sort
+// with this default, so the id breaks ties for any sort: shifts deleted in the
+// same instant (a bulk delete) keep one order and cannot swap between pages.
+// order_index is a smallint, so its sort is numeric.
+const SORTABLE_DELETED = {
+  label: shiftDefinition.label,
+  orderIndex: shiftDefinition.orderIndex,
+  startTime: shiftDefinition.startTime,
+  deletedAt: shiftDefinition.deletedAt,
+};
+const DEFAULT_ORDER_DELETED = [
+  desc(shiftDefinition.deletedAt),
+  asc(shiftDefinition.id),
+];
 
 export default async function ShiftsPage({
   searchParams,
@@ -40,8 +67,12 @@ export default async function ShiftsPage({
   // requireUser, not a stricter guard: all three roles open the page —
   // they differ by the scope of rows shown, not by access (spec §3.1).
   const actor = await requireUser();
+  const rawParams = await searchParams;
+  // ?show=deleted picks the soft-deleted list; it is not part of the shared
+  // table params, so it is read off the raw search params.
+  const deletedView = parseListView(rawParams.show) === "deleted";
   const { q, status, siteId, page, sorts, pageSize } = parseTableSearchParams(
-    await searchParams,
+    rawParams,
     PAGE_SIZE_OPTIONS,
   );
   const isSuperadmin = actor.role === "superadmin";
@@ -70,7 +101,14 @@ export default async function ShiftsPage({
   // Label-only search; the joined site/location names are deliberately not
   // searched (mirrors the work-areas page's locked decision). Null-safe
   // and(...) composes scope+search+filters.
+  // The deletedAt predicate splits the live list from the deleted one
+  // (soft-delete epic #40); the scope stays in place for both, so nobody lists
+  // another site's or location's deleted rows. This one `where` serves the
+  // count and the listing below.
   const where = and(
+    deletedView
+      ? isNotNull(shiftDefinition.deletedAt)
+      : isNull(shiftDefinition.deletedAt),
     ...(pattern ? [ilike(shiftDefinition.label, pattern)] : []),
     ...(status ? [eq(shiftDefinition.isActive, status === "active")] : []),
     ...(siteFilter ? [siteFilter] : []),
@@ -80,14 +118,16 @@ export default async function ShiftsPage({
   // Own-property lookup inside buildOrder: a plain truthiness guard would
   // admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which
   // drizzle rejects mid-render.
-  const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
+  const order = deletedView
+    ? buildOrder(sorts, SORTABLE_DELETED, DEFAULT_ORDER_DELETED)
+    : buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
   const [{ count: rowCount }] = await db
     .select({ count: count() })
     .from(shiftDefinition)
     .innerJoin(siteLocation, eq(shiftDefinition.siteLocationId, siteLocation.id))
     .innerJoin(site, eq(shiftDefinition.siteId, site.id))
-    .where(and(where, isNull(shiftDefinition.deletedAt)));
+    .where(where);
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
@@ -162,11 +202,12 @@ export default async function ShiftsPage({
         siteId: shiftDefinition.siteId,
         siteName: site.name,
         locationName: siteLocation.name,
+        deletedAt: shiftDefinition.deletedAt,
       })
       .from(shiftDefinition)
       .innerJoin(siteLocation, eq(shiftDefinition.siteLocationId, siteLocation.id))
       .innerJoin(site, eq(shiftDefinition.siteId, site.id))
-      .where(and(where, isNull(shiftDefinition.deletedAt)))
+      .where(where)
       .orderBy(...order)
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),
@@ -193,17 +234,72 @@ export default async function ShiftsPage({
       </div>
       <Card>
         <CardContent>
-          <ShiftsTable
-            shifts={shifts}
-            siteLocations={siteLocations satisfies SiteLocationOption[]}
-            sites={sites satisfies SiteOption[]}
-            pinnedLocationName={pinnedLocationName}
-            canManage
-            showSite={isSuperadmin}
-            showLocation={actor.role !== "admin"}
-            pageCount={pageCount}
-            total={rowCount}
-          />
+          {deletedView ? (
+            <DeletedShiftsTable
+              shifts={shifts.map(
+                ({
+                  id,
+                  label,
+                  orderIndex,
+                  startTime,
+                  endTime,
+                  siteName,
+                  locationName,
+                  deletedAt,
+                }) => ({
+                  id,
+                  label,
+                  orderIndex,
+                  startTime,
+                  endTime,
+                  siteName,
+                  locationName,
+                  deletedAt: (deletedAt as Date).toISOString(),
+                }),
+              )}
+              showSiteFilter={isSuperadmin}
+              sites={sites satisfies SiteOption[]}
+              canPurge={isSuperadmin}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          ) : (
+            <ShiftsTable
+              shifts={shifts.map(
+                ({
+                  id,
+                  label,
+                  orderIndex,
+                  startTime,
+                  endTime,
+                  isActive,
+                  siteLocationId,
+                  siteId,
+                  siteName,
+                  locationName,
+                }) => ({
+                  id,
+                  label,
+                  orderIndex,
+                  startTime,
+                  endTime,
+                  isActive,
+                  siteLocationId,
+                  siteId,
+                  siteName,
+                  locationName,
+                }),
+              )}
+              siteLocations={siteLocations satisfies SiteLocationOption[]}
+              sites={sites satisfies SiteOption[]}
+              pinnedLocationName={pinnedLocationName}
+              canManage
+              showSite={isSuperadmin}
+              showLocation={actor.role !== "admin"}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          )}
         </CardContent>
       </Card>
     </div>
