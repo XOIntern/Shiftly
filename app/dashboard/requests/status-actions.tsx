@@ -107,6 +107,11 @@ const periodLabel = (request: MpRequestRow): string =>
     ? `week of ${request.weekStart}`
     : `date ${request.requestDate}`;
 
+// "<site> <location>": the site name is empty in some scopes, so join what
+// exists instead of leaving a double space.
+const requestLabel = (request: MpRequestRow): string =>
+  [request.siteName, request.locationName].filter(Boolean).join(" ");
+
 export function RowApproval({ request }: { request: MpRequestRow }) {
   const [pending, startTransition] = useTransition();
   const [choice, setChoice] = useState<"approved" | "rejected" | null>(null);
@@ -128,7 +133,7 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
     onDialogClosed,
   } = useFocusRestore(pending);
   const router = useRouter();
-  const period = periodLabel(request);
+  const label = `${requestLabel(request)}, ${periodLabel(request)}`;
   const approveCopy = approveDialogCopy();
   const rejectCopy = rejectDialogCopy();
   const focusAfterClose = () => focusFallbackTarget(succeeded.current);
@@ -176,9 +181,10 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
     <div className="flex items-center gap-2">
       <Button
         size="sm"
+        className="max-sm:h-11"
         disabled={pending}
         aria-busy={pending && choice === "approved"}
-        aria-label={`Approve request for ${period}`}
+        aria-label={`Approve request ${label}`}
         onClick={(event) => confirm("approved", event.currentTarget)}
       >
         {pending && choice === "approved" ? (
@@ -193,8 +199,8 @@ export function RowApproval({ request }: { request: MpRequestRow }) {
         variant="outline"
         disabled={pending}
         aria-busy={pending && choice === "rejected"}
-        aria-label={`Reject request for ${period}`}
-        className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        aria-label={`Reject request ${label}`}
+        className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive max-sm:h-11"
         onClick={(event) => confirm("rejected", event.currentTarget)}
       >
         {pending && choice === "rejected" ? (
@@ -294,7 +300,7 @@ export function MpRequestRowActions({
               size="icon-sm"
               ref={openerRef}
               disabled={withdrawing}
-              aria-label={`Actions for request ${request.siteName ?? ""} ${request.locationName}`}
+              aria-label={`Actions for request ${requestLabel(request)}, ${periodLabel(request)}`}
             />
           }
         >
@@ -383,7 +389,7 @@ export function RequestDetailStatus({ request }: { request: MpRequestRow }) {
           href={rosterHref}
           className="text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          View in roster →
+          View in roster <span aria-hidden="true">→</span>
         </Link>
       ) : null}
     </div>

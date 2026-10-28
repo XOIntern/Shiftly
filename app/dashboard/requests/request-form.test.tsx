@@ -17,6 +17,7 @@ import {
   areasWithoutPositions,
   buildCreateInput,
   collectLines,
+  copyEmptyMessage,
   copyWeekValues,
   dayTotals,
   gridDates,
@@ -457,8 +458,16 @@ describe("refusal surfacing (toasts + grid errors)", () => {
         activeShifts={activeShifts}
         type="weekly"
         siteLocationId={LOC_A1}
-        defaultWeekStart={MONDAY}
-        defaultStep="grid"
+        // A weekly edit with no stored lines opens on the grid with no area
+        // added — the zero-row state, reached without a click.
+        request={{
+          id: "99999999-8888-8888-8888-888888888888",
+          type: "weekly",
+          weekStart: MONDAY,
+          requestDate: null,
+          status: "open",
+          lines: [],
+        }}
         initialFieldErrors={{ lines: "Fill at least one headcount" }}
         onSaved={() => {}}
       />,
@@ -940,8 +949,11 @@ describe("RequestForm markup", () => {
   });
 });
 
-// The grouped form. Static markup only (bun test has no DOM), so
-// the post-choice states are seeded through the form's default* props.
+// The grouped form. Static markup only (bun test has no DOM), so the
+// post-choice states are reached through the edit variant's real initial
+// state (its areas and values come from the stored lines); the pieces' own
+// markup is pinned by their direct render tests (copy-step, area-section,
+// totals-row).
 describe("grouped form markup", () => {
   const areaNoPositions: MpRequestGridWorkArea = {
     id: "cccc3333-3333-4333-9333-333333333333",
@@ -969,52 +981,68 @@ describe("grouped form markup", () => {
     );
   }
 
-  const sourceLines: MpRequestLineView[] = [
-    {
-      workAreaId: WA_A1,
-      workAreaName: "Zone One",
-      shiftDefinitionId: SH_A1,
-      shiftLabel: "Morning",
-      positionId: POS_A1,
-      positionName: "Operator",
-      date: "2025-12-29",
-      headcount: 3,
-    },
-  ];
+  // A weekly edit of the given stored lines: it opens on the grid with the
+  // lines' areas added and their headcounts filled.
+  function renderWeeklyEdit(
+    lines: MpRequestLineView[],
+    props: Partial<Parameters<typeof RequestForm>[0]> = {},
+  ) {
+    return render({
+      request: {
+        id: "99999999-6666-6666-6666-666666666666",
+        type: "weekly",
+        weekStart: MONDAY,
+        requestDate: null,
+        status: "open",
+        lines,
+      },
+      ...props,
+    });
+  }
+
+  const zoneOneLine = (
+    shiftDefinitionId: string,
+    shiftLabel: string,
+    date: string,
+    headcount: number,
+  ): MpRequestLineView => ({
+    workAreaId: WA_A1,
+    workAreaName: "Zone One",
+    shiftDefinitionId,
+    shiftLabel,
+    positionId: POS_A1,
+    positionName: "Operator",
+    date,
+    headcount,
+  });
 
   test("create weekly shows the Copy and Start blank choices before the grid", () => {
-    const html = render({
-      defaultWeekStart: MONDAY,
-      initialCopySource: { weekStart: "2025-12-29", lines: sourceLines },
-    });
+    // The real initial state: the copy lookup has not answered yet.
+    const html = render({ defaultWeekStart: MONDAY });
 
-    expect(html.includes("Copy from week of 2025-12-29")).toBeTrue();
+    expect(html.includes("How do you want to start this week?")).toBeTrue();
     expect(html.includes("Start blank")).toBeTrue();
     // The grid waits for the choice: no sections, no Add area, no inputs.
     expect(html.includes(">Add area<")).toBeFalse();
     expect(html.includes("Headcount Zone One")).toBeFalse();
     expect(html.includes("<section")).toBeFalse();
-    // With a source the copy button is enabled.
-    expect(disabledButton("Copy from week of").test(html)).toBeFalse();
+    // "Copy from week of <source>" with an enabled button is pinned on
+    // CopyStep directly (copy-step.test.tsx), with a resolved source.
   });
 
-  test("copy button is disabled with the no-earlier-request explanation when there is no source", () => {
-    const html = render({ defaultWeekStart: MONDAY, initialCopySource: null });
-
-    expect(disabledButton("Copy from").test(html)).toBeTrue();
-    expect(
-      html.includes("No earlier request to copy for this location."),
-    ).toBeTrue();
-    expect(html.includes("Start blank")).toBeTrue();
-
+  test("copy button is disabled while the lookup is pending", () => {
+    // The no-source explanation ("No earlier request to copy for this
+    // location.") is pinned on CopyStep directly (copy-step.test.tsx).
     // Before the lookup resolves, the reason is the lookup itself.
     const pending = render({ defaultWeekStart: MONDAY });
     expect(disabledButton("Copy from").test(pending)).toBeTrue();
     expect(pending.includes("Looking for the last request")).toBeTrue();
   });
 
-  test('after Start blank the page shows "Add area" and no area sections', () => {
-    const html = render({ defaultWeekStart: MONDAY, defaultStep: "grid" });
+  test('with no area added the grid shows "Add area" and no area sections', () => {
+    // Weekly create after Start blank and a weekly edit with no stored
+    // lines render the same grid branch: no areas, every area offered.
+    const html = renderWeeklyEdit([]);
 
     expect(html.includes(">Add area<")).toBeTrue();
     expect(html.includes('aria-label="Add Zone One"')).toBeTrue();
@@ -1025,16 +1053,11 @@ describe("grouped form markup", () => {
   });
 
   test("an added area renders its section with every shift × required position row and the per-day total in the header", () => {
-    const html = render({
-      defaultWeekStart: MONDAY,
-      defaultStep: "grid",
-      defaultAreaIds: [WA_A1],
-      defaultValues: {
-        [`${WA_A1}|${SH_A1}|${POS_A1}|2026-01-05`]: "3",
-        [`${WA_A1}|${SH_A2}|${POS_A1}|2026-01-05`]: "2",
-        [`${WA_A1}|${SH_A1}|${POS_A1}|2026-01-07`]: "4",
-      },
-    });
+    const html = renderWeeklyEdit([
+      zoneOneLine(SH_A1, "Morning", "2026-01-05", 3),
+      zoneOneLine(SH_A2, "Evening", "2026-01-05", 2),
+      zoneOneLine(SH_A1, "Morning", "2026-01-07", 4),
+    ]);
 
     expect(html.includes("<section")).toBeTrue();
     // Both shifts × Zone One's one required position, on every day.
@@ -1062,9 +1085,7 @@ describe("grouped form markup", () => {
   });
 
   test("Add area does not offer areas without a required position and shows the existing hint for them", () => {
-    const html = render({
-      defaultWeekStart: MONDAY,
-      defaultStep: "grid",
+    const html = renderWeeklyEdit([], {
       activeWorkAreas: [...activeWorkAreas, areaNoPositions],
     });
 
@@ -1075,10 +1096,19 @@ describe("grouped form markup", () => {
   });
 
   test("daily create has no copy step and a single date column", () => {
+    // A daily request with a Zone One line opens with that area added (the
+    // edit variant's real initial state); AreaSection's daily markup is
+    // also pinned directly (area-section.test.tsx).
     const html = render({
       type: "daily",
-      defaultRequestDate: "2026-01-07",
-      defaultAreaIds: [WA_A1],
+      request: {
+        id: "99999999-9999-9999-9999-999999999999",
+        type: "daily",
+        weekStart: null,
+        requestDate: "2026-01-07",
+        status: "open",
+        lines: [zoneOneLine(SH_A1, "Morning", "2026-01-07", 6)],
+      },
     });
 
     expect(html.includes("Start blank")).toBeFalse();
@@ -1094,6 +1124,7 @@ describe("grouped form markup", () => {
     const fresh = render({ type: "daily", defaultRequestDate: "2026-01-07" });
     expect(fresh.includes(">Add area<")).toBeTrue();
     expect(fresh.includes("Start blank")).toBeFalse();
+    expect(fresh.includes("Copy from")).toBeFalse();
   });
 
   test("edit opens with the stored lines' areas already added and no copy step", () => {
@@ -1131,7 +1162,8 @@ describe("grouped form markup", () => {
 
   test("no Add bar (shift/position pickers) renders", () => {
     for (const html of [
-      render({ defaultWeekStart: MONDAY, defaultStep: "grid" }),
+      render({ defaultWeekStart: MONDAY }),
+      renderWeeklyEdit([zoneOneLine(SH_A1, "Morning", MONDAY, 3)]),
       render({ type: "daily", defaultRequestDate: "2026-01-07" }),
       render({
         request: {
@@ -1292,5 +1324,29 @@ describe("grouped-by-area form model", () => {
       [cell(WA_A1, SH_A1, POS_A1, "2026-01-12")]: "3",
     });
     expect([...areaIds]).toEqual([WA_A1]);
+  });
+
+  test("copyEmptyMessage says nothing could be copied only when no value survived the catalog filter", () => {
+    const GONE = "ffff1111-1111-4111-8111-111111111111";
+    const dropped = copyWeekValues(
+      [lineView(GONE, SH_A1, POS_A1, "2026-01-05", 3)],
+      "2026-01-05",
+      "2026-01-12",
+      catalog,
+    );
+    expect(copyEmptyMessage(dropped)).toBe(
+      "Nothing could be copied: the areas, shifts or positions were deactivated.",
+    );
+    expect(copyEmptyMessage(copyWeekValues([], "2026-01-05", "2026-01-12", catalog))).toBe(
+      "Nothing could be copied: the areas, shifts or positions were deactivated.",
+    );
+
+    const kept = copyWeekValues(
+      [lineView(WA_A1, SH_A1, POS_A1, "2026-01-05", 3)],
+      "2026-01-05",
+      "2026-01-12",
+      catalog,
+    );
+    expect(copyEmptyMessage(kept)).toBeNull();
   });
 });

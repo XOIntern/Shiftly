@@ -159,6 +159,7 @@ export function RequestsTable({
   showLocation,
   pageCount,
   total,
+  filtered,
 }: {
   requests: MpRequestRow[];
   // May the actor write lines (admin + superadmin)? Only the row actions'
@@ -173,6 +174,9 @@ export function RequestsTable({
   showLocation: boolean;
   pageCount: number;
   total: number;
+  // A status or type filter is active, so an empty page means "nothing
+  // matches" rather than "nothing exists".
+  filtered: boolean;
 }) {
   // useTable requires stable columns.
   const columns = useMemo(
@@ -238,7 +242,7 @@ export function RequestsTable({
                 href={href}
                 className="text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
-                View in roster →
+                View in roster <span aria-hidden="true">→</span>
               </Link>
             ) : (
               <span className="text-muted-foreground">
@@ -272,7 +276,21 @@ export function RequestsTable({
       data={requests}
       pageCount={pageCount}
       total={total}
-      emptyMessage="No requests yet"
+      emptyMessage={
+        filtered ? (
+          <span>
+            No requests match these filters.{" "}
+            <Link
+              href="/dashboard/requests"
+              className="font-medium text-foreground underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              Clear filters
+            </Link>
+          </span>
+        ) : (
+          "No requests yet"
+        )
+      }
       // The `q` search lived on the (dropped) notes column — nothing left
       // to match, so the requests table opts out of the toolbar search #133.
       searchable={false}

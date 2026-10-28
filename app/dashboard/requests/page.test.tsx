@@ -486,7 +486,7 @@ describe("requests list: approval, roster link and filter", () => {
       <RequestDetailStatus request={{ ...baseRow, status: "fulfilled" }} />,
     );
     expect(fulfilled.includes("Fulfilled")).toBeTrue();
-    expect(fulfilled.includes("View in roster →")).toBeTrue();
+    expect(fulfilled.includes('View in roster <span aria-hidden="true">→</span>')).toBeTrue();
     expect(
       fulfilled.includes(
         'href="/dashboard/roster?week=2026-11-02&amp;locationId=loc-1"',
@@ -601,16 +601,17 @@ describe("requests list: approval, roster link and filter", () => {
       });
 
       const open = await renderRequests();
+      const nameA1 = `t-rq-site-a-${fx.ids.siteA} t-rq-loc-a1-${fx.ids.locA1}, week of 2026-01-05`;
       expect(
-        open.includes('aria-label="Approve request for week of 2026-01-05"'),
+        open.includes(`aria-label="Approve request ${nameA1}"`),
       ).toBeTrue();
       expect(
-        open.includes('aria-label="Reject request for week of 2026-01-05"'),
+        open.includes(`aria-label="Reject request ${nameA1}"`),
       ).toBeTrue();
       // The open daily row renders, yet offers no approval buttons.
       expect(open.includes("2026-01-08")).toBeTrue();
-      expect(open.includes("Approve request for date")).toBeFalse();
-      expect(open.includes("Reject request for date")).toBeFalse();
+      expect(/Approve request [^"]*, date /.test(open)).toBeFalse();
+      expect(/Reject request [^"]*, date /.test(open)).toBeFalse();
 
       await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
       await db
@@ -618,8 +619,8 @@ describe("requests list: approval, roster link and filter", () => {
         .set({ status: "approved" })
         .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
       const approved = await renderRequests();
-      expect(approved.includes("Approve request for")).toBeFalse();
-      expect(approved.includes("Reject request for")).toBeFalse();
+      expect(approved.includes("Approve request ")).toBeFalse();
+      expect(approved.includes("Reject request ")).toBeFalse();
     } finally {
       await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
       await fx.cleanup();
@@ -632,8 +633,16 @@ describe("requests list: approval, roster link and filter", () => {
       actor = makeActor("superadmin", null, null);
 
       const html = await renderRequests();
-      expect(html.includes("Approve request for week of 2026-01-05")).toBeTrue();
-      expect(html.includes("Reject request for week of 2026-01-12")).toBeTrue();
+      expect(
+        html.includes(
+          `Approve request t-rq-site-a-${fx.ids.siteA} t-rq-loc-a1-${fx.ids.locA1}, week of 2026-01-05`,
+        ),
+      ).toBeTrue();
+      expect(
+        html.includes(
+          `Reject request t-rq-site-b-${fx.ids.siteB} t-rq-loc-a1-b-${fx.ids.locB1}, week of 2026-01-12`,
+        ),
+      ).toBeTrue();
     } finally {
       await fx.cleanup();
     }
@@ -653,8 +662,8 @@ describe("requests list: approval, roster link and filter", () => {
 
       const html = await renderRequests();
       expect(html.includes(fx.anchors.rqA1)).toBeTrue();
-      expect(html.includes("Approve request for")).toBeFalse();
-      expect(html.includes("Reject request for")).toBeFalse();
+      expect(html.includes("Approve request ")).toBeFalse();
+      expect(html.includes("Reject request ")).toBeFalse();
       expect(html.includes("awaiting approval")).toBeFalse();
     } finally {
       await fx.cleanup();
@@ -699,7 +708,37 @@ describe("requests list: approval, roster link and filter", () => {
     }
   });
 
-  test("the Roster column renders \"View in roster →\" with the right href", async () => {
+  test("superadmin page counts open weekly requests across every site and shows nothing when 0", async () => {
+    const fx = await seedRequestFixtures();
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      // rqA1 (site A) and rqB1 (site B) are the open weekly requests.
+      const two = await renderRequests();
+      expect(two.includes("2 requests awaiting approval")).toBeTrue();
+      expect(
+        two.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
+      ).toBeTrue();
+
+      await db
+        .update(mpRequest)
+        .set({ status: "approved" })
+        .where(eq(mpRequest.siteLocationId, fx.ids.locB1));
+      const one = await renderRequests();
+      expect(one.includes("1 request awaiting approval")).toBeTrue();
+
+      await db
+        .update(mpRequest)
+        .set({ status: "approved" })
+        .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
+      const none = await renderRequests();
+      expect(none.includes("awaiting approval")).toBeFalse();
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("the Roster column renders \"View in roster\" with the right href", async () => {
     const fx = await seedRequestFixtures();
     try {
       actor = makeActor("ho", fx.ids.siteA, null);
@@ -712,7 +751,7 @@ describe("requests list: approval, roster link and filter", () => {
         .set({ status: "fulfilled" })
         .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
       const after = await renderRequests();
-      expect(after.includes("View in roster →")).toBeTrue();
+      expect(after.includes('View in roster <span aria-hidden="true">→</span>')).toBeTrue();
       expect(
         after.includes(
           `href="/dashboard/roster?week=2026-01-05&amp;locationId=${fx.ids.locA1}"`,

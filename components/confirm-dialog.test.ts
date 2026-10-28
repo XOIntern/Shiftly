@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  CONFIRM_BUTTON_SIZE_CLASS,
   confirmButtonVariant,
   guardedConfirm,
   guardedOpenChange,
@@ -65,5 +66,13 @@ describe("guardedConfirm", () => {
 
   test("when idle, a confirm click runs the action", () => {
     expect(guardedConfirm(false)).toBe(true);
+  });
+});
+
+// The footer buttons cannot be rendered from a closed dialog: the class they
+// share is pinned directly. 44px on phones, desktop height untouched.
+describe("CONFIRM_BUTTON_SIZE_CLASS", () => {
+  test("makes the footer buttons 44px tall on phone widths only", () => {
+    expect(CONFIRM_BUTTON_SIZE_CLASS).toBe("max-sm:h-11");
   });
 });

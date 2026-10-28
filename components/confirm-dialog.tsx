@@ -2,6 +2,7 @@
 
 import type { ComponentProps, ReactNode } from "react";
 import { Loader2Icon } from "lucide-react";
+import { cn } from "cn";
 
 import {
   AlertDialog,
@@ -42,6 +43,10 @@ export function guardedConfirm(pending: boolean): boolean {
 // Looks disabled while `aria-disabled` is set, as the `disabled:` styles do.
 const PENDING_BUTTON_CLASS =
   "aria-disabled:pointer-events-none aria-disabled:opacity-50";
+
+// The footer buttons are 44px tall on phones (tap-target guideline); desktop
+// keeps the default size.
+export const CONFIRM_BUTTON_SIZE_CLASS = "max-sm:h-11";
 
 export type ConfirmVariant = "destructive" | "default";
 
@@ -109,14 +114,14 @@ export function ConfirmDialog({
         <AlertDialogFooter>
           <AlertDialogCancel
             {...pendingButtonProps(pending)}
-            className={PENDING_BUTTON_CLASS}
+            className={cn(PENDING_BUTTON_CLASS, CONFIRM_BUTTON_SIZE_CLASS)}
           >
             {cancelLabel}
           </AlertDialogCancel>
           <AlertDialogAction
             variant={confirmButtonVariant(confirmVariant)}
             {...pendingButtonProps(pending)}
-            className={PENDING_BUTTON_CLASS}
+            className={cn(PENDING_BUTTON_CLASS, CONFIRM_BUTTON_SIZE_CLASS)}
             aria-busy={pending}
             onClick={() => {
               if (guardedConfirm(pending)) onConfirm();
