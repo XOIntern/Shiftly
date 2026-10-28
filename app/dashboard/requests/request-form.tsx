@@ -955,6 +955,15 @@ export function RequestForm({
           <FieldError errors={[{ message: fieldErrors.lines }]} />
         ) : null}
 
+        {/* Mounted before the step switches so a screen reader announces the
+            text when Copy fills it in. */}
+        <p
+          role="status"
+          className={copyNotice ? "text-sm text-muted-foreground" : "sr-only"}
+        >
+          {copyNotice}
+        </p>
+
         {dates.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {weekly
@@ -978,12 +987,6 @@ export function RequestForm({
           <div className="flex flex-col gap-3">
             {configureHint ? (
               <p className="text-sm text-muted-foreground">{configureHint}</p>
-            ) : null}
-
-            {copyNotice ? (
-              <p role="status" className="text-sm text-muted-foreground">
-                {copyNotice}
-              </p>
             ) : null}
 
             {groups.length === 0 && inactivePairs.length === 0 ? (
