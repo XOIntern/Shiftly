@@ -1,16 +1,18 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, test } from "bun:test";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { db } from "./db";
 import {
   latestPublishedWeeklyPlan,
   loadAreaRequirements,
   loadPlanWithRows,
+  loadDailyAssignmentsInRange,
   loadDailyRequirements,
   loadPriorAssignments,
   loadRequirementsForWeek,
+  loadShiftLabels,
   loadShiftOrder,
   loadWorkerProfiles,
 } from "./roster-data";
@@ -355,6 +357,37 @@ describe("loadShiftOrder", () => {
   });
 });
 
+describe("loadShiftLabels", () => {
+  const labelOf = async (id: string) =>
+    (await db.select({ label: shiftDefinition.label }).from(shiftDefinition).where(eq(shiftDefinition.id, id)))[0]
+      .label;
+
+  test("maps id to label for active and inactive live shifts, omitting deleted ones", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "labels");
+    const active = await createShift(fx, 1);
+    const inactive = await createShift(fx, 2, { inactive: true });
+    const deleted = await createShift(fx, 3, { deleted: true });
+
+    const labels = await loadShiftLabels(fx.locationId);
+
+    expect(labels[active]).toBe(await labelOf(active));
+    expect(labels[inactive]).toBe(await labelOf(inactive));
+    expect(labels).not.toHaveProperty(deleted);
+  });
+
+  test("other locations' shift definitions are excluded", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "labels-own");
+    const foreign = await createBase(`t${nextSeq()}`, "labels-foreign");
+    const own = await createShift(fx, 1);
+    const other = await createShift(foreign, 1);
+
+    const labels = await loadShiftLabels(fx.locationId);
+
+    expect(Object.keys(labels)).toEqual([own]);
+    expect(labels).not.toHaveProperty(other);
+  });
+});
+
 describe("loadAreaRequirements", () => {
   test("every live area is a key; areas without positions get []; deleted areas are absent", async () => {
     const fx = await createBase(`t${nextSeq()}`, "req");
@@ -638,6 +671,57 @@ describe("loadPriorAssignments", () => {
     await addPlanAssignment(fx, daily, { workerId, workAreaId: area, shiftDefinitionId: shift, date: TUE });
 
     expect(await loadPriorAssignments(fx.locationId, NEXT_MON)).toEqual([
+      { workerId, date: TUE, shiftDefId: shift, workAreaId: area },
+    ]);
+  });
+});
+
+describe("loadDailyAssignmentsInRange", () => {
+  test("daily-plan rows of the location inside the inclusive range, any plan status; weekly rows and out-of-range dates excluded", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "daily-range");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const workerId = await createWorker(fx, "w");
+    const args = { workerId, workAreaId: area, shiftDefinitionId: shift };
+
+    // One daily plan per date (roster_plan_daily_unique): the day before the
+    // range, both boundaries (one still a draft), the day after.
+    const before = await createPlan(fx, { kind: "daily", status: "published", requestDate: "2026-01-04" });
+    await addPlanAssignment(fx, before, { ...args, date: "2026-01-04" });
+    const first = await createPlan(fx, { kind: "daily", status: "published", requestDate: MON });
+    await addPlanAssignment(fx, first, { ...args, date: MON });
+    const last = await createPlan(fx, { kind: "daily", status: "draft", requestDate: "2026-01-11" });
+    await addPlanAssignment(fx, last, { ...args, date: "2026-01-11" });
+    const after = await createPlan(fx, { kind: "daily", status: "published", requestDate: NEXT_MON });
+    await addPlanAssignment(fx, after, { ...args, date: NEXT_MON });
+    // Weekly plan rows inside the range are not daily-plan rows.
+    const weekly = await createPlan(fx, { status: "published", weekStart: MON });
+    await addPlanAssignment(fx, weekly, { ...args, date: TUE });
+
+    expect(await loadDailyAssignmentsInRange(fx.locationId, MON, "2026-01-11")).toEqual([
+      { workerId, date: MON, shiftDefId: shift, workAreaId: area },
+      { workerId, date: "2026-01-11", shiftDefId: shift, workAreaId: area },
+    ]);
+  });
+
+  test("another location's daily rows never leak in", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "daily-own");
+    const foreign = await createBase(`t${nextSeq()}`, "daily-foreign");
+    const area = await createWorkArea(fx, "a");
+    const foreignArea = await createWorkArea(foreign, "b");
+    const shift = await createShift(fx, 1);
+    const workerId = await createWorker(fx, "w");
+    const own = await createPlan(fx, { kind: "daily", status: "published", requestDate: TUE });
+    await addPlanAssignment(fx, own, { workerId, workAreaId: area, shiftDefinitionId: shift, date: TUE });
+    const foreignPlan = await createPlan(foreign, { kind: "daily", status: "published", requestDate: TUE });
+    await addPlanAssignment(foreign, foreignPlan, {
+      workerId: await createWorker(foreign, "fw"),
+      workAreaId: foreignArea,
+      shiftDefinitionId: await createShift(foreign, 1),
+      date: TUE,
+    });
+
+    expect(await loadDailyAssignmentsInRange(fx.locationId, MON, "2026-01-11")).toEqual([
       { workerId, date: TUE, shiftDefId: shift, workAreaId: area },
     ]);
   });

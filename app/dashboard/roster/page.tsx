@@ -375,6 +375,7 @@ export default async function RosterPage({
         .slice(0, 3)
         .map((v) => `${v.rule} · ${v.message}`)}
       violationCount={violations.length}
+      blockingViolationCount={blockingViolationCount}
       requirements={{
         rows,
         areaNames,

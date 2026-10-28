@@ -264,4 +264,47 @@ describe("suggestReplacements (roster-engine task 2)", () => {
     }
     expect(result.map((c) => c.workerId)).toEqual(["w3", "w2"]);
   });
+
+  describe("detail text names the nearest shift (#160)", () => {
+    const reasonFor = (...dates: string[]): string => {
+      const result = suggestReplacements(
+        mkLine("2026-01-14"),
+        [],
+        dates.map((d) => assign("w1", d)),
+        [mkWorker("w1", "wa-a", ["pos-a"])],
+        mkShift(3),
+        {},
+        rules(),
+        5,
+      );
+      expect(result).toHaveLength(1);
+      return result[0].reason;
+    };
+
+    test("a shift before the date reads last shift Nd ago", () => {
+      expect(reasonFor("2026-01-12")).toEndWith("last shift 2d ago");
+    });
+
+    test("a shift only after the date reads next shift in Nd, never negative", () => {
+      const reason = reasonFor("2026-01-15");
+      expect(reason).toEndWith("next shift in 1d");
+      expect(reason).not.toContain("-");
+    });
+
+    test("the nearest shift wins when it is before the date", () => {
+      expect(reasonFor("2026-01-13", "2026-01-20")).toEndWith("last shift 1d ago");
+    });
+
+    test("the nearest shift wins when it is after the date", () => {
+      expect(reasonFor("2026-01-10", "2026-01-15")).toEndWith("next shift in 1d");
+    });
+
+    test("a tie between before and after prefers the earlier shift", () => {
+      expect(reasonFor("2026-01-12", "2026-01-16")).toEndWith("last shift 2d ago");
+    });
+
+    test("no history reads no prior shifts", () => {
+      expect(reasonFor()).toEndWith("no prior shifts");
+    });
+  });
 });

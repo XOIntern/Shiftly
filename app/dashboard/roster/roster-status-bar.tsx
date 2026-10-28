@@ -63,6 +63,8 @@ type BarProps = {
   totals: { required: number; filled: number } | null;
   violationHead: string[];
   violationCount: number;
+  // How many of violationCount block publishing (the rest is history).
+  blockingViolationCount: number;
   sites: SiteOption[];
   // The locations in scope (an admin's is their one binding).
   siteLocations: SiteLocationOption[];
@@ -91,6 +93,7 @@ export function RosterStatusBar({
   totals,
   violationHead,
   violationCount,
+  blockingViolationCount,
   sites,
   siteLocations,
   selectedLocationId,
@@ -296,6 +299,7 @@ export function RosterStatusBar({
             totals={totals}
             violationHead={violationHead}
             violationCount={violationCount}
+            blockingViolationCount={blockingViolationCount}
           />
         </div>
         {showPrimary || showDiscard ? (
@@ -364,18 +368,48 @@ export function RosterStatusBar({
   );
 }
 
+// The trigger label. Only a draft has a publish gate, so only a draft splits
+// the warnings into blocking and historical ones.
+export function warningsText(
+  total: number,
+  blocking: number,
+  draft: boolean,
+): string | null {
+  if (total === 0) return null;
+  const base = `${total} warning${total === 1 ? "" : "s"}`;
+  if (!draft || blocking === total) return base;
+  return blocking === 0
+    ? `${base}, none blocking`
+    : `${base}, ${blocking} blocking`;
+}
+
+// The line that explains the trigger label inside the popover; null when
+// the label already says everything (all warnings block, or no publish gate).
+export function blockingNote(
+  total: number,
+  blocking: number,
+  draft: boolean,
+): string | null {
+  if (total === 0 || !draft || blocking === total) return null;
+  return blocking === 0
+    ? "None of these block publishing"
+    : `${blocking} of ${total} block publishing`;
+}
+
 function StatusText({
   planStatus,
   planVersion,
   totals,
   violationHead,
   violationCount,
+  blockingViolationCount,
 }: {
   planStatus: "draft" | "published" | null;
   planVersion: number | null;
   totals: { required: number; filled: number } | null;
   violationHead: string[];
   violationCount: number;
+  blockingViolationCount: number;
 }) {
   if (!planStatus) {
     return (
@@ -384,6 +418,16 @@ function StatusText({
   }
 
   const unlisted = violationCount - violationHead.length;
+  const label = warningsText(
+    violationCount,
+    blockingViolationCount,
+    planStatus === "draft",
+  );
+  const blockNote = blockingNote(
+    violationCount,
+    blockingViolationCount,
+    planStatus === "draft",
+  );
 
   return (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
@@ -399,7 +443,7 @@ function StatusText({
           </span>
         </>
       ) : null}
-      {violationCount > 0 ? (
+      {label ? (
         <>
           <Separator />
           <Popover.Root>
@@ -411,7 +455,7 @@ function StatusText({
                 />
               }
             >
-              {violationCount} warning{violationCount === 1 ? "" : "s"}
+              {label}
             </Popover.Trigger>
             <Popover.Portal>
               <Popover.Positioner
@@ -424,6 +468,11 @@ function StatusText({
                     Rule warnings
                   </Popover.Title>
                   <ul className="flex flex-col gap-1.5 text-muted-foreground">
+                    {blockNote ? (
+                      <li className="font-medium text-foreground">
+                        {blockNote}
+                      </li>
+                    ) : null}
                     {violationHead.map((message, index) => (
                       <li key={`${index}-${message}`}>{message}</li>
                     ))}

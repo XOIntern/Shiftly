@@ -38,6 +38,24 @@ export async function loadShiftOrder(siteLocationId: string): Promise<string[]> 
   return rows.map((r) => r.id);
 }
 
+// id -> label of every live shift definition of the location, active or not:
+// the label lookup behind rule-violation messages, which can name a shift
+// that was deactivated after the plan was generated.
+export async function loadShiftLabels(
+  siteLocationId: string,
+): Promise<Record<string, string>> {
+  const rows = await db
+    .select({ id: shiftDefinition.id, label: shiftDefinition.label })
+    .from(shiftDefinition)
+    .where(
+      and(
+        eq(shiftDefinition.siteLocationId, siteLocationId),
+        isNull(shiftDefinition.deletedAt),
+      ),
+    );
+  return Object.fromEntries(rows.map((r) => [r.id, r.label]));
+}
+
 // Required positions per live work area of the location. Every live area is
 // present as a key (empty array = C7 no-op for that area); soft-deleted
 // areas hold nothing.
@@ -200,6 +218,36 @@ export async function loadDailyRequirements(
       asc(mpRequestLine.shiftDefinitionId),
       asc(mpRequestLine.positionId),
     );
+  return rows;
+}
+
+// Assignment rows of the location's DAILY plans with a date in
+// [fromDate, toDate], any plan status: the same scope fillDailyRequest reads
+// for its date. A daily fill is an exception on top of the published week, so
+// anything that reasons about a worker's week has to see these rows too.
+export async function loadDailyAssignmentsInRange(
+  siteLocationId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<RosterAssignment[]> {
+  const rows = await db
+    .select({
+      workerId: rosterAssignment.workerId,
+      date: rosterAssignment.date,
+      shiftDefId: rosterAssignment.shiftDefinitionId,
+      workAreaId: rosterAssignment.workAreaId,
+    })
+    .from(rosterAssignment)
+    .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
+    .where(
+      and(
+        eq(rosterPlan.siteLocationId, siteLocationId),
+        eq(rosterPlan.kind, "daily"),
+        gte(rosterAssignment.date, fromDate),
+        lte(rosterAssignment.date, toDate),
+      ),
+    )
+    .orderBy(asc(rosterAssignment.date), asc(rosterAssignment.workerId));
   return rows;
 }
 

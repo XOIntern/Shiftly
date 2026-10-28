@@ -33,9 +33,11 @@ import { loadEffectiveRules } from "@/lib/rule-config";
 import {
   latestPublishedWeeklyPlan,
   loadAreaRequirements,
+  loadDailyAssignmentsInRange,
   loadPlanWithRows,
   loadPriorAssignments,
   loadRequirementsForWeek,
+  loadShiftLabels,
   loadShiftOrder,
   loadWorkerProfiles,
 } from "@/lib/roster-data";
@@ -513,9 +515,10 @@ export async function publishRoster(planId: string): Promise<ActionState> {
       : mondayOf(plan.requestDate as string),
   )[0];
   const rules = await loadEffectiveRules(siteLocationId);
-  const [shiftOrder, areaRequirements, prior, profiles, requirements] =
+  const [shiftOrder, shiftLabels, areaRequirements, prior, profiles, requirements] =
     await Promise.all([
       loadShiftOrder(siteLocationId),
+      loadShiftLabels(siteLocationId),
       loadAreaRequirements(siteLocationId),
       loadPriorAssignments(siteLocationId, horizonStart),
       loadWorkerProfiles(siteLocationId),
@@ -530,6 +533,7 @@ export async function publishRoster(planId: string): Promise<ActionState> {
     rules,
     shiftOrder,
     areaRequirements,
+    shiftLabels,
   );
 
   // Workers deactivated (or removed) after generation never reach the
@@ -698,8 +702,9 @@ export async function suggestReplacementsAction(
 
   // Context = the LATEST published weekly plan of the date's week (a
   // revised plan republishes at a higher version; only its rows count) +
-  // the location's prior history. The SAME helper fillDailyRequest uses —
-  // the two picks cannot drift.
+  // the location's prior history. The weekly-plan pick is the SAME helper
+  // fillDailyRequest uses; the daily rows below are the whole week's, while
+  // the fill check reads only its own date's.
   const weeklyPlan = await latestPublishedWeeklyPlan(siteLocationId, weekStart);
 
   const weeklyRows: RosterAssignment[] = weeklyPlan
@@ -721,9 +726,13 @@ export async function suggestReplacementsAction(
       }))
     : [];
 
-  const [prior, workers, shiftOrder, areaRequirements, rules] =
+  // Daily fills of the week sit on top of the published plan; leaving them
+  // out would suggest a worker already filled today and undercount the week.
+  const week = weekDates(weekStart);
+  const [prior, dailyRows, workers, shiftOrder, areaRequirements, rules] =
     await Promise.all([
-      loadPriorAssignments(siteLocationId, weekDates(weekStart)[0]),
+      loadPriorAssignments(siteLocationId, week[0]),
+      loadDailyAssignmentsInRange(siteLocationId, week[0], week[6]),
       loadWorkerProfiles(siteLocationId, input.workAreaId),
       loadShiftOrder(siteLocationId),
       loadAreaRequirements(siteLocationId),
@@ -738,7 +747,7 @@ export async function suggestReplacementsAction(
       date: input.date,
       headcount: 1,
     },
-    weeklyRows,
+    [...weeklyRows, ...dailyRows],
     prior,
     workers,
     shiftOrder,
@@ -854,10 +863,11 @@ export async function fillDailyRequest(
   // Admission, not trust: the candidate is validated over the merged week
   // context — the published week's rows, any rows the daily plan already
   // holds, and the prior history. Rejected candidates never reach the write.
-  const [rules, shiftOrder, areaRequirements, prior, profiles, weeklyRows, dailyRows] =
+  const [rules, shiftOrder, shiftLabels, areaRequirements, prior, profiles, weeklyRows, dailyRows] =
     await Promise.all([
       loadEffectiveRules(siteLocationId),
       loadShiftOrder(siteLocationId),
+      loadShiftLabels(siteLocationId),
       loadAreaRequirements(siteLocationId),
       loadPriorAssignments(siteLocationId, weekDates(weekStart)[0]),
       loadWorkerProfiles(siteLocationId),
@@ -920,6 +930,7 @@ export async function fillDailyRequest(
     rules,
     shiftOrder,
     areaRequirements,
+    shiftLabels,
   );
   if (violations.length > 0) {
     return { ok: false, message: violationMessage(violations) };

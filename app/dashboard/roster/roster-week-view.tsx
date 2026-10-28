@@ -66,6 +66,7 @@ export function RosterWeekView({
   totals,
   violationHead,
   violationCount,
+  blockingViolationCount,
   requirements,
   workAreaId,
   canDiscard,
@@ -85,6 +86,7 @@ export function RosterWeekView({
   totals: { required: number; filled: number } | null;
   violationHead: string[];
   violationCount: number;
+  blockingViolationCount: number;
   requirements: RequirementsView;
   // The selected work area: the panel highlights it, the grid shows it.
   workAreaId: string;
@@ -151,6 +153,7 @@ export function RosterWeekView({
         totals={totals}
         violationHead={violationHead}
         violationCount={violationCount}
+        blockingViolationCount={blockingViolationCount}
         sites={sites}
         siteLocations={siteLocations}
         selectedLocationId={locationId}
