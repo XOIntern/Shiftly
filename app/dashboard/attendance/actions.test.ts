@@ -234,6 +234,12 @@ describe("recordAttendance", () => {
     expect(
       await recordAttendance({ date: "07-01-2026", workerId: w.id, status: "present" }),
     ).toEqual(invalid);
+    // Text that is not a date at all must be refused, never thrown on.
+    for (const date of ["junk", "", "9999-99-99"]) {
+      expect(
+        await recordAttendance({ date, workerId: w.id, status: "present" }),
+      ).toEqual(invalid);
+    }
     expect(
       await recordAttendance({ date: "2026-02-30", workerId: w.id, status: "present" }),
     ).toEqual(invalid);

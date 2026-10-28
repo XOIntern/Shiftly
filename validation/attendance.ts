@@ -3,12 +3,18 @@ import { z } from "zod";
 import { dayFromNumber, dayNumber } from "@/lib/dates";
 import { ATTENDANCE_STATUSES } from "@/types/attendance";
 
+const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+
 // A "YYYY-MM-DD" that is also a real calendar day: the shape alone lets
-// "2026-02-30" through to a date column that rejects it.
+// "2026-02-30" through to a date column that rejects it. zod runs a refine
+// even after an earlier check failed, so the refine re-checks the shape itself
+// before doing date math on text it could not read (a RangeError would be a 500).
 export const attendanceDateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .refine((date) => dayFromNumber(dayNumber(date)) === date);
+  .regex(DATE_SHAPE)
+  .refine(
+    (date) => DATE_SHAPE.test(date) && dayFromNumber(dayNumber(date)) === date,
+  );
 
 export const attendanceStatusSchema = z.enum(ATTENDANCE_STATUSES);
 
