@@ -14,7 +14,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CreateSiteButton } from "@/components/sites/site-form";
 import { DeletedSitesTable } from "@/components/sites/deleted-sites-table";
 import { SitesTable } from "@/components/sites/sites-table";
-import { SitesViewTabs } from "@/components/sites/sites-view-tabs";
 
 // Deliberate block: the page queries master data behind the superadmin session
 // check, so there is no static shell worth shipping first. See:
@@ -38,7 +37,10 @@ export default async function SitesPage({
 }: PageProps<"/dashboard/sites">) {
   await requireSuperadmin();
   const params = await searchParams;
-  const view = parseSitesView(params.view);
+  // "deleted" is a status option of the filter, not a parse-table status:
+  // it is read off the raw param, and parseTableSearchParams maps it to no
+  // status filter.
+  const view = parseSitesView(params.status);
   const { q, status, page, sorts, pageSize } = parseTableSearchParams(
     params,
     PAGE_SIZE_OPTIONS,
@@ -48,7 +50,7 @@ export default async function SitesPage({
   // Null-safe and(...) composes search + filters. The deletedAt predicate
   // splits the live list from the deleted one (soft-delete epic #40) and
   // feeds both the count and the listing — this one `where` serves both
-  // queries below. The deleted view has no status filter.
+  // queries below. The isActive filter belongs to the live list only.
   const where = and(
     deletedView ? isNotNull(site.deletedAt) : isNull(site.deletedAt),
     ...(pattern ? [ilike(site.name, pattern)] : []),
@@ -93,7 +95,6 @@ export default async function SitesPage({
         </div>
         <CreateSiteButton />
       </div>
-      <SitesViewTabs view={view} q={q} />
       <Card>
         <CardContent>
           {deletedView ? (

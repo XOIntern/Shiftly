@@ -8,7 +8,7 @@ mock.module("next/navigation", () => ({
   ...realNavigation,
   useRouter: () => ({ push: () => {}, replace: () => {} }),
   usePathname: () => "/dashboard/sites",
-  useSearchParams: () => new URLSearchParams("view=deleted"),
+  useSearchParams: () => new URLSearchParams("status=deleted"),
 }));
 
 const { DeletedSitesTable, purgeDescription } =
@@ -42,11 +42,12 @@ describe("DeletedSitesTable", () => {
     expect(render([row()])).toContain('aria-label="Actions for Nestle Cikarang"');
   });
 
-  test("there is no selection column or status filter", () => {
-    const html = render([row()]);
+  test("there is no selection column", () => {
+    expect(render([row()])).not.toContain('type="checkbox"');
+  });
 
-    expect(html).not.toContain('type="checkbox"');
-    expect(html).not.toContain("Filter by status");
+  test("the status filter stays so the list can be switched back", () => {
+    expect(render([row()])).toContain('aria-label="Filter by status"');
   });
 
   test("an empty list says there are no deleted sites", () => {

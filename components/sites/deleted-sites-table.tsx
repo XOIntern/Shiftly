@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { purgeSite } from "@/app/dashboard/sites/actions";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { SiteStatusFilter } from "@/components/sites/site-status-filter";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -162,6 +163,7 @@ export function DeletedSitesTable({
       pageCount={pageCount}
       total={total}
       emptyMessage="No deleted sites."
+      filters={<SiteStatusFilter />}
       getRowId={(row) => row.id}
     />
   );

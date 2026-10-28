@@ -408,8 +408,8 @@ describe("sites page server queries (issue #20)", () => {
   });
 });
 
-// The deleted view (?view=deleted) lists soft-deleted sites; every other value
-// of view is the active list.
+// The deleted view (?status=deleted) lists soft-deleted sites; every other
+// status value is the live list.
 describe("sites page deleted view", () => {
   function asSuperadmin() {
     actor = {
@@ -428,7 +428,7 @@ describe("sites page deleted view", () => {
   async function renderDeleted(
     searchParams: Record<string, string | string[] | undefined> = {},
   ) {
-    const props = await renderSites({ view: "deleted", ...searchParams });
+    const props = await renderSites({ status: "deleted", ...searchParams });
     return { ...props, sites: props.sites as unknown as DeletedRow[] };
   }
 
@@ -495,19 +495,6 @@ describe("sites page deleted view", () => {
     expect(props.sites.map((row) => row.id)).toEqual([a, b]);
   });
 
-  test("the status filter is ignored in the deleted view", async () => {
-    const token = `t185-del-${randomUUID().slice(0, 8)}`;
-    const [id] = await seed(token, [
-      { suffix: "x", deletedAt: new Date("2026-01-01T10:00:00Z") },
-    ]);
-    asSuperadmin();
-
-    // The seeded row is inactive, so a honoured status=active would hide it.
-    const props = await renderDeleted({ q: token, status: "active" });
-
-    expect(props.sites.map((row) => row.id)).toEqual([id]);
-  });
-
   test("pagination math holds in the deleted view", async () => {
     const token = `t185-del-${randomUUID().slice(0, 8)}`;
     await seed(
@@ -526,7 +513,7 @@ describe("sites page deleted view", () => {
     expect(props.sites.length).toBe(Math.min(10, props.total!));
   });
 
-  test("no view and an unknown view keep listing live sites only", async () => {
+  test("no status and an unknown status keep listing live sites only", async () => {
     const token = `t185-del-${randomUUID().slice(0, 8)}`;
     const [live, gone] = await seed(token, [
       { suffix: "live", deletedAt: null },
@@ -534,8 +521,8 @@ describe("sites page deleted view", () => {
     ]);
     asSuperadmin();
 
-    for (const view of [undefined, "bogus", "DELETED"]) {
-      const props = await renderSites({ q: token, view });
+    for (const status of [undefined, "bogus", "DELETED"]) {
+      const props = await renderSites({ q: token, status });
       const ids = props.sites.map((row) => row.id);
       expect(ids).toEqual([live]);
       expect(ids).not.toContain(gone);
