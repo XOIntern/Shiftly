@@ -11,13 +11,23 @@ mock.module("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams("show=deleted"),
 }));
 
-const { SitesListFilter } = await import("./sites-list-filter");
+const { DeletedListFilter } = await import("./deleted-list-filter");
 
-describe("SitesListFilter", () => {
+describe("DeletedListFilter", () => {
   test("renders a trigger of its own, separate from the status filter", () => {
-    const html = renderToStaticMarkup(<SitesListFilter />);
+    const html = renderToStaticMarkup(
+      <DeletedListFilter singular="site" plural="sites" />,
+    );
 
     expect(html).toContain('aria-label="Choose site list"');
     expect(html).not.toContain("Filter by status");
+  });
+
+  test("labels the trigger with the entity it lists", () => {
+    const html = renderToStaticMarkup(
+      <DeletedListFilter singular="location" plural="locations" />,
+    );
+
+    expect(html).toContain('aria-label="Choose location list"');
   });
 });

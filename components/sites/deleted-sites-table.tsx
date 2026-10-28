@@ -8,12 +8,12 @@ import { toast } from "sonner";
 import { purgeSite, restoreSite } from "@/app/dashboard/sites/actions";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { DeletedListFilter } from "@/components/deleted-list-filter";
 import { DeletedSitesToolbar } from "@/components/sites/deleted-sites-toolbar";
 import {
   purgeDescription,
   purgeSuccessMessage,
 } from "@/components/sites/purge-copy";
-import { SitesListFilter } from "@/components/sites/sites-list-filter";
 import { StatusFilter } from "@/components/status-filter";
 import {
   AlertDialog,
@@ -180,7 +180,7 @@ export function DeletedSitesTable({
       filters={
         <>
           <StatusFilter />
-          <SitesListFilter />
+          <DeletedListFilter singular="site" plural="sites" />
         </>
       }
       getRowId={(row) => row.id}

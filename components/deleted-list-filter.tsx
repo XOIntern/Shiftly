@@ -13,19 +13,25 @@ import {
 } from "@/components/ui/select";
 import { nextListParams, parseListView } from "@/lib/list-view";
 
-const LIST_OPTIONS = [
-  { value: "active", label: "Active sites" },
-  { value: "deleted", label: "Deleted sites" },
-];
-
-// Toolbar filter of the sites page that chooses which list the table shows:
-// the live sites, or the soft-deleted ones (superadmin permanent delete).
-// Separate from the shared status filter, which only knows Active/Inactive.
-export function SitesListFilter() {
+// Toolbar filter that chooses which list a table shows: the live rows, or
+// the soft-deleted ones (superadmin permanent delete). Separate from the
+// shared status filter, which only knows Active/Inactive.
+export function DeletedListFilter({
+  singular,
+  plural,
+}: {
+  singular: string;
+  plural: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
+
+  const options = [
+    { value: "active", label: `Active ${plural}` },
+    { value: "deleted", label: `Deleted ${plural}` },
+  ];
 
   const value = parseListView(searchParams.get("show") ?? undefined);
 
@@ -37,9 +43,9 @@ export function SitesListFilter() {
   };
 
   return (
-    <Select items={LIST_OPTIONS} value={value} onValueChange={change}>
+    <Select items={options} value={value} onValueChange={change}>
       <SelectTrigger
-        aria-label="Choose site list"
+        aria-label={`Choose ${singular} list`}
         className="w-36"
         disabled={pending}
       >
@@ -47,7 +53,7 @@ export function SitesListFilter() {
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
-          {LIST_OPTIONS.map((option) => (
+          {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>
