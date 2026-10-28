@@ -112,7 +112,8 @@ export function gridRows(
   return rows;
 }
 
-const rowKeyOfCell = (cellKey: string) => cellKey.split("|").slice(0, 3).join("|");
+const rowKeyOfCell = (cellKey: string) =>
+  cellKey.split("|").slice(0, 3).join("|");
 
 // Keeps only the cells of rows still in the grid, so stale values (another
 // location's rows, removed rows) never reach the submit payload.
@@ -121,7 +122,9 @@ export function pruneValues(
   keptRowKeys: ReadonlySet<string>,
 ): GridValues {
   return Object.fromEntries(
-    Object.entries(values).filter(([cell]) => keptRowKeys.has(rowKeyOfCell(cell))),
+    Object.entries(values).filter(([cell]) =>
+      keptRowKeys.has(rowKeyOfCell(cell)),
+    ),
   );
 }
 
@@ -197,7 +200,9 @@ export function removeAreaValues(
   workAreaId: string,
 ): GridValues {
   return Object.fromEntries(
-    Object.entries(values).filter(([cell]) => cell.split("|")[0] !== workAreaId),
+    Object.entries(values).filter(
+      ([cell]) => cell.split("|")[0] !== workAreaId,
+    ),
   );
 }
 
@@ -281,11 +286,10 @@ export function collectLines(values: GridValues, dates: string[]) {
       };
     })
     .filter((line) => allowed.has(line.date) && line.headcount > 0)
-    .sort(
-      (a, b) =>
-        `${a.workAreaId}${a.shiftDefinitionId}${a.positionId}${a.date}`.localeCompare(
-          `${b.workAreaId}${b.shiftDefinitionId}${b.positionId}${b.date}`,
-        ),
+    .sort((a, b) =>
+      `${a.workAreaId}${a.shiftDefinitionId}${a.positionId}${a.date}`.localeCompare(
+        `${b.workAreaId}${b.shiftDefinitionId}${b.positionId}${b.date}`,
+      ),
     );
 }
 
@@ -488,9 +492,7 @@ export const normalizeHeadcount = (raw: string) => {
 export function fieldErrorsSummary(fieldErrors: Record<string, string>) {
   const entries = Object.entries(fieldErrors);
   if (entries.length === 0) return GENERIC_ERROR;
-  const head = entries
-    .slice(0, 3)
-    .map(([key, error]) => `${key}: ${error}`);
+  const head = entries.slice(0, 3).map(([key, error]) => `${key}: ${error}`);
   return entries.length > 3
     ? `${head.join(" · ")} (+${entries.length - 3} more)`
     : head.join(" · ");
@@ -498,9 +500,7 @@ export function fieldErrorsSummary(fieldErrors: Record<string, string>) {
 
 // The toast text a failed action result must produce: its `message` when
 // one exists, else a summary of its fieldErrors (never silent).
-export function refusalToast(
-  result: ActionState,
-): string | null {
+export function refusalToast(result: ActionState): string | null {
   if (result.ok) return null;
   if (result.message) return result.message;
   return fieldErrorsSummary(result.fieldErrors ?? {});
@@ -615,14 +615,10 @@ export function RequestForm({
     siteLocationId ?? null,
   );
   const [weekStart, setWeekStart] = useState(
-    (request?.type === "weekly")
-      ? anchor
-      : (defaultWeekStart ?? ""),
+    request?.type === "weekly" ? anchor : (defaultWeekStart ?? ""),
   );
   const [requestDate, setRequestDate] = useState(
-    (request?.type === "daily")
-      ? anchor
-      : (defaultRequestDate ?? ""),
+    request?.type === "daily" ? anchor : (defaultRequestDate ?? ""),
   );
   // Existing lines pre-fill the grid (edit); inactive-pair keys ride the
   // same map so their submitted tuples re-travel byte-identical.
@@ -674,9 +670,8 @@ export function RequestForm({
   // Create resolve: pinned admins submit their binding, others their pick.
   const effectiveLocationId = isEdit
     ? siteLocationId
-    : ((pinnedLocationName !== undefined
-        ? siteLocations[0]?.id
-        : locationId) ?? undefined);
+    : ((pinnedLocationName !== undefined ? siteLocations[0]?.id : locationId) ??
+      undefined);
 
   const dates = gridDates(type_, type_ === "weekly" ? weekStart : requestDate);
   const catalog = gridRows(
@@ -974,9 +969,7 @@ export function RequestForm({
         )}
 
         {weekly ? (
-          <Field
-            data-invalid={fieldErrors.weekStart ? "true" : undefined}
-          >
+          <Field data-invalid={fieldErrors.weekStart ? "true" : undefined}>
             <FieldLabel htmlFor="request-week-start">Week start</FieldLabel>
             <Input
               id="request-week-start"
@@ -992,9 +985,7 @@ export function RequestForm({
             ) : null}
           </Field>
         ) : (
-          <Field
-            data-invalid={fieldErrors.requestDate ? "true" : undefined}
-          >
+          <Field data-invalid={fieldErrors.requestDate ? "true" : undefined}>
             <FieldLabel htmlFor="request-request-date">Request date</FieldLabel>
             <Input
               id="request-request-date"
@@ -1111,17 +1102,16 @@ export function RequestForm({
                         )}
                       />
                       <span className="flex min-w-0 flex-col gap-0.5">
-                        <span
-                          id={`${bodyId}-title`}
-                          className="font-medium"
-                        >
+                        <span id={`${bodyId}-title`} className="font-medium">
                           {group.workAreaName}
                         </span>
                         <ul className="flex flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums">
                           {weekly ? (
                             <>
                               {DAYS.map((day, i) => (
-                                <li key={day}>{`${day} ${areaTotals[i] ?? 0}`}</li>
+                                <li
+                                  key={day}
+                                >{`${day} ${areaTotals[i] ?? 0}`}</li>
                               ))}
                               <li className="font-medium text-foreground">{`Week ${areaWeek}`}</li>
                             </>
@@ -1373,7 +1363,7 @@ export function RequestForm({
                     <tr>
                       <th
                         scope="row"
-                        className="sticky left-0 z-[1] bg-muted px-3 py-2 text-start font-medium"
+                        className="sticky left-0 z-1 bg-muted px-3 py-2 text-start font-medium"
                       >
                         Total
                       </th>
@@ -1406,10 +1396,7 @@ export function RequestForm({
                 aria-labelledby="request-add-area-label"
                 className="flex flex-col gap-2"
               >
-                <p
-                  id="request-add-area-label"
-                  className="text-sm font-medium"
-                >
+                <p id="request-add-area-label" className="text-sm font-medium">
                   Add area
                 </p>
                 <div className="flex flex-wrap gap-2">
