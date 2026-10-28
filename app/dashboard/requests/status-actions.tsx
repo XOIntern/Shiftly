@@ -344,7 +344,7 @@ export function MpRequestRowActions({
           open={dialog === "lines"}
           onOpenChange={(open) => setDialog(open ? "lines" : null)}
         >
-          <DialogContent>
+          <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>Request lines</DialogTitle>
               <DialogDescription>
