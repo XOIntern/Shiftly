@@ -1,11 +1,23 @@
-import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import {
+  and,
+  eq,
+  getTableName,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+} from "drizzle-orm";
 
 import {
   auditLog,
+  account,
   mpRequest,
+  mpRequestLine,
   position,
+  rosterAssignment,
   rosterPlan,
   rosterRuleConfig,
+  session,
   shiftDefinition,
   site,
   siteLocation,
@@ -24,6 +36,37 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type PurgeSiteResult = { ok: true } | { ok: false; message: string };
 
 const NOT_FOUND = "Deleted site not found.";
+
+// Every table the purge deletes from, refuses on, or loses through ON DELETE
+// CASCADE. lib/site-purge-coverage.test.ts compares these lists with the real
+// foreign keys, so a table added later that points at one of them cannot be
+// forgotten silently (the RESTRICT backstop would only fail the purge with a
+// generic message). Names come from the drizzle tables, never from literals.
+export const PURGE_COVERAGE: {
+  purged: string[];
+  history: string[];
+  cascade: string[];
+} = {
+  // Deleted by purgeSiteGuarded below.
+  purged: [
+    workerPosition,
+    workAreaPosition,
+    worker,
+    workArea,
+    shiftDefinition,
+    rosterRuleConfig,
+    user,
+    position,
+    siteLocation,
+    site,
+  ].map(getTableName),
+  // Any row at all refuses the purge.
+  history: [rosterPlan, mpRequest, auditLog].map(getTableName),
+  // Removed by ON DELETE CASCADE from a table above.
+  cascade: [rosterAssignment, mpRequestLine, session, account].map(
+    getTableName,
+  ),
+};
 
 // Permanent delete of an already soft-deleted site. Guards read first and the
 // deletes run last, all in the caller's transaction, so a refusal leaves
