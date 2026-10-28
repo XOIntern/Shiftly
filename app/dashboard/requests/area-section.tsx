@@ -6,12 +6,12 @@ import { cn } from "cn";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  dayTotals,
-  type AreaGroup,
-  type GridRow,
-  type GridValues,
+import type {
+  AreaGroup,
+  GridRow,
+  GridValues,
 } from "@/app/dashboard/requests/request-form";
+import { dayTotals } from "@/app/dashboard/requests/totals-row";
 import {
   DAYS,
   DayHeaders,

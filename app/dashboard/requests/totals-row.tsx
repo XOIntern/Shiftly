@@ -2,6 +2,25 @@ import {
   DAYS,
   RequestGridShell,
 } from "@/app/dashboard/requests/request-grid-shell";
+import type {
+  GridRow,
+  GridValues,
+} from "@/app/dashboard/requests/request-form";
+
+// Per-date headcount total across the given rows. Blank, missing and
+// non-numeric cells count as 0.
+export function dayTotals(
+  values: GridValues,
+  rows: GridRow[],
+  dates: string[],
+): number[] {
+  return dates.map((date) =>
+    rows.reduce((sum, row) => {
+      const count = Number(values[`${row.key}|${date}`]);
+      return sum + (Number.isFinite(count) ? count : 0);
+    }, 0),
+  );
+}
 
 // The per-day and week totals under the area sections, in the same column
 // grid so the sums sit under their days.

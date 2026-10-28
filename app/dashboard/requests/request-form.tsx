@@ -28,7 +28,7 @@ import {
   RequestGridShell,
   STICKY_CELL,
 } from "@/app/dashboard/requests/request-grid-shell";
-import { TotalsRow } from "@/app/dashboard/requests/totals-row";
+import { TotalsRow, dayTotals } from "@/app/dashboard/requests/totals-row";
 import type { MpRequestCreateInput } from "@/validation/request-line";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
@@ -47,6 +47,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+// Lives with the totals row it feeds; re-exported so existing importers keep working.
+export { dayTotals };
 
 // ---------------------------------------------------------------------------
 // Pure grid primitives (exported for the form tests — bun test has no DOM,
@@ -198,21 +201,6 @@ export function removeAreaValues(
     Object.entries(values).filter(
       ([cell]) => cell.split("|")[0] !== workAreaId,
     ),
-  );
-}
-
-// Per-date headcount total across the given rows. Blank, missing and
-// non-numeric cells count as 0.
-export function dayTotals(
-  values: GridValues,
-  rows: GridRow[],
-  dates: string[],
-): number[] {
-  return dates.map((date) =>
-    rows.reduce((sum, row) => {
-      const count = Number(values[`${row.key}|${date}`]);
-      return sum + (Number.isFinite(count) ? count : 0);
-    }, 0),
   );
 }
 
