@@ -15,11 +15,9 @@ import { buildWorkersRecord } from "./validate";
 // Next, no clock — history enters as plain assignment rows (this week's
 // plan rows in `weeklyAssignments`, cross-plan rows in `priorAssignments`).
 
-const NEVER_WORKED = 1_000_000; // mirrors generate.ts sortKey
-
 // "2 work days this week, 0 in window": week count in the target's
 // Monday-start week, then the month-window work-day count that ranked the
-// candidate (third component is days-since-last, desc — shown via "since").
+// candidate, then the nearest shift on either side of the target date.
 function describeLoad(own: RosterAssignment[], targetDate: string): string {
   const targetWeek = mondayOf(targetDate);
   const targetMonth = monthKey(targetDate);
@@ -32,14 +30,23 @@ function describeLoad(own: RosterAssignment[], targetDate: string): string {
     0,
   );
   const target = dayNumber(targetDate);
-  const last = own.reduce(
-    (max, a) => Math.max(max, dayNumber(a.date)),
-    Number.NEGATIVE_INFINITY,
-  );
-  const sinceLast = Number.isFinite(last) ? target - last : NEVER_WORKED;
-  return sinceLast >= NEVER_WORKED
-    ? `${week} work days this week, ${month} in window, no prior shifts`
-    : `${week} work days this week, ${month} in window, last shift ${sinceLast}d ago`;
+  let before = Number.NEGATIVE_INFINITY;
+  let after = Number.POSITIVE_INFINITY;
+  for (const a of own) {
+    const day = dayNumber(a.date);
+    if (day < target) before = Math.max(before, day);
+    else if (day > target) after = Math.min(after, day);
+  }
+  const daysBefore = target - before;
+  const daysAfter = after - target;
+  const prefix = `${week} work days this week, ${month} in window`;
+  if (!Number.isFinite(before) && !Number.isFinite(after)) {
+    return `${prefix}, no prior shifts`;
+  }
+  // Nearest shift wins; a tie prefers the earlier one.
+  return daysBefore <= daysAfter
+    ? `${prefix}, last shift ${daysBefore}d ago`
+    : `${prefix}, next shift in ${daysAfter}d`;
 }
 
 export function suggestReplacements(
