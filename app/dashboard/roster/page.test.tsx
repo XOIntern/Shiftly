@@ -504,6 +504,12 @@ describe("roster page SSR (roster-engine Task 7)", () => {
 
       const html = await renderRoster({ week: fx.MONDAY });
 
+      // The title is where focus lands after a confirmed Discard removes
+      // the draft and its trigger.
+      const title = html.match(/<h1[^>]*>Roster<\/h1>/)?.[0] ?? "";
+      expect(title).toContain(" data-focus-fallback=");
+      expect(title).toContain('tabindex="-1"');
+
       // Grid headers: the Monday-start week.
       for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
         expect(html.includes(day)).toBeTrue();

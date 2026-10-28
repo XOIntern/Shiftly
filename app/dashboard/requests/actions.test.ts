@@ -1578,6 +1578,47 @@ describe("request actions: withdrawRequest", () => {
     }
   });
 
+  test("two concurrent withdraws of one open request: exactly one ok, one refusal, one audit row", async () => {
+    const fx = await seedGlobalData();
+    const admin = makeActor("admin", null, fx.locA1);
+    await seedUser(admin);
+    const requestId = await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: admin.id,
+      type: "weekly",
+      weekStart: MONDAY,
+    });
+
+    try {
+      const { withdrawRequest } = await import("./actions");
+      // A double-click on the confirm button: both calls start before either
+      // resolves, and both share the actor.
+      actor = admin;
+      const first = withdrawRequest(requestId);
+      const second = withdrawRequest(requestId);
+      const results = await Promise.all([first, second]);
+
+      expect(results.filter((r) => r.ok)).toHaveLength(1);
+      const refused = results.find((r) => !r.ok);
+      expect(refused?.message).toBeOneOf([
+        "Request state changed, reload",
+        "Only open requests can be withdrawn.",
+      ]);
+      expect(await statusOf(requestId)).toBe("withdrawn");
+
+      const audits = (await auditsOf(admin.id)).filter(
+        (row) =>
+          row.action === "mp_request.status_change" &&
+          (row.details as { requestId?: string } | null)?.requestId ===
+            requestId,
+      );
+      expect(audits).toHaveLength(1);
+    } finally {
+      await dropAll({ userIds: [admin.id], ...fx });
+    }
+  });
+
   test("a daily request withdrawn after a partial fill leaves the daily plan's assignments untouched", async () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
@@ -1724,7 +1765,7 @@ describe("request actions: loadCopySource", () => {
     return requestId;
   }
 
-  test("returns the latest non-rejected earlier week, skips rejected, returns null when none, and never returns another location's request for an admin", async () => {
+  test("returns the latest earlier week with an open, approved or fulfilled request, skips weeks holding only rejected ones, returns null when none, and never returns another location's request for an admin", async () => {
     const fx = await seedGlobalData();
     const masters = await seedMasters(fx);
     actor = makeActor("admin", null, fx.locA1);
@@ -1855,7 +1896,7 @@ describe("request actions: loadCopySource", () => {
     }
   });
 
-  test("merges every non-rejected request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
+  test("merges every open, approved or fulfilled request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
     const fx = await seedGlobalData();
     const masters = await seedMasters(fx);
     actor = makeActor("admin", null, fx.locA1);

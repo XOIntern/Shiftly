@@ -630,8 +630,9 @@ export async function withdrawRequest(id: string): Promise<ActionState> {
 // weekly request at that location, returned as the merged lines of every
 // live weekly request of that week (a fulfilled request plus a later delta
 // request read as one demand). Rejected and withdrawn requests are void and
-// never count, so a week holding only those is skipped. Network-reachable, so it authenticates and scopes like the writes;
-// anything malformed or out of scope is simply "no source".
+// never count, so a week holding only those is skipped. Network-reachable, so
+// it authenticates and scopes like the writes; anything malformed or out of
+// scope is simply "no source".
 export async function loadCopySource(
   siteLocationId: string,
   beforeWeekStart: string,

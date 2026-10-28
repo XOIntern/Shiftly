@@ -290,6 +290,11 @@ describe("requests page SSR (mp-requests Task 8)", () => {
 
       const html = await renderRequests();
       expect(html.includes("Requests")).toBeTrue();
+      // The title is where focus lands after a confirmed Reject removes the
+      // row and its trigger.
+      const title = html.match(/<h1[^>]*>Requests<\/h1>/)?.[0] ?? "";
+      expect(title).toContain(" data-focus-fallback=");
+      expect(title).toContain('tabindex="-1"');
       expect(html.includes(fx.anchors.rqA1)).toBeTrue();
       expect(html.includes(fx.anchors.rqA2)).toBeTrue();
       expect(html.includes(fx.anchors.rqB1)).toBeFalse();
@@ -564,9 +569,17 @@ describe("requests list: approval, roster link and filter", () => {
 
   test("rejectDialogCopy asks for confirmation and warns the admin must re-enter the request", async () => {
     const { rejectDialogCopy } = await import("./status-actions");
-    expect(rejectDialogCopy(baseRow)).toEqual({
+    expect(rejectDialogCopy()).toEqual({
       title: "Reject this request?",
       body: "This cannot be undone. The admin will need to enter a new request.",
+    });
+  });
+
+  test("approveDialogCopy asks for confirmation and says the request feeds the roster", async () => {
+    const { approveDialogCopy } = await import("./status-actions");
+    expect(approveDialogCopy()).toEqual({
+      title: "Approve this request?",
+      body: "This request becomes the basis for the week's roster.",
     });
   });
 

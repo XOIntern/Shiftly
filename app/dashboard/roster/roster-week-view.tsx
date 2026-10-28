@@ -20,8 +20,13 @@ import type { RosterPlanOption } from "@/app/dashboard/roster/roster-status-bar"
 // computed server-side (gate, coverage, totals); this component only reads
 // and pushes URL state, like the shared data-table pattern.
 
-// Kept importable from here: the Revise wiring now lives with the status bar.
-export { buildReviseHref, commitRevise } from "@/app/dashboard/roster/roster-status-bar";
+// Kept importable from here: the Revise wiring now lives in
+// roster-plan-actions.tsx and is re-exported through the status bar.
+export {
+  buildReviseHref,
+  commitRevise,
+  shouldRefreshAfterRevise,
+} from "@/app/dashboard/roster/roster-status-bar";
 export type {
   ReviseOutcome,
   RosterPlanOption,
@@ -126,7 +131,9 @@ export function RosterWeekView({
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-col gap-1">
-        <h1 className="page-title">Roster</h1>
+        <h1 className="page-title" tabIndex={-1} data-focus-fallback>
+          Roster
+        </h1>
         <p className="max-w-prose text-sm text-muted-foreground">
           Weekly drafts generated from approved manpower requests, validated
           against rules C1-C7 and published only when compliant. Unfilled

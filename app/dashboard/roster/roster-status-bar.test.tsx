@@ -13,7 +13,7 @@ mock.module("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-const { RosterStatusBar, discardDialogCopy } = await import(
+const { RosterStatusBar, discardDialogCopy, publishDialogCopy } = await import(
   "./roster-status-bar"
 );
 type BarProps = Parameters<typeof RosterStatusBar>[0];
@@ -257,10 +257,28 @@ describe("RosterStatusBar", () => {
       }),
     ).not.toContain("Discard draft");
     expect(
-      render({ canDiscard: false, canWrite: false, gate: { action: "none" } }),
+      render({ canDiscard: false, gate: { action: "none" } }),
     ).not.toContain("Discard draft");
     expect(render({ canDiscard: false })).not.toContain("Discard draft");
     expect(render({ selectedPlanId: null })).not.toContain("Discard draft");
+  });
+
+  test("Discard draft is absent while the plan version is unknown", () => {
+    expect(render({ planVersion: null })).not.toContain("Discard draft");
+  });
+
+  test("the Discard trigger is disabled while a navigation is pending and enabled otherwise", () => {
+    const trigger = (html: string) => {
+      const label = html.indexOf("Discard draft");
+      expect(label).toBeGreaterThan(-1);
+      return html.slice(html.lastIndexOf("<button", label), label);
+    };
+    expect(trigger(render({ navigating: true }))).toContain('disabled=""');
+    expect(trigger(render({ navigating: false }))).not.toContain('disabled=""');
+  });
+
+  test("canWrite false hides the primary button on a draft", () => {
+    expect(render({ canWrite: false })).not.toContain("Publish roster");
   });
 });
 
@@ -286,5 +304,37 @@ describe("discardDialogCopy", () => {
       title: "Discard draft v3?",
       body: "Its assignments will be deleted. Published versions are not affected.",
     });
+  });
+});
+
+describe("publishDialogCopy", () => {
+  const LOCKS =
+    "This locks v4 and marks the week's approved requests fulfilled. Use Revise to change it afterwards.";
+
+  test("names the version in the title", () => {
+    expect(publishDialogCopy(4, null).title).toBe("Publish v4?");
+  });
+
+  test("without totals the body has no unfilled sentence", () => {
+    expect(publishDialogCopy(4, null)).toEqual({
+      title: "Publish v4?",
+      body: LOCKS,
+    });
+  });
+
+  test("balanced demand has no unfilled sentence", () => {
+    expect(publishDialogCopy(4, { required: 6, filled: 6 }).body).toBe(LOCKS);
+  });
+
+  test("short by one says 1 slot is still unfilled", () => {
+    expect(publishDialogCopy(4, { required: 6, filled: 5 }).body).toBe(
+      `${LOCKS} 1 slot is still unfilled.`,
+    );
+  });
+
+  test("short by many counts the slots", () => {
+    expect(publishDialogCopy(4, { required: 10, filled: 3 }).body).toBe(
+      `${LOCKS} 7 slots are still unfilled.`,
+    );
   });
 });

@@ -31,7 +31,9 @@ const {
 } = await import("./roster-grid");
 // The revise affordance lives in the week view (the grid stays draft-edit
 // only); its pure wiring is tested here with the same mocks.
-const { buildReviseHref, commitRevise } = await import("./roster-week-view");
+const { buildReviseHref, commitRevise, shouldRefreshAfterRevise } = await import(
+  "./roster-week-view"
+);
 
 const PLAN = "11111111-1111-4111-8111-111111111111";
 const AREA = "22222222-2222-4222-9222-222222222222";
@@ -196,7 +198,33 @@ describe("commitRevise (the Revise plan wiring into the guarded revisePlan actio
     expect(reviseCalls).toEqual([PUBLISHED]);
     expect(outcome.ok).toBeFalse();
     expect((outcome as { message: string }).message.length).toBeGreaterThan(0);
+    expect((outcome as { thrown?: boolean }).thrown).toBeTrue();
     nextRevise = NEXT_DRAFT;
+  });
+
+  test("a failure the action returns carries no thrown marker", async () => {
+    const returned = async () => ({ ok: false as const, message: "Gone." });
+    const outcome = await commitRevise(PUBLISHED, returned);
+    expect(outcome).toEqual({ ok: false, message: "Gone." });
+    expect("thrown" in outcome).toBeFalse();
+  });
+});
+
+describe("shouldRefreshAfterRevise", () => {
+  test("refreshes after a returned failure", () => {
+    expect(shouldRefreshAfterRevise({ ok: false, message: "Gone." })).toBeTrue();
+  });
+
+  test("does not refresh after a thrown failure", () => {
+    expect(
+      shouldRefreshAfterRevise({ ok: false, message: "x", thrown: true }),
+    ).toBeFalse();
+  });
+
+  test("does not refresh after success", () => {
+    expect(
+      shouldRefreshAfterRevise({ ok: true, draftPlanId: NEXT_DRAFT }),
+    ).toBeFalse();
   });
 });
 
