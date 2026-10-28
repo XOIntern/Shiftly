@@ -9,7 +9,7 @@ import {
   parseTableSearchParams,
 } from "@/lib/table-params";
 import { requireSuperadmin } from "@/lib/session";
-import { parseSitesView } from "@/lib/sites-view";
+import { parseListView } from "@/lib/list-view";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateSiteButton } from "@/components/sites/site-form";
 import { DeletedSitesTable } from "@/components/sites/deleted-sites-table";
@@ -41,7 +41,7 @@ export default async function SitesPage({
   const params = await searchParams;
   // ?show=deleted picks the soft-deleted list; it is not part of the shared
   // table params, so it is read off the raw search params.
-  const view = parseSitesView(params.show);
+  const view = parseListView(params.show);
   const { q, status, page, sorts, pageSize } = parseTableSearchParams(
     params,
     PAGE_SIZE_OPTIONS,

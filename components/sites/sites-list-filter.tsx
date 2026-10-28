@@ -11,32 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { parseSitesView } from "@/lib/sites-view";
+import { nextListParams, parseListView } from "@/lib/list-view";
 
 const LIST_OPTIONS = [
   { value: "active", label: "Active sites" },
   { value: "deleted", label: "Deleted sites" },
 ];
-
-// The params after switching list: it restarts at page 1 and keeps the search
-// term and the status filter (both lists filter by status). The sort belongs
-// to the list being left (the deleted list has no status column to sort by),
-// so it is dropped. Any value but "deleted" is the active list, whose URL
-// carries no show param. Pure: the caller's params are left alone.
-export function nextListParams(
-  current: URLSearchParams,
-  next: string | null,
-): URLSearchParams {
-  const params = new URLSearchParams(current.toString());
-  if (next === "deleted") {
-    params.set("show", "deleted");
-  } else {
-    params.delete("show");
-  }
-  params.delete("sort");
-  params.set("page", "1");
-  return params;
-}
 
 // Toolbar filter of the sites page that chooses which list the table shows:
 // the live sites, or the soft-deleted ones (superadmin permanent delete).
@@ -47,7 +27,7 @@ export function SitesListFilter() {
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
 
-  const value = parseSitesView(searchParams.get("show") ?? undefined);
+  const value = parseListView(searchParams.get("show") ?? undefined);
 
   const change = (next: string | null) => {
     const params = nextListParams(searchParams, next);

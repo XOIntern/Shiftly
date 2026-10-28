@@ -7,3 +7,5 @@ export type SessionUser = {
   siteLocationId: string | null;
   isActive: boolean;
 };
+
+export type ScopeActor = Pick<SessionUser, "role" | "siteId" | "siteLocationId">;
