@@ -5,6 +5,7 @@ import { createColumnHelper } from "@tanstack/react-table";
 
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { DeletedListFilter } from "@/components/deleted-list-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusFilter } from "@/components/status-filter";
 import { ShiftRowActions } from "@/app/dashboard/shifts/shift-dialog";
@@ -119,7 +120,12 @@ export function ShiftsTable({
       total={total}
       emptyMessage="Create your first shift for this location"
       getRowId={(row) => row.id}
-      filters={<StatusFilter />}
+      filters={
+        <>
+          <StatusFilter />
+          <DeletedListFilter singular="shift" plural="shifts" />
+        </>
+      }
     />
   );
 }
