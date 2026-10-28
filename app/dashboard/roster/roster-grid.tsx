@@ -32,7 +32,7 @@ export type RosterShiftOption = {
   endTime: string;
 };
 
-export type GridWorker = { id: string; employeeId: string };
+export type GridWorker = { id: string; employeeId: string; name: string };
 
 // A cell is keyed by worker + date; the card's area rides the request.
 export function assignmentKey(workerId: string, date: string): string {
@@ -207,6 +207,11 @@ export function RosterGrid({
               <tr key={row.id} className="border-b">
                 <td className="px-3 py-1.5">
                   <span className="block font-medium">{row.employeeId}</span>
+                  {row.name ? (
+                    <span className="block text-xs text-muted-foreground">
+                      {row.name}
+                    </span>
+                  ) : null}
                   {(rowBadges[row.id] ?? []).map((v) => (
                     <Badge
                       key={`${v.rule}${v.date ?? ""}${v.message}`}

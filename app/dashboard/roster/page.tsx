@@ -9,6 +9,7 @@ import {
   shiftDefinition,
   site,
   siteLocation,
+  worker,
   workArea,
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
@@ -310,6 +311,24 @@ export default async function RosterPage({
       Number.parseInt(rowPageParam ?? "1", 10),
       pageCount,
     );
+    const pageWorkers = allWorkers.slice(
+      (rowPage - 1) * ROWS_PER_PAGE,
+      rowPage * ROWS_PER_PAGE,
+    );
+    // Names only for the visible slice; the engine's worker pairs carry the
+    // employee id alone.
+    const nameRows = pageWorkers.length
+      ? await db
+          .select({ id: worker.id, name: worker.name })
+          .from(worker)
+          .where(
+            inArray(
+              worker.id,
+              pageWorkers.map((w) => w.id),
+            ),
+          )
+      : [];
+    const nameById = new Map(nameRows.map((r) => [r.id, r.name]));
 
     // This area's cells only: a worker holds at most one assignment per
     // day (the plan-level unique), and a row of ANOTHER area must not leak
@@ -345,10 +364,10 @@ export default async function RosterPage({
           startTime,
           endTime,
         })),
-      workers: allWorkers.slice(
-        (rowPage - 1) * ROWS_PER_PAGE,
-        rowPage * ROWS_PER_PAGE,
-      ),
+      workers: pageWorkers.map((w) => ({
+        ...w,
+        name: nameById.get(w.id) ?? "",
+      })),
       workerTotal,
       rowPage,
       dates,

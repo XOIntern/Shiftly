@@ -56,7 +56,7 @@ function renderGrid(
       workAreaId={AREA}
       workAreaName="Kitchen"
       shifts={[EARLY]}
-      workers={[{ id: W1, employeeId: "EMP-001" }]}
+      workers={[{ id: W1, employeeId: "EMP-001", name: "Budi Santoso" }]}
       dates={[MON]}
       cells={{}}
       dailyCells={{}}
@@ -69,6 +69,12 @@ function renderGrid(
 }
 
 describe("RosterGrid", () => {
+  test("worker row shows the employee name under the employee id", () => {
+    const html = renderGrid();
+    expect(html).toContain("EMP-001");
+    expect(html).toContain("Budi Santoso");
+  });
+
   test("grid renders only the selected work area's workers", () => {
     const html = renderGrid({ cells: { [`${W1}|${MON}`]: SH1 } });
     // The selected area names the grid; no area switcher lives in the grid.
