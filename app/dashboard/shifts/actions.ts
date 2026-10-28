@@ -7,7 +7,7 @@ import { z } from "zod";
 import { siteLocation, shiftDefinition, mpRequestLine } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { pgErrorCode } from "@/error/db-errors";
-import { requireUser } from "@/lib/session";
+import { requireSuperadmin, requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
@@ -18,6 +18,10 @@ import {
   type ShiftUpdateInput,
 } from "@/validation/shift";
 import { shiftMutationWhere, shiftOwnedByActor } from "@/lib/shift-scope";
+import { purgeShiftGuarded } from "@/lib/shift-purge";
+import { restoreShiftError, restoreShiftGuarded } from "@/lib/shift-restore";
+import { nounFor } from "@/lib/bulk-summary";
+import { runPerRow } from "@/lib/run-per-row";
 
 // The partial unique on shift_definition (site_location_id, order_index)
 // WHERE deleted_at IS NULL surfaces as 23505 both on create and on order
@@ -244,4 +248,98 @@ export async function deleteShift(id: string): Promise<ActionState> {
 
   revalidatePath("/dashboard/shifts");
   return { ok: true };
+}
+
+// Brings a soft-deleted shift back (lib/shift-restore.ts), inside the actor's
+// scope: an HO only reaches their own site's rows, an admin their own
+// location's, and anything else answers the plain not-found message. Only the
+// shift row returns; a deleted location or an order index now used by a live
+// shift refuses, the order through the guard or through the unique-index
+// backstop (restoreShiftError maps both to the same text).
+export async function restoreShift(id: string): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid shift id." };
+  }
+
+  let result: Awaited<ReturnType<typeof restoreShiftGuarded>>;
+  try {
+    result = await db.transaction((tx) => restoreShiftGuarded(tx, actor, id));
+  } catch (err) {
+    return { ok: false, message: restoreShiftError(err) };
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/shifts");
+  return { ok: true };
+}
+
+// A driver error thrown while purging: the RESTRICT backstop means something
+// still points at the shift, anything else is generic.
+function purgeShiftError(err: unknown): string {
+  const code = pgErrorCode(err);
+  if (code === "23503" || code === "23001") {
+    return "Some records still reference this item";
+  }
+  return GENERIC_ERROR;
+}
+
+// Permanent delete of a soft-deleted shift (superadmin only). Guards and the
+// write share one transaction (lib/shift-purge.ts); roster assignments and
+// request lines refuse, and the FK backstop is mapped by purgeShiftError.
+export async function purgeShift(id: string): Promise<ActionState> {
+  await requireSuperadmin();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid shift id." };
+  }
+
+  let result: Awaited<ReturnType<typeof purgeShiftGuarded>>;
+  try {
+    result = await db.transaction((tx) => purgeShiftGuarded(tx, id));
+  } catch (err) {
+    return { ok: false, message: purgeShiftError(err) };
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/shifts");
+  return { ok: true };
+}
+
+const perShift = {
+  emptyMessage: "No shifts selected.",
+  noun: nounFor("shift"),
+};
+
+// Bulk restore of soft-deleted shifts, inside the actor's scope: rows of
+// another site or location are skipped like any other refusal.
+export async function restoreBulk(ids: string[]): Promise<ActionState> {
+  const actor = await requireUser();
+  const result = await runPerRow(
+    ids,
+    (tx, id) => restoreShiftGuarded(tx, actor, id),
+    { ...perShift, mapError: restoreShiftError },
+  );
+  if (result.ok) revalidatePath("/dashboard/shifts");
+  return result;
+}
+
+// Bulk permanent delete of soft-deleted shifts (superadmin only). Each shift
+// runs the same guarded purge as purgeShift; one with roster or request
+// history is skipped.
+export async function purgeBulk(ids: string[]): Promise<ActionState> {
+  await requireSuperadmin();
+  const result = await runPerRow(ids, purgeShiftGuarded, {
+    ...perShift,
+    mapError: purgeShiftError,
+  });
+  if (result.ok) revalidatePath("/dashboard/shifts");
+  return result;
 }
