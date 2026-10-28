@@ -1,21 +1,8 @@
 "use client";
 
-import {
-  Fragment,
-  useEffect,
-  useState,
-  useTransition,
-  type ComponentProps,
-} from "react";
+import { useEffect, useState, useTransition, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ChevronDownIcon,
-  CopyIcon,
-  EraserIcon,
-  PaintBucketIcon,
-  PlusIcon,
-  XIcon,
-} from "lucide-react";
+import { EraserIcon, PlusIcon } from "lucide-react";
 import { cn } from "cn";
 import { toast } from "sonner";
 
@@ -34,6 +21,14 @@ import {
   loadCopySource,
   updateRequestLines,
 } from "@/app/dashboard/requests/actions";
+import { AreaSection } from "@/app/dashboard/requests/area-section";
+import { CopyStep } from "@/app/dashboard/requests/copy-step";
+import {
+  DayHeaders,
+  RequestGridShell,
+  STICKY_CELL,
+} from "@/app/dashboard/requests/request-grid-shell";
+import { TotalsRow } from "@/app/dashboard/requests/totals-row";
 import type { MpRequestCreateInput } from "@/validation/request-line";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
@@ -477,8 +472,6 @@ function SelectField({
   );
 }
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
 // Headcounts are typed as digits-only strings capped at the schema's 999.
 // A bare "0" normalizes to empty — the line schema's min is 1, so a typed
 // zero can only ever produce a doomed submission.
@@ -506,55 +499,17 @@ export function refusalToast(result: ActionState): string | null {
   return fieldErrorsSummary(result.fieldErrors ?? {});
 }
 
-type CopySource = { weekStart: string; lines: MpRequestLineView[] };
+export type CopySource = { weekStart: string; lines: MpRequestLineView[] };
 
 // The resolved copy lookup, tagged with the location|Monday it answers for:
 // a tag that differs from the current one means the lookup is in flight.
 type CopyLookup = { key: string; source: CopySource | null };
-
-// Fixed column widths shared by every section table and the totals table,
-// so the day columns line up down the whole form.
-const NAME_COL = "w-44";
-const DAY_COL = "w-16";
-const TAIL_COL = "w-32";
 
 const triple = (row: {
   workAreaId: string;
   shiftDefinitionId: string;
   positionId: string;
 }) => `${row.workAreaId}|${row.shiftDefinitionId}|${row.positionId}`;
-
-function GridColumns({ dates, tail }: { dates: string[]; tail: boolean }) {
-  return (
-    <colgroup>
-      <col className={NAME_COL} />
-      {dates.map((date) => (
-        <col key={date} className={DAY_COL} />
-      ))}
-      {tail ? <col className={TAIL_COL} /> : null}
-    </colgroup>
-  );
-}
-
-function DayHeaders({ type }: { type: "weekly" | "daily" }) {
-  return type === "weekly" ? (
-    <>
-      {DAYS.map((day) => (
-        <th key={day} scope="col" className="px-1 py-2 text-center font-medium">
-          {day}
-        </th>
-      ))}
-    </>
-  ) : (
-    <th scope="col" className="px-1 py-2 text-center font-medium">
-      Headcount
-    </th>
-  );
-}
-
-// The row label column stays put while the day columns scroll sideways on
-// narrow screens.
-const STICKY_CELL = "sticky left-0 z-[1] bg-card";
 
 export function RequestForm({
   siteLocations,
@@ -568,10 +523,6 @@ export function RequestForm({
   initialFieldErrors,
   defaultWeekStart,
   defaultRequestDate,
-  defaultStep,
-  defaultAreaIds,
-  defaultValues,
-  initialCopySource,
   onSaved,
 }: {
   siteLocations: SiteLocationOption[];
@@ -594,13 +545,6 @@ export function RequestForm({
   // edit variant ignores them — its anchor and lines come from the request.
   defaultWeekStart?: string;
   defaultRequestDate?: string;
-  // "grid" skips the weekly copy step, as if a choice had been made.
-  defaultStep?: "copy" | "grid";
-  defaultAreaIds?: string[];
-  defaultValues?: GridValues;
-  // An already-resolved copy lookup for the initial location and week
-  // (tests); `null` means "nothing to copy". Omitted, the form looks it up.
-  initialCopySource?: CopySource | null;
   onSaved: () => void;
 }) {
   const isEdit = !!request;
@@ -630,7 +574,7 @@ export function RequestForm({
             String(line.headcount),
           ]),
         )
-      : { ...defaultValues },
+      : {},
   );
   const [removedPairs, setRemovedPairs] = useState<Set<string>>(new Set());
   // The added area sections. Edit seeds them from the stored lines (its
@@ -641,11 +585,11 @@ export function RequestForm({
           gridRows(activeWorkAreas, activeShifts, siteLocationId ?? null),
           request.lines,
         )
-      : new Set(defaultAreaIds),
+      : new Set(),
   );
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // Weekly create starts on the copy-or-blank choice.
-  const [step, setStep] = useState<"copy" | "grid">(defaultStep ?? "copy");
+  const [step, setStep] = useState<"copy" | "grid">("copy");
   const [quickFill, setQuickFill] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(
     initialFieldErrors ?? {},
@@ -719,11 +663,7 @@ export function RequestForm({
     copyMonday && effectiveLocationId
       ? `${effectiveLocationId}|${copyMonday}`
       : null;
-  const [copyLookup, setCopyLookup] = useState<CopyLookup | null>(() =>
-    initialCopySource !== undefined && copyKey
-      ? { key: copyKey, source: initialCopySource }
-      : null,
-  );
+  const [copyLookup, setCopyLookup] = useState<CopyLookup | null>(null);
   useEffect(() => {
     if (!copyKey || !effectiveLocationId || !copyMonday) return;
     // A response for an older location/week never lands over a newer one.
@@ -828,6 +768,14 @@ export function RequestForm({
     });
   }
 
+  function changeCell(cellKey: string, raw: string) {
+    setValues((prev) => ({ ...prev, [cellKey]: normalizeHeadcount(raw) }));
+  }
+
+  function changeQuickFill(rowKey: string, raw: string) {
+    setQuickFill((prev) => ({ ...prev, [rowKey]: normalizeHeadcount(raw) }));
+  }
+
   function applyQuickFill(row: GridRow) {
     const spread = quickFillCells(quickFill[row.key] ?? "", dates);
     setValues((prev) => {
@@ -886,9 +834,6 @@ export function RequestForm({
   }
 
   const weekly = type_ === "weekly";
-  // Columns per row: label, the dates, and (weekly) the "same all days" or
-  // week-total tail.
-  const columnCount = 1 + dates.length + (weekly ? 1 : 0);
 
   return (
     <form onSubmit={handleSubmit}>
@@ -1018,51 +963,13 @@ export function RequestForm({
               "This location has no active work areas or shifts yet."}
           </p>
         ) : showCopyStep ? (
-          <div
-            role="group"
-            aria-labelledby="request-copy-step-title"
-            className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4"
-          >
-            <p id="request-copy-step-title" className="font-medium">
-              How do you want to start this week?
-            </p>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button
-                type="button"
-                className="h-11 md:h-8"
-                disabled={!copySource}
-                aria-describedby="request-copy-step-note"
-                onClick={copyFromSource}
-              >
-                <CopyIcon data-icon="inline-start" />
-                {copySource
-                  ? `Copy from week of ${copySource.weekStart}`
-                  : "Copy from an earlier week"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 md:h-8"
-                onClick={() => setStep("grid")}
-              >
-                Start blank
-              </Button>
-            </div>
-            <p
-              id="request-copy-step-note"
-              className="text-sm text-muted-foreground"
-              aria-live="polite"
-            >
-              {copyPending
-                ? "Looking for the last request…"
-                : copySource
-                  ? "Headcounts move to the same weekday of this week. Lines for areas, shifts or positions no longer active are left out."
-                  : "No earlier request to copy for this location."}
-            </p>
-            {configureHint ? (
-              <p className="text-sm text-muted-foreground">{configureHint}</p>
-            ) : null}
-          </div>
+          <CopyStep
+            copySource={copySource}
+            copyPending={copyPending}
+            configureHint={configureHint}
+            onCopy={copyFromSource}
+            onStartBlank={() => setStep("grid")}
+          />
         ) : (
           <div className="flex flex-col gap-3">
             {configureHint ? (
@@ -1075,319 +982,126 @@ export function RequestForm({
               </p>
             ) : null}
 
-            {groups.map((group) => {
-              const open = !collapsed.has(group.workAreaId);
-              const areaTotals = dayTotals(values, group.rows, dates);
-              const areaWeek = areaTotals.reduce((sum, n) => sum + n, 0);
-              const bodyId = `request-area-${group.workAreaId}`;
-              return (
-                <section
-                  key={group.workAreaId}
-                  aria-labelledby={`${bodyId}-title`}
-                  className="rounded-md border"
-                >
-                  <div className="flex items-start gap-1 p-1">
-                    <button
-                      type="button"
-                      aria-expanded={open}
-                      aria-controls={bodyId}
-                      onClick={() => toggleArea(group.workAreaId)}
-                      className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-start outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
-                    >
-                      <ChevronDownIcon
-                        aria-hidden
-                        className={cn(
-                          "mt-0.5 size-4 shrink-0 transition-transform",
-                          !open && "-rotate-90",
-                        )}
-                      />
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        <span id={`${bodyId}-title`} className="font-medium">
-                          {group.workAreaName}
-                        </span>
-                        <ul className="flex flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums">
-                          {weekly ? (
-                            <>
-                              {DAYS.map((day, i) => (
-                                <li
-                                  key={day}
-                                >{`${day} ${areaTotals[i] ?? 0}`}</li>
-                              ))}
-                              <li className="font-medium text-foreground">{`Week ${areaWeek}`}</li>
-                            </>
-                          ) : (
-                            <li>{`Total ${areaWeek}`}</li>
-                          )}
-                        </ul>
-                      </span>
-                    </button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-11 md:size-8"
-                      aria-label={`Remove area ${group.workAreaName}`}
-                      onClick={() => removeArea(group.workAreaId)}
-                    >
-                      <XIcon />
-                    </Button>
-                  </div>
-                  <div
-                    id={bodyId}
-                    hidden={!open}
-                    className="relative overflow-x-auto border-t"
-                  >
-                    <table className="w-max min-w-full table-fixed border-collapse text-sm">
-                      <GridColumns dates={dates} tail={weekly} />
-                      <thead>
-                        <tr className="border-b bg-muted/50">
-                          <th
-                            scope="col"
-                            className={cn(
-                              STICKY_CELL,
-                              "bg-muted px-3 py-2 text-start font-medium",
-                            )}
-                          >
-                            Shift / position
-                          </th>
-                          <DayHeaders type={type_} />
-                          {weekly ? (
-                            <th
-                              scope="col"
-                              className="px-2 py-2 text-center font-medium"
-                            >
-                              Same all days
-                            </th>
-                          ) : null}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.rows.map((row) => {
-                          // Best-effort per-line placement: the action's
-                          // refusal keys are lines-array indexes
-                          // (`lines.<i>[.field]`), not grid coordinates, so
-                          // a row matching the index — if any — gets the
-                          // message inline; the toast is the safety net.
-                          const index = rows.indexOf(row);
-                          const rowError =
-                            fieldErrors[`lines.${index}`] ??
-                            fieldErrors[`lines.${index}.date`] ??
-                            fieldErrors[`lines.${index}.headcount`];
-                          const label = `${row.workAreaName} / ${row.shiftLabel} / ${row.positionName}`;
-                          return (
-                            <Fragment key={row.key}>
-                              <tr className="border-b last:border-b-0">
-                                <th
-                                  scope="row"
-                                  className={cn(
-                                    STICKY_CELL,
-                                    "px-3 py-1.5 text-start font-normal",
-                                  )}
-                                >
-                                  {`${row.shiftLabel} / ${row.positionName}`}
-                                </th>
-                                {dates.map((date) => {
-                                  const key = `${row.key}|${date}`;
-                                  return (
-                                    <td key={date} className="px-1 py-1.5">
-                                      <Input
-                                        aria-label={`Headcount ${label} / ${date}`}
-                                        type="number"
-                                        inputMode="numeric"
-                                        min={1}
-                                        max={999}
-                                        step={1}
-                                        className="h-10 w-14 text-center tabular-nums md:h-8"
-                                        value={values[key] ?? ""}
-                                        onChange={(event) =>
-                                          setValues((prev) => ({
-                                            ...prev,
-                                            [key]: normalizeHeadcount(
-                                              event.target.value,
-                                            ),
-                                          }))
-                                        }
-                                      />
-                                    </td>
-                                  );
-                                })}
-                                {weekly ? (
-                                  <td className="px-2 py-1.5">
-                                    <span className="flex items-center gap-1">
-                                      <Input
-                                        aria-label={`Same all days ${label}`}
-                                        type="number"
-                                        inputMode="numeric"
-                                        min={1}
-                                        max={999}
-                                        className="h-10 w-14 text-center tabular-nums md:h-8"
-                                        value={quickFill[row.key] ?? ""}
-                                        onChange={(event) =>
-                                          setQuickFill((prev) => ({
-                                            ...prev,
-                                            [row.key]: normalizeHeadcount(
-                                              event.target.value,
-                                            ),
-                                          }))
-                                        }
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="size-10 md:size-8"
-                                        aria-label={`Fill every day ${label}`}
-                                        onClick={() => applyQuickFill(row)}
-                                      >
-                                        <PaintBucketIcon />
-                                      </Button>
-                                    </span>
-                                  </td>
-                                ) : null}
-                              </tr>
-                              {rowError ? (
-                                <tr className="border-b">
-                                  <td
-                                    colSpan={columnCount}
-                                    className="px-3 py-1 text-xs text-destructive"
-                                  >
-                                    {rowError}
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              );
-            })}
+            {groups.map((group) => (
+              <AreaSection
+                key={group.workAreaId}
+                group={group}
+                open={!collapsed.has(group.workAreaId)}
+                type={type_}
+                dates={dates}
+                totals={dayTotals(values, group.rows, dates)}
+                values={values}
+                quickFill={quickFill}
+                rows={rows}
+                fieldErrors={fieldErrors}
+                onToggle={toggleArea}
+                onRemove={removeArea}
+                onCellChange={changeCell}
+                onQuickFillChange={changeQuickFill}
+                onFillRow={applyQuickFill}
+              />
+            ))}
 
             {inactivePairs.length > 0 ? (
-              <div className="relative overflow-x-auto rounded-md border">
-                <table className="w-max min-w-full table-fixed border-collapse text-sm">
-                  <GridColumns dates={dates} tail={weekly} />
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th
-                        scope="col"
-                        className={cn(
-                          STICKY_CELL,
-                          "bg-muted px-3 py-2 text-start font-medium",
-                        )}
-                      >
-                        No longer active
+              <RequestGridShell
+                dates={dates}
+                tail={weekly}
+                className="rounded-md border"
+                footer={
+                  weekly ? null : (
+                    // Daily has no tail column, so the remove controls sit
+                    // under the table.
+                    <div className="flex flex-wrap gap-2 border-t p-2">
+                      {inactivePairs.map((pair) => (
+                        <Button
+                          key={triple(pair)}
+                          type="button"
+                          variant="outline"
+                          className="h-11 md:h-8"
+                          onClick={() => removePair(pair)}
+                        >
+                          <EraserIcon data-icon="inline-start" />
+                          {`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
+                        </Button>
+                      ))}
+                    </div>
+                  )
+                }
+              >
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th
+                      scope="col"
+                      className={cn(
+                        STICKY_CELL,
+                        "bg-muted px-3 py-2 text-start font-medium",
+                      )}
+                    >
+                      No longer active
+                    </th>
+                    <DayHeaders type={type_} />
+                    {weekly ? (
+                      <th scope="col">
+                        <span className="sr-only">Remove</span>
                       </th>
-                      <DayHeaders type={type_} />
+                    ) : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {inactivePairs.map((pair) => (
+                    <tr
+                      key={triple(pair)}
+                      className="border-b bg-muted/30 text-muted-foreground last:border-b-0"
+                    >
+                      <th
+                        scope="row"
+                        className="px-3 py-1.5 text-start font-normal"
+                      >
+                        {`${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
+                        <span className="block text-xs">
+                          Inactive — keep unchanged or remove
+                        </span>
+                      </th>
+                      {dates.map((date) => {
+                        const cell = pair.dates.includes(date)
+                          ? values[`${triple(pair)}|${date}`]
+                          : undefined;
+                        return (
+                          <td
+                            key={date}
+                            className="px-1 py-1.5 text-center tabular-nums"
+                          >
+                            {cell ?? ""}
+                          </td>
+                        );
+                      })}
                       {weekly ? (
-                        <th scope="col">
-                          <span className="sr-only">Remove</span>
-                        </th>
+                        <td className="px-2 py-1.5">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-10 md:size-8"
+                            aria-label={`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
+                            onClick={() => removePair(pair)}
+                          >
+                            <EraserIcon />
+                          </Button>
+                        </td>
                       ) : null}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {inactivePairs.map((pair) => (
-                      <tr
-                        key={triple(pair)}
-                        className="border-b bg-muted/30 text-muted-foreground last:border-b-0"
-                      >
-                        <th
-                          scope="row"
-                          className="px-3 py-1.5 text-start font-normal"
-                        >
-                          {`${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
-                          <span className="block text-xs">
-                            Inactive — keep unchanged or remove
-                          </span>
-                        </th>
-                        {dates.map((date) => {
-                          const cell = pair.dates.includes(date)
-                            ? values[`${triple(pair)}|${date}`]
-                            : undefined;
-                          return (
-                            <td
-                              key={date}
-                              className="px-1 py-1.5 text-center tabular-nums"
-                            >
-                              {cell ?? ""}
-                            </td>
-                          );
-                        })}
-                        {weekly ? (
-                          <td className="px-2 py-1.5">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-10 md:size-8"
-                              aria-label={`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
-                              onClick={() => removePair(pair)}
-                            >
-                              <EraserIcon />
-                            </Button>
-                          </td>
-                        ) : null}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {weekly ? null : (
-                  // Daily has no tail column, so the remove controls sit
-                  // under the table.
-                  <div className="flex flex-wrap gap-2 border-t p-2">
-                    {inactivePairs.map((pair) => (
-                      <Button
-                        key={triple(pair)}
-                        type="button"
-                        variant="outline"
-                        className="h-11 md:h-8"
-                        onClick={() => removePair(pair)}
-                      >
-                        <EraserIcon data-icon="inline-start" />
-                        {`Remove inactive line ${pair.workAreaName} / ${pair.shiftLabel} / ${pair.positionName}`}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  ))}
+                </tbody>
+              </RequestGridShell>
             ) : null}
 
             {totalRows.length > 0 ? (
-              <div className="relative overflow-x-auto rounded-md border bg-muted/40">
-                <table className="w-max min-w-full table-fixed border-collapse text-sm tabular-nums">
-                  <GridColumns dates={dates} tail={weekly} />
-                  <tbody>
-                    <tr>
-                      <th
-                        scope="row"
-                        className="sticky left-0 z-1 bg-muted px-3 py-2 text-start font-medium"
-                      >
-                        Total
-                      </th>
-                      {totals.map((count, i) => (
-                        <td
-                          key={dates[i]}
-                          className="px-1 py-2 text-center font-medium"
-                        >
-                          {weekly ? (
-                            <span className="sr-only">{`${DAYS[i]} `}</span>
-                          ) : null}
-                          {count}
-                        </td>
-                      ))}
-                      {weekly ? (
-                        <td className="px-2 py-2 font-semibold">
-                          <span className="sr-only">Week total </span>
-                          {weekTotal}
-                        </td>
-                      ) : null}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <TotalsRow
+                dates={dates}
+                totals={totals}
+                weekTotal={weekTotal}
+                weekly={weekly}
+              />
             ) : null}
 
             {addableAreas.length > 0 ? (
