@@ -19,3 +19,14 @@ export interface WorkerProfile {
   workAreaId: string;
   positionIds: readonly string[];
 }
+
+// One row of the deleted-workers table. deletedAt travels as an ISO string so
+// the server and the client render the same text.
+export type DeletedWorkerRow = {
+  id: string;
+  employeeId: string;
+  name: string;
+  siteName: string;
+  locationName: string;
+  deletedAt: string;
+};
