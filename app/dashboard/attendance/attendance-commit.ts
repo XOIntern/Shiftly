@@ -2,6 +2,7 @@ import { GENERIC_ERROR } from "@/lib/action-state";
 import { shouldRefreshAfter } from "@/lib/refresh-after";
 import type { ActionState } from "@/types/action-state";
 import type { AttendanceStatus, DayRow } from "@/types/attendance";
+import { attendanceDateSchema } from "@/validation/attendance";
 
 import {
   addUnscheduled,
@@ -127,6 +128,13 @@ export function commitRemoveUnscheduled(
     () => act({ recordId: input.recordId, reason: input.reason.trim() }),
     () => `${label} removed.`,
   );
+}
+
+// A date field fires change on every keystroke: typing the year 2026 yields
+// 0002, 0020 and 0202 before 2026. Only a complete, real date in a plausible
+// year is worth a page load; the rest stays in the field while the admin types.
+export function isPushableDate(value: string): boolean {
+  return attendanceDateSchema.safeParse(value).success && value >= "2000-01-01";
 }
 
 // Rows nobody has recorded: what a bulk entry can still write.

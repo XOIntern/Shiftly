@@ -54,6 +54,7 @@ import {
   STATUS_ORDER,
   commitBulk,
   commitRecord,
+  isPushableDate,
   selectedUnrecordedIds,
   unrecordedWorkerIds,
   type Outcome,
@@ -163,6 +164,7 @@ export function AttendanceDayView({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const [dateDraft, setDateDraft] = useState(date);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>("present");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -319,10 +321,14 @@ export function AttendanceDayView({
           <Input
             id="attendance-date"
             type="date"
-            value={date}
+            value={dateDraft}
             onChange={(event) => {
-              // A cleared field has no date to push.
-              if (event.target.value) setParam("date", event.target.value);
+              // The field keeps what is typed; the URL only follows once it
+              // holds a complete date (the view remounts on a new date).
+              setDateDraft(event.target.value);
+              if (isPushableDate(event.target.value)) {
+                setParam("date", event.target.value);
+              }
             }}
           />
         </Field>

@@ -17,6 +17,7 @@ import {
   commitRemoveUnscheduled,
   correctionChanged,
   draftOf,
+  isPushableDate,
   selectable,
   selectedUnrecordedIds,
   unrecordedWorkerIds,
@@ -300,6 +301,28 @@ describe("correction", () => {
       message: "Attendance changed meanwhile, reload",
       refresh: true,
     });
+  });
+});
+
+// A date field fires change on every keystroke: typing the year 2026 yields
+// 0002, 0020, 0202 and only then 2026. Only the last is a day worth loading.
+describe("isPushableDate", () => {
+  test("accepts a complete, real date in a plausible year", () => {
+    for (const date of ["2026-10-29", "2000-01-01", "2024-02-29"]) {
+      expect(isPushableDate(date)).toBe(true);
+    }
+  });
+
+  test("refuses the intermediate values of typing a year", () => {
+    for (const date of ["0002-10-29", "0020-10-29", "0202-10-29", "1999-10-29"]) {
+      expect(isPushableDate(date)).toBe(false);
+    }
+  });
+
+  test("refuses an empty, partial or impossible value", () => {
+    for (const date of ["", "2026-10", "2026-02-30", "junk", "2026-1-7"]) {
+      expect(isPushableDate(date)).toBe(false);
+    }
   });
 });
 
