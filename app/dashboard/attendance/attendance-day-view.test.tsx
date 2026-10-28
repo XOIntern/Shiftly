@@ -282,6 +282,92 @@ describe("AttendanceDayView read-only", () => {
   });
 });
 
+// The write controls the location admin gets: a status per unrecorded row,
+// bulk entry, a correction per recorded row, and unscheduled rows.
+describe("AttendanceDayView write controls", () => {
+  const rowOf = (html: string, employeeId: string): string =>
+    tbody(html).split("</tr>").find((r) => r.includes(employeeId))!;
+
+  test("an unrecorded row offers the four status choices, named after the worker", () => {
+    const row = rowOf(render(), "EMP-001");
+
+    for (const status of ["present", "leave", "sick", "absent"]) {
+      expect(row).toContain(`aria-label="Mark EMP-001 as ${status}"`);
+    }
+  });
+
+  test("a recorded row offers Edit, not the status choices", () => {
+    const row = rowOf(render(), "EMP-002");
+
+    expect(row).toContain('aria-label="Edit EMP-002"');
+    expect(row).not.toContain("Mark EMP-002 as");
+    expect(row).not.toContain("Remove EMP-002");
+  });
+
+  test("an unscheduled row offers Edit and Remove", () => {
+    const row = rowOf(render(), "EMP-004");
+
+    expect(row).toContain('aria-label="Edit EMP-004"');
+    expect(row).toContain('aria-label="Remove EMP-004"');
+  });
+
+  test("only unrecorded rows can be ticked for a bulk entry", () => {
+    const html = render();
+
+    expect(rowOf(html, "EMP-001")).toContain('aria-label="Select EMP-001"');
+    expect(rowOf(html, "EMP-002")).not.toContain("Select EMP-002");
+    expect(rowOf(html, "EMP-003")).not.toContain("Select EMP-003");
+  });
+
+  test("the toolbar offers bulk marking and adding an unscheduled worker", () => {
+    const html = text(render());
+
+    expect(html).toContain("Mark selected");
+    expect(html).toContain("Mark all unrecorded present");
+    expect(html).toContain("Add unscheduled worker");
+  });
+
+  test("the toolbar counts the unrecorded rows the filter leaves", () => {
+    expect(text(render())).toContain("Mark all unrecorded present (1)");
+    expect(text(render({ areaId: PACKING }))).not.toContain(
+      "Mark all unrecorded present",
+    );
+  });
+
+  test("there is nothing to bulk-mark when every row is recorded, but unscheduled can still be added", () => {
+    const html = text(
+      render({
+        data: dayData({
+          roster: [{ workerId: "w2", workAreaId: KITCHEN, shiftDefId: EARLY }],
+          records: dayData().records.filter((r) => r.workerId === "w2"),
+        }),
+      }),
+    );
+
+    expect(html).not.toContain("Mark all unrecorded present");
+    expect(html).not.toContain("Mark selected");
+    expect(html).toContain("Add unscheduled worker");
+  });
+
+  test("a read-only view has no write control anywhere", () => {
+    const html = render({ canWrite: false });
+
+    expect(html).not.toContain("Mark EMP-001 as");
+    expect(html).not.toContain("Edit EMP-002");
+    expect(text(html)).not.toContain("Mark all unrecorded present");
+    expect(text(html)).not.toContain("Add unscheduled worker");
+  });
+
+  test("a future date has no write control anywhere", () => {
+    const html = render({ future: true });
+
+    expect(html).not.toContain("Mark EMP-001 as");
+    expect(html).not.toContain("Edit EMP-002");
+    expect(text(html)).not.toContain("Mark all unrecorded present");
+    expect(text(html)).not.toContain("Add unscheduled worker");
+  });
+});
+
 describe("AttendanceDayView header", () => {
   test("shows the date and the location's time zone", () => {
     const html = render();

@@ -104,6 +104,8 @@ export default async function AttendancePage({
 
   return (
     <AttendanceDayView
+      // A new location or date starts from a clean selection.
+      key={`${selected.id}:${date}`}
       date={date}
       canWrite={writableLocationId(actor) === selected.id}
       future={isFutureDate(date, selected.timezone, now)}
