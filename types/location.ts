@@ -15,3 +15,13 @@ export type LocationRow = {
   siteId: string;
   siteName: string;
 };
+
+// One row of the deleted-locations table. deletedAt travels as an ISO string
+// so the server and the client render the same text.
+export type DeletedLocationRow = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  siteName: string;
+  deletedAt: string;
+};

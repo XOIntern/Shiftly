@@ -1,4 +1,14 @@
-import { and, asc, count, eq, ilike, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { site, siteLocation } from "@/drizzle/schema";
@@ -9,10 +19,12 @@ import {
   ilikePattern,
   parseTableSearchParams,
 } from "@/lib/table-params";
+import { parseListView } from "@/lib/list-view";
 import { requireHO } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateLocationButton } from "@/components/locations/location-form";
 import type { SiteOption } from "@/types/site";
+import { DeletedLocationsTable } from "@/components/locations/deleted-locations-table";
 import { LocationsTable } from "@/components/locations/locations-table";
 
 // Deliberate block: the page queries master data behind the HO session check,
@@ -28,6 +40,16 @@ const SORTABLE = {
   isActive: siteLocation.isActive,
 };
 const DEFAULT_ORDER = [asc(site.name), asc(siteLocation.name)];
+// The deleted view sorts by site, name or when the location was deleted,
+// newest deletion first by default. buildOrder trails every user sort with
+// this default, so the id breaks ties for any sort: locations deleted in the
+// same instant (a bulk delete) keep one order and cannot swap between pages.
+const SORTABLE_DELETED = {
+  name: siteLocation.name,
+  siteName: site.name,
+  deletedAt: siteLocation.deletedAt,
+};
+const DEFAULT_ORDER_DELETED = [desc(siteLocation.deletedAt), asc(siteLocation.id)];
 
 // The reference algorithm (see the Sites pilot, epic #24): validate URL
 // state, count first for pageCount, clamp the page, then fetch one page.
@@ -35,8 +57,12 @@ export default async function LocationsPage({
   searchParams,
 }: PageProps<"/dashboard/locations">) {
   const actor = await requireHO();
+  const rawParams = await searchParams;
+  // ?show=deleted picks the soft-deleted list; it is not part of the shared
+  // table params, so it is read off the raw search params.
+  const deletedView = parseListView(rawParams.show) === "deleted";
   const { q, status, siteId, page, sorts, pageSize } = parseTableSearchParams(
-    await searchParams,
+    rawParams,
     PAGE_SIZE_OPTIONS,
   );
   const isSuperadmin = actor.role === "superadmin";
@@ -58,7 +84,14 @@ export default async function LocationsPage({
   const pattern = ilikePattern(q);
   // Name-only search; the joined site name is deliberately not searched
   // (locked decision 3). Null-safe and(...) composes scope+search+filters.
+  // The deletedAt predicate splits the live list from the deleted one
+  // (soft-delete epic #40); the scope stays in place for both, so an ho never
+  // lists another site's deleted rows. This one `where` serves the count and
+  // the listing below.
   const where = and(
+    deletedView
+      ? isNotNull(siteLocation.deletedAt)
+      : isNull(siteLocation.deletedAt),
     ...(pattern ? [ilike(siteLocation.name, pattern)] : []),
     ...(status ? [eq(siteLocation.isActive, status === "active")] : []),
     ...(siteFilter ? [siteFilter] : []),
@@ -68,13 +101,15 @@ export default async function LocationsPage({
   // Own-property lookup inside buildOrder: a plain truthiness guard would
   // admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which
   // drizzle rejects mid-render.
-  const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
+  const order = deletedView
+    ? buildOrder(sorts, SORTABLE_DELETED, DEFAULT_ORDER_DELETED)
+    : buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
   const [{ count: rowCount }] = await db
     .select({ count: count() })
     .from(siteLocation)
     .innerJoin(site, eq(siteLocation.siteId, site.id))
-    .where(and(where, isNull(siteLocation.deletedAt)));
+    .where(where);
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
@@ -100,10 +135,11 @@ export default async function LocationsPage({
         isActive: siteLocation.isActive,
         siteId: siteLocation.siteId,
         siteName: site.name,
+        deletedAt: siteLocation.deletedAt,
       })
       .from(siteLocation)
       .innerJoin(site, eq(siteLocation.siteId, site.id))
-      .where(and(where, isNull(siteLocation.deletedAt)))
+      .where(where)
       .orderBy(...order)
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),
@@ -123,13 +159,40 @@ export default async function LocationsPage({
       </div>
       <Card>
         <CardContent>
-          <LocationsTable
-            locations={locations}
-            sites={sites satisfies SiteOption[]}
-            showSiteFilter={isSuperadmin}
-            pageCount={pageCount}
-            total={rowCount}
-          />
+          {deletedView ? (
+            <DeletedLocationsTable
+              locations={locations.map(
+                ({ id, name, siteName, isActive, deletedAt }) => ({
+                  id,
+                  name,
+                  siteName,
+                  isActive,
+                  deletedAt: (deletedAt as Date).toISOString(),
+                }),
+              )}
+              sites={sites satisfies SiteOption[]}
+              showSiteFilter={isSuperadmin}
+              canPurge={isSuperadmin}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          ) : (
+            <LocationsTable
+              locations={locations.map(
+                ({ id, name, isActive, siteId, siteName }) => ({
+                  id,
+                  name,
+                  isActive,
+                  siteId,
+                  siteName,
+                }),
+              )}
+              sites={sites satisfies SiteOption[]}
+              showSiteFilter={isSuperadmin}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          )}
         </CardContent>
       </Card>
     </div>
