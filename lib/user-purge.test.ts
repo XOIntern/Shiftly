@@ -8,12 +8,16 @@ import { purgeUserGuarded } from "./user-purge";
 import { account, session, user } from "../drizzle/schema";
 import { installCleanup } from "@/lib/test-cleanup";
 import {
+  seedAttendance,
   seedAuditLog,
   seedLocation,
   seedMpRequest,
   seedRosterPlan,
+  seedShift,
   seedSite,
   seedUser,
+  seedWorkArea,
+  seedWorker,
 } from "@/lib/test-fixtures";
 
 // Fixture teardown runs in afterEach / afterAll, so it still runs after a test
@@ -79,6 +83,8 @@ async function authRows(userId: string) {
 const AUDIT = "User has audit history and cannot be permanently deleted";
 const ROSTER = "User has roster history and cannot be permanently deleted";
 const REQUEST = "User has request history and cannot be permanently deleted";
+const ATTENDANCE =
+  "User has attendance history and cannot be permanently deleted";
 
 describe("purgeUserGuarded", () => {
   test("a user that is not soft-deleted is refused and kept", async () => {
@@ -169,6 +175,24 @@ describe("purgeUserGuarded", () => {
 
     expect(await purge(admin.id)).toEqual({ ok: false, message: REQUEST });
     expect(await exists(admin.id)).toBe(true);
+  });
+
+  test("an attendance record the user recorded is history", async () => {
+    const { loc, admin } = await seedDeletedAdmin();
+    const w = await seedWorker(cleanup, loc);
+    const shift = await seedShift(cleanup, loc);
+    const area = await seedWorkArea(cleanup, loc);
+    await seedAttendance(cleanup, {
+      loc,
+      workerId: w.id,
+      workAreaId: area.id,
+      shiftId: shift.id,
+      recordedBy: admin.id,
+    });
+
+    expect(await purge(admin.id)).toEqual({ ok: false, message: ATTENDANCE });
+    expect(await exists(admin.id)).toBe(true);
+    expect(await authRows(admin.id)).toEqual({ accounts: 1, sessions: 1 });
   });
 
   test("history of another user does not block the purge", async () => {

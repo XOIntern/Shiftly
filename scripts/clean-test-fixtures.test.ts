@@ -13,6 +13,15 @@ import {
   worker,
 } from "@/drizzle/schema";
 import { installCleanup } from "@/lib/test-cleanup";
+import {
+  seedAttendance,
+  seedLocation,
+  seedShift,
+  seedSite,
+  seedUser,
+  seedWorkArea,
+  seedWorker,
+} from "@/lib/test-fixtures";
 
 import {
   CASCADING_FKS,
@@ -390,6 +399,72 @@ describe("clean-test-fixtures against the database", () => {
     });
 
     await expectSiteBlockedBy(f, "user.site_id (1)");
+  });
+
+  // Attendance rows need a worker, shift and work area in the location, so
+  // they never block a site on their own; the point is that they are listed.
+  test("a location with attendance lists it among the blockers of its site", async () => {
+    const fixtureSite = await seedSite(fixtureCleanup, {
+      name: `t4-loc-fs-${randomUUID()}`,
+    });
+    const loc = await seedLocation(fixtureCleanup, fixtureSite.id);
+    const w = await seedWorker(fixtureCleanup, loc);
+    const shift = await seedShift(fixtureCleanup, loc);
+    const area = await seedWorkArea(fixtureCleanup, loc);
+    const admin = await seedUser(fixtureCleanup, {
+      role: "admin",
+      siteId: fixtureSite.id,
+      siteLocationId: loc.id,
+    });
+    await seedAttendance(fixtureCleanup, {
+      loc,
+      workerId: w.id,
+      workAreaId: area.id,
+      shiftId: shift.id,
+      recordedBy: admin.id,
+    });
+
+    const plan = await inspectFixtures(db, { onlyIds: [fixtureSite.id] });
+    expect(plan.rows.map((row) => row.id)).toEqual([fixtureSite.id]);
+    expect(plan.rows[0].blockers).toContain("attendance_record.site_location_id (1)");
+
+    await deleteUnblockedFixtures(db, { onlyIds: [fixtureSite.id] });
+    expect(
+      await db
+        .select({ id: site.id })
+        .from(site)
+        .where(eq(site.id, fixtureSite.id)),
+    ).toHaveLength(1);
+  });
+
+  test("a matched user who recorded attendance is blocked and kept", async () => {
+    const operationalSite = await seedSite(fixtureCleanup);
+    const loc = await seedLocation(fixtureCleanup, operationalSite.id);
+    const w = await seedWorker(fixtureCleanup, loc);
+    const shift = await seedShift(fixtureCleanup, loc);
+    const area = await seedWorkArea(fixtureCleanup, loc);
+    const recorder = await seedUser(fixtureCleanup, {
+      role: "admin",
+      siteId: operationalSite.id,
+      siteLocationId: loc.id,
+      email: `auth-guard-${randomUUID()}@shiftly.test`,
+    });
+    await seedAttendance(fixtureCleanup, {
+      loc,
+      workerId: w.id,
+      workAreaId: area.id,
+      shiftId: shift.id,
+      recordedBy: recorder.id,
+    });
+
+    const plan = await inspectFixtures(db, { onlyIds: [recorder.id] });
+    expect(plan.rows.map((row) => row.id)).toEqual([recorder.id]);
+    expect(plan.rows[0].blockers).toEqual(["attendance_record.recorded_by (1)"]);
+
+    await deleteUnblockedFixtures(db, { onlyIds: [recorder.id] });
+    expect(
+      await db.select({ id: user.id }).from(user).where(eq(user.id, recorder.id)),
+    ).toHaveLength(1);
   });
 
   test("a free site is deleted together with its location", async () => {

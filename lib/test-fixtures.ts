@@ -4,7 +4,10 @@ import { eq } from "drizzle-orm";
 
 import { db } from "./db";
 import type { Cleanup } from "./test-cleanup";
+import type { AttendanceStatus } from "../types/attendance";
+import type { LocationTimezone } from "../types/timezone";
 import {
+  attendanceRecord,
   auditLog,
   mpRequest,
   mpRequestLine,
@@ -61,16 +64,20 @@ export async function seedSite(
 export async function seedLocation(
   cleanup: Cleanup,
   siteId: string,
-  opts: { deleted?: boolean; name?: string } = {},
+  opts: { deleted?: boolean; name?: string; timezone?: LocationTimezone } = {},
 ): Promise<{ id: string; siteId: string; name: string }> {
   const id = randomUUID();
   const name = opts.name ?? unique("t-fx-loc");
   cleanup.defer(async () => {
     await db.delete(siteLocation).where(eq(siteLocation.id, id));
   });
-  await db
-    .insert(siteLocation)
-    .values({ id, siteId, name, deletedAt: deletedAt(opts.deleted) });
+  await db.insert(siteLocation).values({
+    id,
+    siteId,
+    name,
+    timezone: opts.timezone,
+    deletedAt: deletedAt(opts.deleted),
+  });
   return { id, siteId, name };
 }
 
@@ -253,21 +260,34 @@ export async function seedUser(
 // History rows. Seed them after the entities they reference so their
 // teardowns run before those entities are removed.
 
+// A weekly draft on the first Monday unless told otherwise. `requestDate`
+// makes it a daily plan; `weekStart` moves a weekly one.
 export async function seedRosterPlan(
   cleanup: Cleanup,
   loc: Loc,
-  opts: { generatedBy?: string; publishedBy?: string } = {},
+  opts: {
+    generatedBy?: string;
+    publishedBy?: string;
+    status?: "draft" | "published";
+    version?: number;
+    weekStart?: string;
+    requestDate?: string;
+  } = {},
 ): Promise<{ id: string }> {
   const id = randomUUID();
   cleanup.defer(async () => {
     await db.delete(rosterPlan).where(eq(rosterPlan.id, id));
   });
+  const anchor = opts.requestDate
+    ? { kind: "daily" as const, requestDate: opts.requestDate, weekStart: null }
+    : { kind: "weekly" as const, weekStart: opts.weekStart ?? MONDAY };
   await db.insert(rosterPlan).values({
     id,
     siteLocationId: loc.id,
     siteId: loc.siteId,
-    kind: "weekly",
-    weekStart: MONDAY,
+    ...anchor,
+    status: opts.status,
+    version: opts.version,
     rulesSnapshot: {},
     generatedBy: opts.generatedBy,
     publishedBy: opts.publishedBy,
@@ -322,6 +342,7 @@ export async function seedAssignment(
     workerId: string;
     workAreaId: string;
     shiftId: string;
+    date?: string;
   },
 ): Promise<{ id: string }> {
   const id = randomUUID();
@@ -336,7 +357,46 @@ export async function seedAssignment(
     workerId: opts.workerId,
     workAreaId: opts.workAreaId,
     shiftDefinitionId: opts.shiftId,
-    date: MONDAY,
+    date: opts.date ?? MONDAY,
+  });
+  return { id };
+}
+
+// The rostered shift defaults to the worked shift, except for an unscheduled
+// row (withoutRoster), which has none.
+export async function seedAttendance(
+  cleanup: Cleanup,
+  opts: {
+    loc: Loc;
+    workerId: string;
+    workAreaId: string;
+    shiftId: string;
+    recordedBy: string;
+    date?: string;
+    status?: AttendanceStatus;
+    withoutRoster?: boolean;
+    rosteredShiftId?: string;
+  },
+): Promise<{ id: string }> {
+  const id = randomUUID();
+  const withoutRoster = opts.withoutRoster ?? false;
+  cleanup.defer(async () => {
+    await db.delete(attendanceRecord).where(eq(attendanceRecord.id, id));
+  });
+  await db.insert(attendanceRecord).values({
+    id,
+    siteLocationId: opts.loc.id,
+    siteId: opts.loc.siteId,
+    workerId: opts.workerId,
+    date: opts.date ?? MONDAY,
+    shiftDefinitionId: opts.shiftId,
+    workAreaId: opts.workAreaId,
+    status: opts.status ?? "present",
+    withoutRoster,
+    rosteredShiftDefinitionId: withoutRoster
+      ? null
+      : (opts.rosteredShiftId ?? opts.shiftId),
+    recordedBy: opts.recordedBy,
   });
   return { id };
 }

@@ -78,6 +78,11 @@ const superadminNavMain = [
     icon: <UserIcon />,
   },
   {
+    title: "Attendance",
+    url: "/dashboard/attendance",
+    icon: <ClockIcon />,
+  },
+  {
     title: "Workers",
     url: "/dashboard/workers",
     icon: <UsersIcon />,

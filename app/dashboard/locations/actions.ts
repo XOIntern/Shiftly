@@ -10,6 +10,7 @@ import { mapDbError } from "@/error/db-errors";
 import { requireHO, requireSuperadmin } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
+import type { LocationTimezone } from "@/types/timezone";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import {
   locationCreateSchema,
@@ -48,12 +49,14 @@ function effectiveSiteId(
 export async function createLocation(input: {
   siteId?: string;
   name: string;
+  timezone?: LocationTimezone;
 }): Promise<ActionState> {
   const actor = await requireHO();
 
   const parsed = locationCreateSchema.safeParse({
     siteId: effectiveSiteId(actor, input.siteId),
     name: input.name,
+    timezone: input.timezone,
   });
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
@@ -70,6 +73,7 @@ export async function createLocation(input: {
     await db.insert(siteLocation).values({
       siteId: parsed.data.siteId,
       name: parsed.data.name,
+      timezone: parsed.data.timezone,
     });
   } catch (err) {
     return dbResult(err);
@@ -81,7 +85,12 @@ export async function createLocation(input: {
 
 export async function updateLocation(
   id: string,
-  input: { name: string; siteId?: string; isActive: boolean },
+  input: {
+    name: string;
+    siteId?: string;
+    isActive: boolean;
+    timezone?: LocationTimezone;
+  },
 ): Promise<ActionState> {
   const actor = await requireHO();
 
@@ -90,6 +99,7 @@ export async function updateLocation(
     siteId: effectiveSiteId(actor, input.siteId),
     name: input.name,
     isActive: input.isActive,
+    timezone: input.timezone,
   });
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
@@ -111,6 +121,8 @@ export async function updateLocation(
         // current site); a ho always lands on their own site.
         siteId: parsed.data.siteId,
         isActive: parsed.data.isActive,
+        // undefined keeps the stored zone.
+        timezone: parsed.data.timezone,
       })
       // Weld (issue #17 Task 2): the ownership predicate rides inside the
       // mutating WHERE, so the check above is redundancy, not the last

@@ -9,6 +9,7 @@ import { position, worker, workerPosition } from "../drizzle/schema";
 import { installCleanup } from "@/lib/test-cleanup";
 import {
   seedAssignment,
+  seedAttendance,
   seedLocation,
   seedPosition,
   seedRosterPlan,
@@ -124,6 +125,37 @@ describe("purgeWorkerGuarded", () => {
     expect(await purge(w.id)).toEqual({
       ok: false,
       message: "Worker has roster history and cannot be permanently deleted",
+    });
+    expect(await exists(w.id)).toBe(true);
+    expect(await linksOf(w.id)).toBe(1);
+  });
+
+  test("an attendance record is history: refused, and the links stay", async () => {
+    const site = await seedSite(cleanup);
+    const loc = await seedLocation(cleanup, site.id);
+    const pos = await seedPosition(cleanup, site.id);
+    const w = await seedWorker(cleanup, loc, {
+      positionIds: [pos.id],
+      deleted: true,
+    });
+    const area = await seedWorkArea(cleanup, loc);
+    const shift = await seedShift(cleanup, loc);
+    const admin = await seedUser(cleanup, {
+      role: "admin",
+      siteId: site.id,
+      siteLocationId: loc.id,
+    });
+    await seedAttendance(cleanup, {
+      loc,
+      workerId: w.id,
+      workAreaId: area.id,
+      shiftId: shift.id,
+      recordedBy: admin.id,
+    });
+
+    expect(await purge(w.id)).toEqual({
+      ok: false,
+      message: "Worker has attendance history and cannot be permanently deleted",
     });
     expect(await exists(w.id)).toBe(true);
     expect(await linksOf(w.id)).toBe(1);

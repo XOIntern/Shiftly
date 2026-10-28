@@ -1,6 +1,7 @@
 import { and, eq, getTableName, isNotNull } from "drizzle-orm";
 
 import {
+  attendanceRecord,
   mpRequestLine,
   rosterAssignment,
   workArea,
@@ -20,14 +21,17 @@ export const PURGE_COVERAGE: PurgeCoverage = {
   // Deleted by purgeWorkAreaGuarded below.
   purged: [workAreaPosition, workArea].map(getTableName),
   // Any row at all refuses the purge.
-  history: [rosterAssignment, mpRequestLine].map(getTableName),
+  history: [rosterAssignment, mpRequestLine, attendanceRecord].map(
+    getTableName,
+  ),
   cascade: [],
 };
 
 // Permanent delete of an already soft-deleted work area (superadmin only, the
 // caller enforces it). Guards read first and the deletes run last, all in the
 // caller's transaction, so a refusal leaves nothing partial. Roster
-// assignments and request lines are history and always refuse. The area's own
+// assignments, request lines and attendance records are history and always
+// refuse. The area's own
 // position links are removed with it, first because their FK is ON DELETE
 // RESTRICT; the positions themselves belong to the site and stay. FK RESTRICT
 // stays the backstop (the action maps it through mapDbError).
@@ -66,6 +70,19 @@ export async function purgeWorkAreaGuarded(
     return {
       ok: false,
       message: "Work area has request history and cannot be permanently deleted",
+    };
+  }
+
+  const [attendance] = await tx
+    .select({ id: attendanceRecord.id })
+    .from(attendanceRecord)
+    .where(eq(attendanceRecord.workAreaId, id))
+    .limit(1);
+  if (attendance) {
+    return {
+      ok: false,
+      message:
+        "Work area has attendance history and cannot be permanently deleted",
     };
   }
 

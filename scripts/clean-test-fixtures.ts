@@ -5,6 +5,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "../drizzle/schema";
 
 const {
+  attendanceRecord,
   auditLog,
   mpRequest,
   position,
@@ -62,6 +63,8 @@ const USER_EMAIL_PREFIXES = ["auth-guard-%", "t-mp-act-%"];
 // compares this list with the live catalog so a new FK cannot slip past.
 // session/account cascade from user and need no check.
 export const CHECKED_RESTRICT_FKS = [
+  "attendance_record_recorded_by_user_fk",
+  "attendance_record_site_location_site_fk",
   "audit_log_actor_id_user_id_fk", // deleted along with a deletable actor
   "audit_log_site_id_site_id_fk",
   "audit_log_site_location_id_site_location_id_fk",
@@ -221,6 +224,16 @@ async function findReferences(
 
   if (userIds.length > 0) {
     for (const row of await tx
+      .select({ target: attendanceRecord.recordedBy })
+      .from(attendanceRecord)
+      .where(inArray(attendanceRecord.recordedBy, userIds))) {
+      refs.push({
+        source: "attendance_record.recorded_by",
+        targetKind: "user",
+        targetId: row.target,
+      });
+    }
+    for (const row of await tx
       .select({ target: mpRequest.createdBy })
       .from(mpRequest)
       .where(inArray(mpRequest.createdBy, userIds))) {
@@ -333,6 +346,7 @@ async function findReferences(
     ["roster_rule_config.site_location_id", rosterRuleConfig.siteLocationId],
     ["mp_request.site_location_id", mpRequest.siteLocationId],
     ["roster_plan.site_location_id", rosterPlan.siteLocationId],
+    ["attendance_record.site_location_id", attendanceRecord.siteLocationId],
     ["worker.site_location_id", worker.siteLocationId],
     ["work_area.site_location_id", workArea.siteLocationId],
     ["shift_definition.site_location_id", shiftDefinition.siteLocationId],

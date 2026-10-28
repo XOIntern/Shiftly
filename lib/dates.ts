@@ -1,6 +1,8 @@
 // Pure date-string helpers for the engine: "YYYY-MM-DD" strings mapped to
 // epoch day numbers. No Date.now, no timezone drift — deterministic math.
 
+import type { LocationTimezone } from "@/types/timezone";
+
 // Day-number of a "YYYY-MM-DD" date: days since 1970-01-01, UTC. Pure
 // string/number math — deterministic, no Date.now, no timezone drift.
 export const dayNumber = (date: string): number => {
@@ -19,3 +21,19 @@ export const mondayOf = (date: string): string => {
 };
 
 export const monthKey = (date: string): string => date.slice(0, 7);
+
+// The local calendar date in a location's zone. `now` is injected so callers
+// (and tests) own the clock; en-CA formats as "YYYY-MM-DD".
+export const todayIn = (zone: LocationTimezone, now: Date): string =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+
+export const isFutureDate = (
+  date: string,
+  zone: LocationTimezone,
+  now: Date,
+): boolean => date > todayIn(zone, now);

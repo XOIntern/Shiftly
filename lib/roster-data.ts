@@ -249,8 +249,9 @@ export async function loadDailyAssignmentsInRange(
   siteLocationId: string,
   fromDate: string,
   toDate: string,
+  executor: DbExecutor = db,
 ): Promise<RosterAssignment[]> {
-  const rows = await db
+  const rows = await executor
     .select({
       workerId: rosterAssignment.workerId,
       date: rosterAssignment.date,
@@ -338,8 +339,9 @@ export async function loadPriorAssignments(
 export async function latestPublishedWeeklyPlan(
   siteLocationId: string,
   weekStart: string,
+  executor: DbExecutor = db,
 ): Promise<typeof rosterPlan.$inferSelect | null> {
-  const [plan] = await db
+  const [plan] = await executor
     .select()
     .from(rosterPlan)
     .where(

@@ -12,6 +12,11 @@ import { toast } from "sonner";
 import type { ActionState } from "@/types/action-state";
 import type { LocationRow } from "@/types/location";
 import type { SiteOption } from "@/types/site";
+import {
+  LOCATION_TIMEZONES,
+  TIMEZONE_LABELS,
+  type LocationTimezone,
+} from "@/types/timezone";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import {
   createLocation,
@@ -72,6 +77,11 @@ type SelectOption = {
   disabled?: boolean;
 };
 
+const TIMEZONE_ITEMS: SelectOption[] = LOCATION_TIMEZONES.map((zone) => ({
+  label: `${TIMEZONE_LABELS[zone]} (${zone})`,
+  value: zone,
+}));
+
 function showFailure(
   result: ActionState,
   setErrors: (value: LocationFieldErrors | undefined) => void,
@@ -92,6 +102,9 @@ function LocationForm({
 }) {
   const [siteId, setSiteId] = useState<string | null>(location?.siteId ?? null);
   const [name, setName] = useState(location?.name ?? "");
+  const [timezone, setTimezone] = useState<LocationTimezone>(
+    location?.timezone ?? "Asia/Jakarta",
+  );
   const [fieldErrors, setFieldErrors] = useState<LocationFieldErrors>();
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
@@ -126,10 +139,12 @@ function LocationForm({
         ? await updateLocation(location.id, {
             name,
             isActive: location.isActive,
+            timezone,
           })
         : await createLocation({
             siteId: siteId ?? undefined,
             name,
+            timezone,
           });
 
       if (result.ok) {
@@ -195,6 +210,35 @@ function LocationForm({
           />
           {fieldErrors?.name ? (
             <FieldError errors={[{ message: fieldErrors.name }]} />
+          ) : null}
+        </Field>
+
+        <Field data-invalid={fieldErrors?.timezone ? "true" : undefined}>
+          <FieldLabel htmlFor="location-timezone">Time zone</FieldLabel>
+          <Select
+            items={TIMEZONE_ITEMS}
+            value={timezone}
+            onValueChange={(value) => setTimezone(value as LocationTimezone)}
+          >
+            <SelectTrigger id="location-timezone" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {TIMEZONE_ITEMS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <FieldDescription>
+            Decides what &quot;today&quot; means for this location&apos;s
+            attendance.
+          </FieldDescription>
+          {fieldErrors?.timezone ? (
+            <FieldError errors={[{ message: fieldErrors.timezone }]} />
           ) : null}
         </Field>
         <DialogFooter>
@@ -371,7 +415,7 @@ function EditLocationDialog({
         <DialogHeader>
           <DialogTitle>Edit location</DialogTitle>
           <DialogDescription>
-            Update the location&apos;s name.
+            Update the location&apos;s name and time zone.
           </DialogDescription>
         </DialogHeader>
         <LocationForm

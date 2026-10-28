@@ -29,6 +29,7 @@ type LocationNode = {
     id: string;
     name: string;
     siteName: string;
+    timezone: string;
   }>;
   sites: Array<{ id: string; name: string }>;
   pageCount?: number;
@@ -147,6 +148,44 @@ describe("locations page server queries (issue #21)", () => {
 
     const crafted = await renderLocations({ siteId: siteB });
     expect(crafted.locations.map((l) => l.id)).toEqual([locA]);
+  });
+
+  test("each row carries its location's time zone to the table", async () => {
+    const siteA = randomUUID();
+    const locJakarta = randomUUID();
+    const locMakassar = randomUUID();
+    fixtureCleanup.defer(async () => {
+      await db.delete(siteLocation).where(eq(siteLocation.siteId, siteA));
+      await db.delete(site).where(eq(site.id, siteA));
+    });
+    await db
+      .insert(site)
+      .values({ id: siteA, name: `t4-loc-site-tz-${siteA}` });
+    await db.insert(siteLocation).values([
+      { id: locJakarta, siteId: siteA, name: "t4-loc-tz-jkt" },
+      {
+        id: locMakassar,
+        siteId: siteA,
+        name: "t4-loc-tz-mks",
+        timezone: "Asia/Makassar",
+      },
+    ]);
+
+    actor = {
+      id: randomUUID(),
+      name: "T4 Loc Ho",
+      email: `t4-loc-${randomUUID()}@shiftly.test`,
+      role: "ho",
+      siteId: siteA,
+      siteLocationId: null,
+      isActive: true,
+    };
+
+    const rendered = await renderLocations();
+    const zoneOf = (id: string) =>
+      rendered.locations.find((l) => l.id === id)?.timezone;
+    expect(zoneOf(locJakarta)).toBe("Asia/Jakarta");
+    expect(zoneOf(locMakassar)).toBe("Asia/Makassar");
   });
 
   test("ho actor: search matches name only (address field removed), scoped to its site", async () => {

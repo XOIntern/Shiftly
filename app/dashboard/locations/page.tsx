@@ -135,6 +135,7 @@ export default async function LocationsPage({
         isActive: siteLocation.isActive,
         siteId: siteLocation.siteId,
         siteName: site.name,
+        timezone: siteLocation.timezone,
         deletedAt: siteLocation.deletedAt,
       })
       .from(siteLocation)
@@ -179,12 +180,13 @@ export default async function LocationsPage({
           ) : (
             <LocationsTable
               locations={locations.map(
-                ({ id, name, isActive, siteId, siteName }) => ({
+                ({ id, name, isActive, siteId, siteName, timezone }) => ({
                   id,
                   name,
                   isActive,
                   siteId,
                   siteName,
+                  timezone,
                 }),
               )}
               sites={sites satisfies SiteOption[]}
