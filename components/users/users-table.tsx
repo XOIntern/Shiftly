@@ -128,7 +128,7 @@ export function UsersTable({
         <>
           <RoleFilter />
           <StatusFilter />
-          <DeletedListFilter singular="user" plural="users" />
+          <DeletedListFilter singular="user" />
         </>
       }
       // Unmanageable rows (the ho's own, foreign accounts) render no

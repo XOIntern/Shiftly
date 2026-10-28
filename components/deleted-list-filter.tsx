@@ -13,24 +13,22 @@ import {
 } from "@/components/ui/select";
 import { nextListParams, parseListView } from "@/lib/list-view";
 
-// Toolbar filter that chooses which list a table shows: the live rows, or
-// the soft-deleted ones (superadmin permanent delete). Separate from the
-// shared status filter, which only knows Active/Inactive.
-export function DeletedListFilter({
-  singular,
-  plural,
-}: {
-  singular: string;
-  plural: string;
-}) {
+// Toolbar filter that chooses which list a table shows: the rows that are not
+// deleted, or the soft-deleted ones (superadmin permanent delete). Separate
+// from the shared status filter, which only knows Active/Inactive. The first
+// option is "Current", not "Active": it lists inactive rows too, and "Active"
+// would read as a second status filter right next to the real one. The labels
+// carry no entity name: the page already says what it lists, and `singular`
+// only names the control for assistive tech.
+export function DeletedListFilter({ singular }: { singular: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
 
   const options = [
-    { value: "active", label: `Active ${plural}` },
-    { value: "deleted", label: `Deleted ${plural}` },
+    { value: "active", label: "Current" },
+    { value: "deleted", label: "Deleted" },
   ];
 
   const value = parseListView(searchParams.get("show") ?? undefined);

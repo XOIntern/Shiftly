@@ -85,7 +85,7 @@ export function DeletedSitesTable({
       filters={
         <>
           <StatusFilter />
-          <DeletedListFilter singular="site" plural="sites" />
+          <DeletedListFilter singular="site" />
         </>
       }
       getRowId={(row) => row.id}

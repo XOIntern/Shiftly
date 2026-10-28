@@ -88,7 +88,7 @@ export function PositionsTable({
         <>
           {showSiteFilter ? <SiteFilter sites={sites} /> : null}
           <StatusFilter />
-          <DeletedListFilter singular="position" plural="positions" />
+          <DeletedListFilter singular="position" />
         </>
       }
       selectionToolbar={({ count, ids, rows, clear }) => (

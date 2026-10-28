@@ -114,7 +114,7 @@ export function DeletedWorkersTable({
         <>
           {showSiteFilter ? <SiteFilter sites={sites} /> : null}
           <StatusFilter />
-          <DeletedListFilter singular="worker" plural="workers" />
+          <DeletedListFilter singular="worker" />
         </>
       }
       getRowId={(row) => row.id}

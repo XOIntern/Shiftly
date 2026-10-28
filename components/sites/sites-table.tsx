@@ -60,7 +60,7 @@ export function SitesTable({
       filters={
         <>
           <StatusFilter />
-          <DeletedListFilter singular="site" plural="sites" />
+          <DeletedListFilter singular="site" />
         </>
       }
       selectionToolbar={({ count, ids, rows, clear }) => (

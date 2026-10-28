@@ -127,7 +127,7 @@ export function DeletedShiftsTable({
         <>
           {showSiteFilter ? <SiteFilter sites={sites} /> : null}
           <StatusFilter />
-          <DeletedListFilter singular="shift" plural="shifts" />
+          <DeletedListFilter singular="shift" />
         </>
       }
       getRowId={(row) => row.id}

@@ -113,7 +113,7 @@ export function DeletedWorkAreasTable({
         <>
           {showSiteFilter ? <SiteFilter sites={sites} /> : null}
           <StatusFilter />
-          <DeletedListFilter singular="work area" plural="work areas" />
+          <DeletedListFilter singular="work area" />
         </>
       }
       getRowId={(row) => row.id}

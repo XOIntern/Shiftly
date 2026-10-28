@@ -96,7 +96,7 @@ export function WorkAreasTable({
         <>
           {showSiteFilter ? <SiteFilter sites={sites} /> : null}
           <StatusFilter />
-          <DeletedListFilter singular="work area" plural="work areas" />
+          <DeletedListFilter singular="work area" />
         </>
       }
       selectionToolbar={({ count, ids, rows, clear }) => (

@@ -119,7 +119,7 @@ export function WorkersTable({
         <>
           {showSiteFilter ? <SiteFilter sites={sites} /> : null}
           <StatusFilter />
-          <DeletedListFilter singular="worker" plural="workers" />
+          <DeletedListFilter singular="worker" />
         </>
       }
       selectionToolbar={({ count, ids, rows, clear }) => (

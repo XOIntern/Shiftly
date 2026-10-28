@@ -123,7 +123,7 @@ export function ShiftsTable({
       filters={
         <>
           <StatusFilter />
-          <DeletedListFilter singular="shift" plural="shifts" />
+          <DeletedListFilter singular="shift" />
         </>
       }
     />

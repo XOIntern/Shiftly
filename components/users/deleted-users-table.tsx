@@ -119,7 +119,7 @@ export function DeletedUsersTable({
         <>
           <RoleFilter />
           <StatusFilter />
-          <DeletedListFilter singular="user" plural="users" />
+          <DeletedListFilter singular="user" />
         </>
       }
       getRowId={(row) => row.id}
