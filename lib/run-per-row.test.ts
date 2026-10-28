@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { site } from "@/drizzle/schema";
 import { db } from "@/lib/db";
@@ -56,7 +56,7 @@ describe("runPerRow", () => {
 
   test("the first refusal's message rides back, with a plural noun", async () => {
     const ids: string[] = [randomUUID(), randomUUID()];
-    const reasons =["first reason", "second reason"];
+    const reasons = ["first reason", "second reason"];
 
     const result = await runPerRow(
       ids,
@@ -172,5 +172,42 @@ describe("runPerRow", () => {
       .from(site)
       .where(eq(site.id, first));
     expect(rows).toHaveLength(1);
+  });
+
+  // The failing id writes a row and then throws, so only its own transaction
+  // rolling back keeps that row out; a shared transaction would abort the
+  // earlier id's write as well.
+  test("a thrown error rolls back only its own id's transaction", async () => {
+    const first = randomUUID();
+    const second = randomUUID();
+    for (const id of [first, second]) {
+      fixtureCleanup.defer(async () => {
+        await db.delete(site).where(eq(site.id, id));
+      });
+    }
+
+    const result = await runPerRow(
+      [first, second],
+      async (tx, id) => {
+        await tx
+          .insert(site)
+          .values({ id, name: `run-per-row-${id}`, isActive: false });
+        if (id === second) throw new Error("boom");
+        return { ok: true };
+      },
+      opts,
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      applied: 1,
+      blocked: 1,
+      message: "1 site skipped: mapped: boom",
+    });
+    const rows = await db
+      .select({ id: site.id })
+      .from(site)
+      .where(inArray(site.id, [first, second]));
+    expect(rows.map((row) => row.id)).toEqual([first]);
   });
 });
