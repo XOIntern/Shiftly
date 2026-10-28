@@ -435,8 +435,10 @@ describe("sites page deleted view", () => {
   async function seed(
     token: string,
     rows: Array<{ suffix: string; deletedAt: Date | null }>,
+    // Fixed ids let a test choose the order rows are inserted in.
+    fixedIds?: string[],
   ): Promise<string[]> {
-    const ids = rows.map(() => randomUUID());
+    const ids = fixedIds ?? rows.map(() => randomUUID());
     fixtureCleanup.defer(async () => {
       for (const id of ids) await db.delete(site).where(eq(site.id, id));
     });
@@ -509,6 +511,49 @@ describe("sites page deleted view", () => {
     const active = await renderDeleted({ q: token, status: "active" });
     expect(active.sites).toEqual([]);
     expect(active.total).toBe(0);
+  });
+
+  // Sites deleted in the same instant (a bulk delete stamps one date per row)
+  // must still list in one stable order, or they can swap between pages.
+  test("sites deleted at the same instant list by ascending id, whatever the insert order", async () => {
+    const sameInstant = new Date("2026-03-01T10:00:00Z");
+    asSuperadmin();
+
+    // One batch inserted in ascending id order and one in descending order: an
+    // unordered tie comes back in insertion order, so it fails one of them.
+    for (const direction of ["ascending", "descending"]) {
+      const token = `t185-tie-${randomUUID().slice(0, 8)}`;
+      const ascending = Array.from({ length: 3 }, () => randomUUID()).sort();
+      const insertOrder =
+        direction === "ascending" ? ascending : [...ascending].reverse();
+      await seed(
+        token,
+        insertOrder.map((_, i) => ({ suffix: `s${i}`, deletedAt: sameInstant })),
+        insertOrder,
+      );
+
+      const props = await renderDeleted({ q: token });
+
+      expect(props.sites.map((row) => row.id)).toEqual(ascending);
+    }
+  });
+
+  test("a name sort falls back to id when names and deletion times tie", async () => {
+    const token = `t185-tie-${randomUUID().slice(0, 8)}`;
+    const sameInstant = new Date("2026-03-01T10:00:00Z");
+    const batch = Array.from({ length: 3 }, () => randomUUID()).sort();
+    // Identical names (allowed once deleted) and identical deletion times,
+    // inserted in descending id order.
+    await seed(
+      token,
+      batch.map(() => ({ suffix: "same", deletedAt: sameInstant })),
+      [...batch].reverse(),
+    );
+    asSuperadmin();
+
+    const props = await renderDeleted({ q: token, sort: "name:asc" });
+
+    expect(props.sites.map((row) => row.id)).toEqual(batch);
   });
 
   test("pagination math holds in the deleted view", async () => {
