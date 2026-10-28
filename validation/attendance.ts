@@ -26,5 +26,25 @@ export const bulkRecordSchema = z.object({
   status: attendanceStatusSchema,
 });
 
+// The reason is checked apart from these (blank has its own message), so it is
+// not part of the shapes below.
+export const correctAttendanceSchema = z.object({
+  recordId: z.uuid(),
+  expectedStatus: attendanceStatusSchema,
+  expectedShiftDefinitionId: z.uuid(),
+  status: attendanceStatusSchema.optional(),
+  shiftDefinitionId: z.uuid().optional(),
+});
+
+export const addUnscheduledSchema = z.object({
+  date: attendanceDateSchema,
+  workerId: z.uuid(),
+  workAreaId: z.uuid(),
+  shiftDefinitionId: z.uuid(),
+  status: attendanceStatusSchema,
+});
+
+export const removeUnscheduledSchema = z.object({ recordId: z.uuid() });
+
 export type RecordAttendanceInput = z.infer<typeof recordAttendanceSchema>;
 export type BulkRecordInput = z.infer<typeof bulkRecordSchema>;

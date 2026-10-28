@@ -4,7 +4,12 @@ import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test
 import { and, eq, like } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { attendanceRecord, auditLog } from "@/drizzle/schema";
+import {
+  attendanceRecord,
+  auditLog,
+  shiftDefinition,
+  worker,
+} from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
 import type { LocationTimezone } from "@/types/timezone";
 import { installCleanup } from "@/lib/test-cleanup";
@@ -88,8 +93,8 @@ type Base = Awaited<ReturnType<typeof base>>;
 // A worker of the location. Its attendance rows (written by the actions under
 // test, not seeded) are removed right before the worker itself: this teardown
 // is registered after the worker's own, so it runs first.
-async function workerOf(fx: Base) {
-  const w = await seedWorker(cleanup, fx.loc);
+async function workerOf(fx: Base, opts: { deleted?: boolean } = {}) {
+  const w = await seedWorker(cleanup, fx.loc, opts);
   cleanup.defer(async () => {
     await db.delete(attendanceRecord).where(eq(attendanceRecord.workerId, w.id));
   });
@@ -477,5 +482,527 @@ describe("bulkRecord", () => {
       message: "Cannot record attendance for a future date",
     });
     expect(await rowsOf(w.id)).toHaveLength(0);
+  });
+});
+
+// Corrections and unscheduled rows. Every audited change carries a mandatory
+// reason and writes its audit_log row in the same transaction as the change.
+
+async function recordedRow(
+  fx: Base,
+  workerId: string,
+  opts: {
+    status?: "present" | "leave" | "sick" | "absent";
+    withoutRoster?: boolean;
+  } = {},
+) {
+  return seedAttendance(cleanup, {
+    loc: fx.loc,
+    workerId,
+    workAreaId: fx.area.id,
+    shiftId: fx.shift.id,
+    withoutRoster: opts.withoutRoster,
+    recordedBy: fx.admin.id,
+    date: DATE,
+    status: opts.status ?? "present",
+  });
+}
+
+describe("correctAttendance", () => {
+  test("changes the status and audits old -> new with the reason, actor and location", async () => {
+    const fx = await base();
+    const w = await workerOf(fx);
+    const rec = await recordedRow(fx, w.id, { status: "present" });
+    const { correctAttendance } = await import("./actions");
+
+    const result = await correctAttendance({
+      recordId: rec.id,
+      expectedStatus: "present",
+      expectedShiftDefinitionId: fx.shift.id,
+      status: "sick",
+      reason: "  Doctor's note arrived  ",
+    });
+
+    expect(result.ok).toBe(true);
+    expect((await rowsOf(w.id))[0].status).toBe("sick");
+    const audits = await attendanceAuditRows(fx.admin.id);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      action: "attendance.correct",
+      actorId: fx.admin.id,
+      siteId: fx.loc.siteId,
+      siteLocationId: fx.loc.id,
+    });
+    expect(audits[0].details).toEqual({
+      recordId: rec.id,
+      workerId: w.id,
+      date: DATE,
+      old: { status: "present", shiftDefinitionId: fx.shift.id },
+      new: { status: "sick", shiftDefinitionId: fx.shift.id },
+      reason: "Doctor's note arrived",
+    });
+  });
+
+  test("a failed audit insert rolls the update back", async () => {
+    const fx = await base();
+    const w = await workerOf(fx);
+    const rec = await recordedRow(fx, w.id, { status: "present" });
+    // A session whose user row does not exist: the audit_log actor FK fails
+    // inside the transaction, after the update has run.
+    actor = { ...sessionOf("admin", fx), id: randomUUID() };
+    const { correctAttendance } = await import("./actions");
+
+    const result = await correctAttendance({
+      recordId: rec.id,
+      expectedStatus: "present",
+      expectedShiftDefinitionId: fx.shift.id,
+      status: "absent",
+      reason: "typo",
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await rowsOf(w.id))[0].status).toBe("present");
+    expect(await attendanceAuditRows(actor.id)).toHaveLength(0);
+  });
+
+  test("changing only the shift to another live shift works and is audited", async () => {
+    const fx = await base();
+    const w = await workerOf(fx);
+    const other = await seedShift(cleanup, fx.loc, { orderIndex: 2 });
+    const rec = await recordedRow(fx, w.id);
+    const { correctAttendance } = await import("./actions");
+
+    const result = await correctAttendance({
+      recordId: rec.id,
+      expectedStatus: "present",
+      expectedShiftDefinitionId: fx.shift.id,
+      shiftDefinitionId: other.id,
+      reason: "Swapped with a colleague",
+    });
+
+    expect(result.ok).toBe(true);
+    const [row] = await rowsOf(w.id);
+    expect(row.shiftDefinitionId).toBe(other.id);
+    // The rostered shift stays beside it, and a correction never moves the area.
+    expect(row.rosteredShiftDefinitionId).toBe(fx.shift.id);
+    expect(row.workAreaId).toBe(fx.area.id);
+    const [audit] = await attendanceAuditRows(fx.admin.id);
+    expect(audit.details).toMatchObject({
+      old: { status: "present", shiftDefinitionId: fx.shift.id },
+      new: { status: "present", shiftDefinitionId: other.id },
+    });
+  });
+
+  test("an inactive, soft-deleted or other-location shift is refused", async () => {
+    const fx = await base();
+    const elsewhere = await base();
+    actor = sessionOf("admin", fx);
+    const w = await workerOf(fx);
+    const rec = await recordedRow(fx, w.id);
+    const inactive = await seedShift(cleanup, fx.loc, { orderIndex: 2 });
+    const gone = await seedShift(cleanup, fx.loc, {
+      orderIndex: 3,
+      deleted: true,
+    });
+    await db
+      .update(shiftDefinition)
+      .set({ isActive: false })
+      .where(eq(shiftDefinition.id, inactive.id));
+    const { correctAttendance } = await import("./actions");
+
+    for (const shiftId of [inactive.id, gone.id, elsewhere.shift.id]) {
+      expect(
+        await correctAttendance({
+          recordId: rec.id,
+          expectedStatus: "present",
+          expectedShiftDefinitionId: fx.shift.id,
+          shiftDefinitionId: shiftId,
+          reason: "try",
+        }),
+      ).toEqual({
+        ok: false,
+        message: "Shift or work area is not available at this location",
+      });
+    }
+    expect((await rowsOf(w.id))[0].shiftDefinitionId).toBe(fx.shift.id);
+    expect(await attendanceAuditRows(fx.admin.id)).toHaveLength(0);
+  });
+
+  test("a blank reason, unchanged values and a record of another location are refused", async () => {
+    const fx = await base();
+    const elsewhere = await base();
+    actor = sessionOf("admin", fx);
+    const w = await workerOf(fx);
+    const stranger = await workerOf(elsewhere);
+    const rec = await recordedRow(fx, w.id);
+    const foreign = await recordedRow(elsewhere, stranger.id);
+    const { correctAttendance } = await import("./actions");
+    const seen = {
+      expectedStatus: "present" as const,
+      expectedShiftDefinitionId: fx.shift.id,
+    };
+
+    expect(
+      await correctAttendance({
+        recordId: rec.id,
+        ...seen,
+        status: "sick",
+        reason: "   ",
+      }),
+    ).toEqual({ ok: false, message: "A reason is required" });
+    expect(
+      await correctAttendance({
+        recordId: rec.id,
+        ...seen,
+        status: "sick",
+        reason: "",
+      }),
+    ).toEqual({ ok: false, message: "A reason is required" });
+    expect(
+      await correctAttendance({
+        recordId: rec.id,
+        ...seen,
+        reason: "no change",
+      }),
+    ).toEqual({ ok: false, message: "Nothing to change" });
+    expect(
+      await correctAttendance({
+        recordId: rec.id,
+        ...seen,
+        status: "present",
+        shiftDefinitionId: fx.shift.id,
+        reason: "same again",
+      }),
+    ).toEqual({ ok: false, message: "Nothing to change" });
+    expect(
+      await correctAttendance({
+        recordId: foreign.id,
+        expectedStatus: "present",
+        expectedShiftDefinitionId: elsewhere.shift.id,
+        status: "sick",
+        reason: "not mine",
+      }),
+    ).toEqual({ ok: false, message: "Attendance record not found." });
+
+    expect((await rowsOf(w.id))[0].status).toBe("present");
+    expect((await rowsOf(stranger.id))[0].status).toBe("present");
+    expect(await attendanceAuditRows(fx.admin.id)).toHaveLength(0);
+  });
+
+  test("a row someone else changed meanwhile answers 'Attendance changed meanwhile, reload'", async () => {
+    const fx = await base();
+    const w = await workerOf(fx);
+    const rec = await recordedRow(fx, w.id, { status: "present" });
+    // Another admin corrected it after this one loaded the page.
+    await db
+      .update(attendanceRecord)
+      .set({ status: "sick" })
+      .where(eq(attendanceRecord.id, rec.id));
+    const { correctAttendance } = await import("./actions");
+
+    const result = await correctAttendance({
+      recordId: rec.id,
+      expectedStatus: "present",
+      expectedShiftDefinitionId: fx.shift.id,
+      status: "absent",
+      reason: "my view was stale",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Attendance changed meanwhile, reload",
+    });
+    expect((await rowsOf(w.id))[0].status).toBe("sick");
+    expect(await attendanceAuditRows(fx.admin.id)).toHaveLength(0);
+  });
+
+  test("an ho and a superadmin are refused", async () => {
+    const fx = await base();
+    const w = await workerOf(fx);
+    const rec = await recordedRow(fx, w.id);
+    const { correctAttendance } = await import("./actions");
+
+    for (const role of ["ho", "superadmin"] as const) {
+      actor = sessionOf(role, fx);
+      expect(
+        await correctAttendance({
+          recordId: rec.id,
+          expectedStatus: "present",
+          expectedShiftDefinitionId: fx.shift.id,
+          status: "sick",
+          reason: "should not work",
+        }),
+      ).toEqual({ ok: false, message: "Only admins record attendance" });
+    }
+    expect((await rowsOf(w.id))[0].status).toBe("present");
+  });
+
+  test("a malformed record id is refused", async () => {
+    await base();
+    const { correctAttendance } = await import("./actions");
+
+    expect(
+      await correctAttendance({
+        recordId: "nope",
+        expectedStatus: "present",
+        expectedShiftDefinitionId: randomUUID(),
+        status: "sick",
+        reason: "x",
+      }),
+    ).toEqual({ ok: false, message: "Invalid attendance input" });
+  });
+});
+
+describe("addUnscheduled", () => {
+  async function ready() {
+    const fx = await base();
+    const w = await workerOf(fx);
+    return { fx, w };
+  }
+
+  const input = (
+    fx: Base,
+    workerId: string,
+    overrides: Record<string, unknown> = {},
+  ) => ({
+    date: DATE,
+    workerId,
+    workAreaId: fx.area.id,
+    shiftDefinitionId: fx.shift.id,
+    status: "present" as const,
+    reason: "Covering a sick colleague",
+    ...overrides,
+  });
+
+  test("creates an unscheduled row and audits it", async () => {
+    const { fx, w } = await ready();
+    const { addUnscheduled } = await import("./actions");
+
+    const result = await addUnscheduled(input(fx, w.id));
+
+    expect(result.ok).toBe(true);
+    const [row] = await rowsOf(w.id);
+    expect(row).toMatchObject({
+      withoutRoster: true,
+      rosteredShiftDefinitionId: null,
+      shiftDefinitionId: fx.shift.id,
+      workAreaId: fx.area.id,
+      status: "present",
+      reason: "Covering a sick colleague",
+      recordedBy: fx.admin.id,
+    });
+    const [audit] = await attendanceAuditRows(fx.admin.id);
+    expect(audit).toMatchObject({
+      action: "attendance.unscheduled.add",
+      siteId: fx.loc.siteId,
+      siteLocationId: fx.loc.id,
+    });
+    expect(audit.details).toEqual({
+      recordId: row.id,
+      workerId: w.id,
+      date: DATE,
+      shiftDefinitionId: fx.shift.id,
+      workAreaId: fx.area.id,
+      status: "present",
+      reason: "Covering a sick colleague",
+    });
+  });
+
+  test("a worker who is on that date's roster is refused", async () => {
+    const { fx, w } = await ready();
+    await roster(fx, [w.id]);
+    const { addUnscheduled } = await import("./actions");
+
+    expect(await addUnscheduled(input(fx, w.id))).toEqual({
+      ok: false,
+      message:
+        "Worker is on the roster that day; change the shift on the roster row",
+    });
+    expect(await rowsOf(w.id)).toHaveLength(0);
+    expect(await attendanceAuditRows(fx.admin.id)).toHaveLength(0);
+  });
+
+  test("an inactive, soft-deleted or other-location worker answers 'Worker not found.'", async () => {
+    const fx = await base();
+    const elsewhere = await base();
+    actor = sessionOf("admin", fx);
+    const inactive = await workerOf(fx);
+    const gone = await workerOf(fx, { deleted: true });
+    const stranger = await workerOf(elsewhere);
+    await db
+      .update(worker)
+      .set({ isActive: false })
+      .where(eq(worker.id, inactive.id));
+    const { addUnscheduled } = await import("./actions");
+
+    for (const id of [inactive.id, gone.id, stranger.id, randomUUID()]) {
+      expect(await addUnscheduled(input(fx, id))).toEqual({
+        ok: false,
+        message: "Worker not found.",
+      });
+    }
+    for (const id of [inactive.id, gone.id, stranger.id]) {
+      expect(await rowsOf(id)).toHaveLength(0);
+    }
+  });
+
+  test("a shift or area that is not selectable at this location is refused", async () => {
+    const { fx, w } = await ready();
+    const elsewhere = await base();
+    actor = sessionOf("admin", fx);
+    const goneArea = await seedWorkArea(cleanup, fx.loc, { deleted: true });
+    const { addUnscheduled } = await import("./actions");
+    const refused = {
+      ok: false,
+      message: "Shift or work area is not available at this location",
+    };
+
+    expect(
+      await addUnscheduled(
+        input(fx, w.id, { shiftDefinitionId: elsewhere.shift.id }),
+      ),
+    ).toEqual(refused);
+    expect(
+      await addUnscheduled(input(fx, w.id, { workAreaId: elsewhere.area.id })),
+    ).toEqual(refused);
+    expect(
+      await addUnscheduled(input(fx, w.id, { workAreaId: goneArea.id })),
+    ).toEqual(refused);
+    expect(await rowsOf(w.id)).toHaveLength(0);
+  });
+
+  test("a blank reason, a future date and an existing record are refused", async () => {
+    const { fx, w } = await ready();
+    const { addUnscheduled } = await import("./actions");
+
+    expect(await addUnscheduled(input(fx, w.id, { reason: "  " }))).toEqual({
+      ok: false,
+      message: "A reason is required",
+    });
+    expect(
+      await addUnscheduled(input(fx, w.id, { date: "2999-01-01" })),
+    ).toEqual({
+      ok: false,
+      message: "Cannot record attendance for a future date",
+    });
+    expect(await rowsOf(w.id)).toHaveLength(0);
+
+    expect((await addUnscheduled(input(fx, w.id))).ok).toBe(true);
+    expect(await addUnscheduled(input(fx, w.id))).toEqual({
+      ok: false,
+      message: "Already recorded, reload",
+    });
+    expect(await rowsOf(w.id)).toHaveLength(1);
+    expect(await attendanceAuditRows(fx.admin.id)).toHaveLength(1);
+  });
+
+  test("an ho and a superadmin are refused", async () => {
+    const { fx, w } = await ready();
+    const { addUnscheduled } = await import("./actions");
+
+    for (const role of ["ho", "superadmin"] as const) {
+      actor = sessionOf(role, fx);
+      expect(await addUnscheduled(input(fx, w.id))).toEqual({
+        ok: false,
+        message: "Only admins record attendance",
+      });
+    }
+    expect(await rowsOf(w.id)).toHaveLength(0);
+  });
+});
+
+describe("removeUnscheduled", () => {
+  test("deletes an unscheduled row and audits it with a snapshot of the row", async () => {
+    const fx = await base();
+    const w = await workerOf(fx);
+    const rec = await recordedRow(fx, w.id, {
+      withoutRoster: true,
+      status: "sick",
+    });
+    const { removeUnscheduled } = await import("./actions");
+
+    const result = await removeUnscheduled({
+      recordId: rec.id,
+      reason: "Entered for the wrong worker",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(await rowsOf(w.id)).toHaveLength(0);
+    const [audit] = await attendanceAuditRows(fx.admin.id);
+    expect(audit).toMatchObject({
+      action: "attendance.unscheduled.remove",
+      siteId: fx.loc.siteId,
+      siteLocationId: fx.loc.id,
+    });
+    expect(audit.details).toMatchObject({
+      recordId: rec.id,
+      reason: "Entered for the wrong worker",
+      snapshot: {
+        id: rec.id,
+        workerId: w.id,
+        date: DATE,
+        status: "sick",
+        withoutRoster: true,
+        rosteredShiftDefinitionId: null,
+        shiftDefinitionId: fx.shift.id,
+        workAreaId: fx.area.id,
+        recordedBy: fx.admin.id,
+      },
+    });
+  });
+
+  test("a roster row cannot be removed and survives", async () => {
+    const fx = await base();
+    const w = await workerOf(fx);
+    const rec = await recordedRow(fx, w.id);
+    const { removeUnscheduled } = await import("./actions");
+
+    expect(
+      await removeUnscheduled({ recordId: rec.id, reason: "oops" }),
+    ).toEqual({ ok: false, message: "Only unscheduled rows can be removed" });
+    expect(await rowsOf(w.id)).toHaveLength(1);
+    expect(await attendanceAuditRows(fx.admin.id)).toHaveLength(0);
+  });
+
+  test("a blank reason, a malformed id and a record of another location are refused", async () => {
+    const fx = await base();
+    const elsewhere = await base();
+    actor = sessionOf("admin", fx);
+    const w = await workerOf(fx);
+    const stranger = await workerOf(elsewhere);
+    const rec = await recordedRow(fx, w.id, { withoutRoster: true });
+    const foreign = await recordedRow(elsewhere, stranger.id, {
+      withoutRoster: true,
+    });
+    const { removeUnscheduled } = await import("./actions");
+
+    expect(await removeUnscheduled({ recordId: rec.id, reason: " " })).toEqual({
+      ok: false,
+      message: "A reason is required",
+    });
+    expect(await removeUnscheduled({ recordId: "nope", reason: "x" })).toEqual({
+      ok: false,
+      message: "Invalid attendance input",
+    });
+    expect(
+      await removeUnscheduled({ recordId: foreign.id, reason: "not mine" }),
+    ).toEqual({ ok: false, message: "Attendance record not found." });
+    expect(await rowsOf(w.id)).toHaveLength(1);
+    expect(await rowsOf(stranger.id)).toHaveLength(1);
+  });
+
+  test("an ho and a superadmin are refused", async () => {
+    const fx = await base();
+    const w = await workerOf(fx);
+    const rec = await recordedRow(fx, w.id, { withoutRoster: true });
+    const { removeUnscheduled } = await import("./actions");
+
+    for (const role of ["ho", "superadmin"] as const) {
+      actor = sessionOf(role, fx);
+      expect(
+        await removeUnscheduled({ recordId: rec.id, reason: "should not work" }),
+      ).toEqual({ ok: false, message: "Only admins record attendance" });
+    }
+    expect(await rowsOf(w.id)).toHaveLength(1);
   });
 });
