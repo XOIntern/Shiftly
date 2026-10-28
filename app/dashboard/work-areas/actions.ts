@@ -12,7 +12,7 @@ import {
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorConstraint, pgErrorCode } from "@/error/db-errors";
-import { requireUser } from "@/lib/session";
+import { requireSuperadmin, requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
@@ -25,6 +25,10 @@ import {
   workAreaOwnedByActor,
   workAreaBulkMutationWhere,
 } from "@/lib/work-area-scope";
+import { purgeWorkAreaGuarded } from "@/lib/work-area-purge";
+import { restoreWorkAreaGuarded } from "@/lib/work-area-restore";
+import { nounFor } from "@/lib/bulk-summary";
+import { runPerRow } from "@/lib/run-per-row";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -474,4 +478,88 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
   } catch (err) {
     return dbResult(err);
   }
+}
+
+// Brings a soft-deleted work area back (lib/work-area-restore.ts), inside the
+// actor's scope: an HO only reaches their own site's rows, an admin their own
+// location's, and anything else answers the plain not-found message. Only the
+// work area row returns; a deleted location, a deleted required position or a
+// name now taken by a live work area refuses, the name through the guard or
+// through the unique-index backstop.
+export async function restoreWorkArea(id: string): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid work area id." };
+  }
+
+  let result: Awaited<ReturnType<typeof restoreWorkAreaGuarded>>;
+  try {
+    result = await db.transaction((tx) =>
+      restoreWorkAreaGuarded(tx, actor, id),
+    );
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/work-areas");
+  return { ok: true };
+}
+
+// Permanent delete of a soft-deleted work area (superadmin only). Guards and
+// writes share one transaction (lib/work-area-purge.ts); roster assignments
+// and request lines refuse, and the FK backstop is mapped by dbResult.
+export async function purgeWorkArea(id: string): Promise<ActionState> {
+  await requireSuperadmin();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid work area id." };
+  }
+
+  let result: Awaited<ReturnType<typeof purgeWorkAreaGuarded>>;
+  try {
+    result = await db.transaction((tx) => purgeWorkAreaGuarded(tx, id));
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/work-areas");
+  return { ok: true };
+}
+
+const perWorkArea = {
+  emptyMessage: "No work areas selected.",
+  noun: nounFor("work area"),
+  mapError: (err: unknown) => dbResult(err).message ?? GENERIC_ERROR,
+};
+
+// Bulk restore of soft-deleted work areas, inside the actor's scope: rows of
+// another site or location are skipped like any other refusal.
+export async function restoreBulk(ids: string[]): Promise<ActionState> {
+  const actor = await requireUser();
+  const result = await runPerRow(
+    ids,
+    (tx, id) => restoreWorkAreaGuarded(tx, actor, id),
+    perWorkArea,
+  );
+  if (result.ok) revalidatePath("/dashboard/work-areas");
+  return result;
+}
+
+// Bulk permanent delete of soft-deleted work areas (superadmin only). Each
+// work area runs the same guarded purge as purgeWorkArea; one with roster or
+// request history is skipped.
+export async function purgeBulk(ids: string[]): Promise<ActionState> {
+  await requireSuperadmin();
+  const result = await runPerRow(ids, purgeWorkAreaGuarded, perWorkArea);
+  if (result.ok) revalidatePath("/dashboard/work-areas");
+  return result;
 }

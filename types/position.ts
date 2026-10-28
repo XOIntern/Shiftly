@@ -7,3 +7,12 @@ export type PositionRow = {
   siteId: string;
   siteName: string;
 };
+
+// One row of the deleted-positions table. deletedAt travels as an ISO string
+// so the server and the client render the same text.
+export type DeletedPositionRow = {
+  id: string;
+  name: string;
+  siteName: string;
+  deletedAt: string;
+};

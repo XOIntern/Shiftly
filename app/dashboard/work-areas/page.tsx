@@ -1,4 +1,15 @@
-import { and, asc, count, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { position, site, siteLocation, workArea, workAreaPosition } from "@/drizzle/schema";
@@ -9,12 +20,14 @@ import {
   ilikePattern,
   parseTableSearchParams,
 } from "@/lib/table-params";
+import { parseListView } from "@/lib/list-view";
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWorkAreaButton } from "@/components/work-areas/work-area-form";
 import type { PositionRow } from "@/types/position";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 import type { WorkAreaRow } from "@/types/work-area";
+import { DeletedWorkAreasTable } from "@/components/work-areas/deleted-work-areas-table";
 import { WorkAreasTable } from "@/components/work-areas/work-areas-table";
 
 // Deliberate block: the page queries master data behind the session check,
@@ -30,6 +43,18 @@ const SORTABLE = {
   isActive: workArea.isActive,
 };
 const DEFAULT_ORDER = [asc(site.name), asc(workArea.name)];
+// The deleted view sorts by site, location, name or when the work area was
+// deleted, newest deletion first by default. buildOrder trails every user sort
+// with this default, so the id breaks ties for any sort: work areas deleted in
+// the same instant (a bulk delete) keep one order and cannot swap between
+// pages.
+const SORTABLE_DELETED = {
+  name: workArea.name,
+  siteName: site.name,
+  locationName: siteLocation.name,
+  deletedAt: workArea.deletedAt,
+};
+const DEFAULT_ORDER_DELETED = [desc(workArea.deletedAt), asc(workArea.id)];
 
 // The reference algorithm (see the Sites pilot, epic #24): validate URL
 // state, count first for pageCount, clamp the page, then fetch one page.
@@ -38,8 +63,12 @@ export default async function WorkAreasPage({
 }: PageProps<"/dashboard/work-areas">) {
   // requireUser, not requireHO: all three roles manage their own scope.
   const actor = await requireUser();
+  const rawParams = await searchParams;
+  // ?show=deleted picks the soft-deleted list; it is not part of the shared
+  // table params, so it is read off the raw search params.
+  const deletedView = parseListView(rawParams.show) === "deleted";
   const { q, status, siteId, page, sorts, pageSize } = parseTableSearchParams(
-    await searchParams,
+    rawParams,
     PAGE_SIZE_OPTIONS,
   );
   const isSuperadmin = actor.role === "superadmin";
@@ -69,7 +98,12 @@ export default async function WorkAreasPage({
   const pattern = ilikePattern(q);
   // Name-only search; the joined site name is deliberately not searched
   // (locked decision 3). Null-safe and(...) composes scope+search+filters.
+  // The deletedAt predicate splits the live list from the deleted one
+  // (soft-delete epic #40); the scope stays in place for both, so nobody lists
+  // another site's or location's deleted rows. This one `where` serves the
+  // count and the listing below.
   const where = and(
+    deletedView ? isNotNull(workArea.deletedAt) : isNull(workArea.deletedAt),
     ...(pattern ? [ilike(workArea.name, pattern)] : []),
     ...(status ? [eq(workArea.isActive, status === "active")] : []),
     ...(siteFilter ? [siteFilter] : []),
@@ -79,13 +113,17 @@ export default async function WorkAreasPage({
   // Own-property lookup inside buildOrder: a plain truthiness guard would
   // admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which
   // drizzle rejects mid-render.
-  const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
+  const order = deletedView
+    ? buildOrder(sorts, SORTABLE_DELETED, DEFAULT_ORDER_DELETED)
+    : buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
+  // The location join is not decoration: the deleted list sorts by it.
   const [{ count: rowCount }] = await db
     .select({ count: count() })
     .from(workArea)
+    .innerJoin(siteLocation, eq(workArea.siteLocationId, siteLocation.id))
     .innerJoin(site, eq(workArea.siteId, site.id))
-    .where(and(where, isNull(workArea.deletedAt)));
+    .where(where);
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
@@ -192,11 +230,12 @@ export default async function WorkAreasPage({
         siteId: workArea.siteId,
         siteName: site.name,
         locationName: siteLocation.name,
+        deletedAt: workArea.deletedAt,
       })
       .from(workArea)
       .innerJoin(siteLocation, eq(workArea.siteLocationId, siteLocation.id))
       .innerJoin(site, eq(workArea.siteId, site.id))
-      .where(and(where, isNull(workArea.deletedAt)))
+      .where(where)
       .orderBy(...order)
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),
@@ -205,7 +244,8 @@ export default async function WorkAreasPage({
   // The page's required-position sets, in one grouped follow-up query
   // (workers-page pattern): the edit dialog pre-fills its multi-select
   // from them, alphabetical by name.
-  const workAreaIds = workAreas.map((row) => row.id);
+  // The deleted list has no edit dialog, so it needs no sets.
+  const workAreaIds = deletedView ? [] : workAreas.map((row) => row.id);
   const pivotRows =
     workAreaIds.length === 0
       ? []
@@ -229,7 +269,13 @@ export default async function WorkAreasPage({
   }
 
   const workAreaRows: WorkAreaRow[] = workAreas.map((row) => ({
-    ...row,
+    id: row.id,
+    name: row.name,
+    isActive: row.isActive,
+    siteLocationId: row.siteLocationId,
+    siteId: row.siteId,
+    siteName: row.siteName,
+    locationName: row.locationName,
     positions: positionsByWorkArea.get(row.id) ?? [],
   }));
 
@@ -254,18 +300,37 @@ export default async function WorkAreasPage({
       </div>
       <Card>
         <CardContent>
-          <WorkAreasTable
-            workAreas={workAreaRows}
-            siteLocations={siteLocations satisfies SiteLocationOption[]}
-            pinnedLocationName={
-              actor.role === "admin" ? siteLocations[0]?.name : undefined
-            }
-            showSiteFilter={isSuperadmin}
-            sites={sites satisfies SiteOption[]}
-            positions={positions satisfies PositionRow[]}
-            pageCount={pageCount}
-            total={rowCount}
-          />
+          {deletedView ? (
+            <DeletedWorkAreasTable
+              workAreas={workAreas.map(
+                ({ id, name, siteName, locationName, deletedAt }) => ({
+                  id,
+                  name,
+                  siteName,
+                  locationName,
+                  deletedAt: (deletedAt as Date).toISOString(),
+                }),
+              )}
+              showSiteFilter={isSuperadmin}
+              sites={sites satisfies SiteOption[]}
+              canPurge={isSuperadmin}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          ) : (
+            <WorkAreasTable
+              workAreas={workAreaRows}
+              siteLocations={siteLocations satisfies SiteLocationOption[]}
+              pinnedLocationName={
+                actor.role === "admin" ? siteLocations[0]?.name : undefined
+              }
+              showSiteFilter={isSuperadmin}
+              sites={sites satisfies SiteOption[]}
+              positions={positions satisfies PositionRow[]}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          )}
         </CardContent>
       </Card>
     </div>
