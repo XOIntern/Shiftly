@@ -61,4 +61,13 @@ describe("dashboard layout nav", () => {
       expect(items.map((item) => item.url)).toContain("/dashboard/workers");
     }
   });
+
+  // The admin writes attendance; ho and superadmin open the same page
+  // read-only, so every role needs the way in.
+  test("every role's nav reaches Attendance", async () => {
+    for (const role of ["superadmin", "ho", "admin"] as const) {
+      const items = await renderNav(role);
+      expect(items.map((item) => item.url)).toContain("/dashboard/attendance");
+    }
+  });
 });
