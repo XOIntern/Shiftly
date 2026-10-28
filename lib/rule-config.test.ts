@@ -19,6 +19,11 @@ import {
   loadSiteRows,
   upsertRuleRow,
 } from "./rule-config";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // Task 4 of the config-rules epic (GitHub #51): the DB layer that feeds the
 // pure resolver. Like the Task 1 schema tests, these run against the real
@@ -35,64 +40,7 @@ describe("rule-config loaders (issue #51 task 4)", () => {
     const siteLevelId = randomUUID();
     const locationLevelId = randomUUID();
 
-    try {
-      await db
-        .insert(site)
-        .values({ id: siteId, name: `rule-loader-site-${siteId}` });
-      await db.insert(siteLocation).values({
-        id: locationId,
-        siteId,
-        name: "Rule Loader Location",
-      });
-      await db.insert(rosterRuleConfig).values([
-        { id: globalId, ruleKey: "C1", intValue: 5 },
-        { id: siteLevelId, ruleKey: "C1", siteId, intValue: 6 },
-        {
-          id: locationLevelId,
-          ruleKey: "C1",
-          siteId,
-          siteLocationId: locationId,
-          intValue: 7,
-        },
-      ]);
-
-      const rules = await loadEffectiveRules(locationId);
-      expect(rules.c1).toEqual({ value: 7, source: "location" });
-
-      // The level loaders return exactly the rows of their own scope.
-      const globalRows = await loadGlobalRows();
-      expect(globalRows.find((r) => r.ruleKey === "C1")).toEqual({
-        ruleKey: "C1",
-        intValue: 5,
-        boolValue: null,
-      });
-
-      const siteRows = await loadSiteRows(siteId);
-      expect(siteRows).toEqual([
-        { ruleKey: "C1", intValue: 6, boolValue: null },
-      ]);
-
-      const locationRows = await loadLocationRows(siteId, locationId);
-      expect(locationRows).toEqual([
-        { ruleKey: "C1", intValue: 7, boolValue: null },
-      ]);
-
-      // Removing the location override lets the site row win.
-      await db
-        .delete(rosterRuleConfig)
-        .where(eq(rosterRuleConfig.id, locationLevelId));
-      expect((await loadEffectiveRules(locationId)).c1).toEqual({
-        value: 6,
-        source: "site",
-      });
-      await db
-        .delete(rosterRuleConfig)
-        .where(eq(rosterRuleConfig.id, siteLevelId));
-      expect((await loadEffectiveRules(locationId)).c1).toEqual({
-        value: 5,
-        source: "global",
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       // Child-first: config rows reference the locations, the locations
       // reference the site. The global row has no site — delete it by id.
       await db
@@ -103,7 +51,63 @@ describe("rule-config loaders (issue #51 task 4)", () => {
         .where(eq(rosterRuleConfig.siteId, siteId));
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
-    }
+    });
+    await db
+      .insert(site)
+      .values({ id: siteId, name: `rule-loader-site-${siteId}` });
+    await db.insert(siteLocation).values({
+      id: locationId,
+      siteId,
+      name: "Rule Loader Location",
+    });
+    await db.insert(rosterRuleConfig).values([
+      { id: globalId, ruleKey: "C1", intValue: 5 },
+      { id: siteLevelId, ruleKey: "C1", siteId, intValue: 6 },
+      {
+        id: locationLevelId,
+        ruleKey: "C1",
+        siteId,
+        siteLocationId: locationId,
+        intValue: 7,
+      },
+    ]);
+
+    const rules = await loadEffectiveRules(locationId);
+    expect(rules.c1).toEqual({ value: 7, source: "location" });
+
+    // The level loaders return exactly the rows of their own scope.
+    const globalRows = await loadGlobalRows();
+    expect(globalRows.find((r) => r.ruleKey === "C1")).toEqual({
+      ruleKey: "C1",
+      intValue: 5,
+      boolValue: null,
+    });
+
+    const siteRows = await loadSiteRows(siteId);
+    expect(siteRows).toEqual([
+      { ruleKey: "C1", intValue: 6, boolValue: null },
+    ]);
+
+    const locationRows = await loadLocationRows(siteId, locationId);
+    expect(locationRows).toEqual([
+      { ruleKey: "C1", intValue: 7, boolValue: null },
+    ]);
+
+    // Removing the location override lets the site row win.
+    await db
+      .delete(rosterRuleConfig)
+      .where(eq(rosterRuleConfig.id, locationLevelId));
+    expect((await loadEffectiveRules(locationId)).c1).toEqual({
+      value: 6,
+      source: "site",
+    });
+    await db
+      .delete(rosterRuleConfig)
+      .where(eq(rosterRuleConfig.id, siteLevelId));
+    expect((await loadEffectiveRules(locationId)).c1).toEqual({
+      value: 5,
+      source: "global",
+    });
   });
 
   test("soft-deleted rows are excluded from loaders and resolution", async () => {
@@ -112,46 +116,7 @@ describe("rule-config loaders (issue #51 task 4)", () => {
     const locationId = randomUUID();
     const siteLevelId = randomUUID();
 
-    try {
-      await db
-        .insert(site)
-        .values({ id: siteId, name: `rule-soft-site-${siteId}` });
-      await db.insert(siteLocation).values({
-        id: locationId,
-        siteId,
-        name: "Rule Soft Location",
-      });
-      await db.insert(rosterRuleConfig).values({
-        id: siteLevelId,
-        ruleKey: "C1",
-        siteId,
-        intValue: 6,
-      });
-      // Soft-delete: the partial unique indexes and the loaders share the
-      // "deleted_at is null" predicate, so this frees the scope.
-      await db
-        .update(rosterRuleConfig)
-        .set({ deletedAt: new Date() })
-        .where(eq(rosterRuleConfig.id, siteLevelId));
-
-      expect(await loadSiteRows(siteId)).toEqual([]);
-      expect((await loadEffectiveRules(locationId)).c1).toEqual({
-        value: 5,
-        source: "default",
-      });
-
-      // And the freed scope accepts a fresh row via the upsert path.
-      await upsertRuleRow({
-        ruleKey: "C1",
-        scope: { kind: "site", siteId },
-        intValue: 9,
-        boolValue: null,
-        actorId,
-      });
-      expect(await loadSiteRows(siteId)).toEqual([
-        { ruleKey: "C1", intValue: 9, boolValue: null },
-      ]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       // Audits reference the site too, so they go before it (child-first).
       await db.delete(auditLog).where(eq(auditLog.actorId, actorId));
       await db
@@ -160,7 +125,45 @@ describe("rule-config loaders (issue #51 task 4)", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
       await db.delete(user).where(eq(user.id, actorId));
-    }
+    });
+    await db
+      .insert(site)
+      .values({ id: siteId, name: `rule-soft-site-${siteId}` });
+    await db.insert(siteLocation).values({
+      id: locationId,
+      siteId,
+      name: "Rule Soft Location",
+    });
+    await db.insert(rosterRuleConfig).values({
+      id: siteLevelId,
+      ruleKey: "C1",
+      siteId,
+      intValue: 6,
+    });
+    // Soft-delete: the partial unique indexes and the loaders share the
+    // "deleted_at is null" predicate, so this frees the scope.
+    await db
+      .update(rosterRuleConfig)
+      .set({ deletedAt: new Date() })
+      .where(eq(rosterRuleConfig.id, siteLevelId));
+
+    expect(await loadSiteRows(siteId)).toEqual([]);
+    expect((await loadEffectiveRules(locationId)).c1).toEqual({
+      value: 5,
+      source: "default",
+    });
+
+    // And the freed scope accepts a fresh row via the upsert path.
+    await upsertRuleRow({
+      ruleKey: "C1",
+      scope: { kind: "site", siteId },
+      intValue: 9,
+      boolValue: null,
+      actorId,
+    });
+    expect(await loadSiteRows(siteId)).toEqual([
+      { ruleKey: "C1", intValue: 9, boolValue: null },
+    ]);
   });
 });
 
@@ -170,57 +173,56 @@ describe("upsertRuleRow (issue #51 task 4)", () => {
     const siteId = randomUUID();
     const seededRowId = randomUUID();
 
-    try {
-      await db
-        .insert(site)
-        .values({ id: siteId, name: `rule-upsert-site-${siteId}` });
-      await db.insert(rosterRuleConfig).values({
-        id: seededRowId,
-        ruleKey: "C1",
-        siteId,
-        intValue: 6,
-      });
-
-      // One upsert over an existing row: update in place, one audit.
-      await upsertRuleRow({
-        ruleKey: "C1",
-        scope: { kind: "site", siteId },
-        intValue: 7,
-        boolValue: null,
-        actorId,
-      });
-
-      const siteRows = await liveSiteRows(siteId);
-      expect(siteRows).toHaveLength(1);
-      expect(siteRows[0].id).toBe(seededRowId);
-      expect(siteRows[0].intValue).toBe(7);
-
-      const audits = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "roster_rule_config.change"),
-            eq(auditLog.siteId, siteId),
-          ),
-        );
-      expect(audits).toHaveLength(1);
-      expect(audits[0].actorId).toBe(actorId);
-      expect(audits[0].siteLocationId).toBeNull();
-      expect(audits[0].details).toEqual({
-        ruleKey: "C1",
-        level: "site",
-        oldValue: { intValue: 6, boolValue: null },
-        newValue: { intValue: 7, boolValue: null },
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(auditLog).where(eq(auditLog.actorId, actorId));
       await db
         .delete(rosterRuleConfig)
         .where(eq(rosterRuleConfig.siteId, siteId));
       await db.delete(site).where(eq(site.id, siteId));
       await db.delete(user).where(eq(user.id, actorId));
-    }
+    });
+    await db
+      .insert(site)
+      .values({ id: siteId, name: `rule-upsert-site-${siteId}` });
+    await db.insert(rosterRuleConfig).values({
+      id: seededRowId,
+      ruleKey: "C1",
+      siteId,
+      intValue: 6,
+    });
+
+    // One upsert over an existing row: update in place, one audit.
+    await upsertRuleRow({
+      ruleKey: "C1",
+      scope: { kind: "site", siteId },
+      intValue: 7,
+      boolValue: null,
+      actorId,
+    });
+
+    const siteRows = await liveSiteRows(siteId);
+    expect(siteRows).toHaveLength(1);
+    expect(siteRows[0].id).toBe(seededRowId);
+    expect(siteRows[0].intValue).toBe(7);
+
+    const audits = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "roster_rule_config.change"),
+          eq(auditLog.siteId, siteId),
+        ),
+      );
+    expect(audits).toHaveLength(1);
+    expect(audits[0].actorId).toBe(actorId);
+    expect(audits[0].siteLocationId).toBeNull();
+    expect(audits[0].details).toEqual({
+      ruleKey: "C1",
+      level: "site",
+      oldValue: { intValue: 6, boolValue: null },
+      newValue: { intValue: 7, boolValue: null },
+    });
   });
 
   test("oldValue is null when no row exists at the scope yet; a scope change writes a new row", async () => {
@@ -228,81 +230,7 @@ describe("upsertRuleRow (issue #51 task 4)", () => {
     const siteId = randomUUID();
     const locationId = randomUUID();
 
-    try {
-      await db
-        .insert(site)
-        .values({ id: siteId, name: `rule-fresh-site-${siteId}` });
-      await db.insert(siteLocation).values({
-        id: locationId,
-        siteId,
-        name: "Rule Fresh Location",
-      });
-
-      await upsertRuleRow({
-        ruleKey: "C2",
-        scope: { kind: "location", siteId, siteLocationId: locationId },
-        intValue: 18,
-        boolValue: null,
-        actorId,
-      });
-
-      await upsertRuleRow({
-        ruleKey: "C2",
-        scope: { kind: "global" },
-        intValue: 20,
-        boolValue: null,
-        actorId,
-      });
-
-      // Both audits exist, each stamped for its own scope.
-      const audits = await db
-        .select()
-        .from(auditLog)
-        .where(eq(auditLog.actorId, actorId));
-      expect(audits).toHaveLength(2);
-      // jsonb columns type as unknown through drizzle — cast once, below.
-      type AuditDetails = {
-        ruleKey: string;
-        level: "global" | "site" | "location";
-        oldValue: { intValue: number | null; boolValue: boolean | null } | null;
-        newValue: { intValue: number | null; boolValue: boolean | null };
-      };
-      const details = audits.map((a) => a.details as AuditDetails);
-      expect(details.filter((d) => d.level === "location")).toEqual([
-        {
-          ruleKey: "C2",
-          level: "location",
-          oldValue: null,
-          newValue: { intValue: 18, boolValue: null },
-        },
-      ]);
-      expect(details.filter((d) => d.level === "global")).toEqual([
-        {
-          ruleKey: "C2",
-          level: "global",
-          oldValue: null,
-          newValue: { intValue: 20, boolValue: null },
-        },
-      ]);
-      const globalAudit = audits.find(
-        (a) => (a.details as AuditDetails).level === "global",
-      );
-      expect(globalAudit?.siteId).toBeNull();
-      expect(globalAudit?.siteLocationId).toBeNull();
-
-      // The scope change wrote its own row: the location row was not
-      // mutated by the global upsert.
-      const locationRow = await db
-        .select({ intValue: rosterRuleConfig.intValue })
-        .from(rosterRuleConfig)
-        .where(eq(rosterRuleConfig.siteLocationId, locationId));
-      expect(locationRow).toEqual([{ intValue: 18 }]);
-      expect((await loadGlobalRows()).find((r) => r.ruleKey === "C2")).toEqual({
-        ruleKey: "C2",
-        intValue: 20,
-        boolValue: null,
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       // The global row has a null site_id: it must go by its own id, or it
       // leaks into the next run's oldValue.
       await db.delete(auditLog).where(eq(auditLog.actorId, actorId));
@@ -321,42 +249,114 @@ describe("upsertRuleRow (issue #51 task 4)", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, locationId));
       await db.delete(site).where(eq(site.id, siteId));
       await db.delete(user).where(eq(user.id, actorId));
-    }
+    });
+    await db
+      .insert(site)
+      .values({ id: siteId, name: `rule-fresh-site-${siteId}` });
+    await db.insert(siteLocation).values({
+      id: locationId,
+      siteId,
+      name: "Rule Fresh Location",
+    });
+
+    await upsertRuleRow({
+      ruleKey: "C2",
+      scope: { kind: "location", siteId, siteLocationId: locationId },
+      intValue: 18,
+      boolValue: null,
+      actorId,
+    });
+
+    await upsertRuleRow({
+      ruleKey: "C2",
+      scope: { kind: "global" },
+      intValue: 20,
+      boolValue: null,
+      actorId,
+    });
+
+    // Both audits exist, each stamped for its own scope.
+    const audits = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.actorId, actorId));
+    expect(audits).toHaveLength(2);
+    // jsonb columns type as unknown through drizzle — cast once, below.
+    type AuditDetails = {
+      ruleKey: string;
+      level: "global" | "site" | "location";
+      oldValue: { intValue: number | null; boolValue: boolean | null } | null;
+      newValue: { intValue: number | null; boolValue: boolean | null };
+    };
+    const details = audits.map((a) => a.details as AuditDetails);
+    expect(details.filter((d) => d.level === "location")).toEqual([
+      {
+        ruleKey: "C2",
+        level: "location",
+        oldValue: null,
+        newValue: { intValue: 18, boolValue: null },
+      },
+    ]);
+    expect(details.filter((d) => d.level === "global")).toEqual([
+      {
+        ruleKey: "C2",
+        level: "global",
+        oldValue: null,
+        newValue: { intValue: 20, boolValue: null },
+      },
+    ]);
+    const globalAudit = audits.find(
+      (a) => (a.details as AuditDetails).level === "global",
+    );
+    expect(globalAudit?.siteId).toBeNull();
+    expect(globalAudit?.siteLocationId).toBeNull();
+
+    // The scope change wrote its own row: the location row was not
+    // mutated by the global upsert.
+    const locationRow = await db
+      .select({ intValue: rosterRuleConfig.intValue })
+      .from(rosterRuleConfig)
+      .where(eq(rosterRuleConfig.siteLocationId, locationId));
+    expect(locationRow).toEqual([{ intValue: 18 }]);
+    expect((await loadGlobalRows()).find((r) => r.ruleKey === "C2")).toEqual({
+      ruleKey: "C2",
+      intValue: 20,
+      boolValue: null,
+    });
   });
 
   test("a failing audit write rolls the config row back (one transaction)", async () => {
-    try {
-      // actorId references a user that does not exist: the audit insert
-      // violates its FK. The config row write must roll back with it.
-      let code: string | undefined;
-      try {
-        await upsertRuleRow({
-          ruleKey: "C5",
-          scope: { kind: "global" },
-          intValue: 5,
-          boolValue: null,
-          actorId: randomUUID(),
-        });
-      } catch (err) {
-        code = pgErrorCode(err);
-      }
-      expect(code === "23503" || code === "23001").toBe(true);
-
-      const globals = await db
-        .select()
-        .from(rosterRuleConfig)
-        .where(
-          and(
-            eq(rosterRuleConfig.ruleKey, "C5"),
-            eq(rosterRuleConfig.intValue, 5),
-          ),
-        );
-      expect(globals).toEqual([]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db
         .delete(rosterRuleConfig)
         .where(eq(rosterRuleConfig.ruleKey, "C5"));
+    });
+    // actorId references a user that does not exist: the audit insert
+    // violates its FK. The config row write must roll back with it.
+    let code: string | undefined;
+    try {
+      await upsertRuleRow({
+        ruleKey: "C5",
+        scope: { kind: "global" },
+        intValue: 5,
+        boolValue: null,
+        actorId: randomUUID(),
+      });
+    } catch (err) {
+      code = pgErrorCode(err);
     }
+    expect(code === "23503" || code === "23001").toBe(true);
+
+    const globals = await db
+      .select()
+      .from(rosterRuleConfig)
+      .where(
+        and(
+          eq(rosterRuleConfig.ruleKey, "C5"),
+          eq(rosterRuleConfig.intValue, 5),
+        ),
+      );
+    expect(globals).toEqual([]);
   });
 });
 

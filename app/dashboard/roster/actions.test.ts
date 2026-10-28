@@ -43,7 +43,12 @@ mock.module("@/lib/session", () => ({
   requireSuperadmin: async () => actor,
 }));
 // No Next request context under bun test — revalidation is a no-op stub.
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 
@@ -364,39 +369,35 @@ describe("roster actions: generateRoster", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster } = await import("./actions");
-      const result = await generateRoster({ weekStart: MON, siteLocationId: fx.locationId });
-      expect(result.ok).toBe(true);
+    const { generateRoster } = await import("./actions");
+    const result = await generateRoster({ weekStart: MON, siteLocationId: fx.locationId });
+    expect(result.ok).toBe(true);
 
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect(plan).toBeDefined();
-      expect(plan.kind).toBe("weekly");
-      expect(plan.weekStart).toBe(MON);
-      expect(plan.status).toBe("draft");
-      expect(plan.version).toBe(1);
-      expect(plan.generatedBy).toBe(actor.id);
-      expect(plan.publishedAt).toBeNull();
-      expect(plan.rulesSnapshot).toEqual(await loadEffectiveRules(fx.locationId));
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect(plan).toBeDefined();
+    expect(plan.kind).toBe("weekly");
+    expect(plan.weekStart).toBe(MON);
+    expect(plan.status).toBe("draft");
+    expect(plan.version).toBe(1);
+    expect(plan.generatedBy).toBe(actor.id);
+    expect(plan.publishedAt).toBeNull();
+    expect(plan.rulesSnapshot).toEqual(await loadEffectiveRules(fx.locationId));
 
-      const rows = await readPlanRows(plan.id);
-      expect(rows.map((r) => r.workerId).sort()).toEqual([w1, w2].sort());
-      expect(rows.every((r) => r.workAreaId === area && r.date === MON && r.shiftDefinitionId === shift)).toBe(true);
+    const rows = await readPlanRows(plan.id);
+    expect(rows.map((r) => r.workerId).sort()).toEqual([w1, w2].sort());
+    expect(rows.every((r) => r.workAreaId === area && r.date === MON && r.shiftDefinitionId === shift)).toBe(true);
 
-      const [audit] = await db
-        .select()
-        .from(auditLog)
-        .where(and(eq(auditLog.action, "roster.generate"), eq(auditLog.actorId, actor.id)));
-      expect(audit).toBeDefined();
-      expect(audit.siteId).toBe(fx.siteId);
-      expect(audit.siteLocationId).toBe(fx.locationId);
-      expect(audit.details).toEqual({ planId: plan.id, version: 1 });
-    } finally {
-      void fx;
-    }
+    const [audit] = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "roster.generate"), eq(auditLog.actorId, actor.id)));
+    expect(audit).toBeDefined();
+    expect(audit.siteId).toBe(fx.siteId);
+    expect(audit.siteLocationId).toBe(fx.locationId);
+    expect(audit.details).toEqual({ planId: plan.id, version: 1 });
   });
 
   test("generate without approved requirements for the week: refused, nothing written", async () => {
@@ -407,22 +408,18 @@ describe("roster actions: generateRoster", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster } = await import("./actions");
-      const result = await generateRoster({ weekStart: MON, siteLocationId: fx.locationId });
-      expect(result).toEqual({
-        ok: false,
-        message: "No approved requests cover this week.",
-      });
+    const { generateRoster } = await import("./actions");
+    const result = await generateRoster({ weekStart: MON, siteLocationId: fx.locationId });
+    expect(result).toEqual({
+      ok: false,
+      message: "No approved requests cover this week.",
+    });
 
-      const plans = await db
-        .select({ id: rosterPlan.id })
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect(plans.length).toBe(0);
-    } finally {
-      void fx;
-    }
+    const plans = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect(plans.length).toBe(0);
   });
 
   test("draft weekly plan already exists without workAreaId: refused twice-written nothing", async () => {
@@ -436,21 +433,17 @@ describe("roster actions: generateRoster", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const { generateRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
-      const second = await generateRoster({ weekStart: MON, siteLocationId: fx.locationId });
-      expect(second).toEqual({ ok: false, message: "Draft already exists" });
+    const second = await generateRoster({ weekStart: MON, siteLocationId: fx.locationId });
+    expect(second).toEqual({ ok: false, message: "Draft already exists" });
 
-      const plans = await db
-        .select({ id: rosterPlan.id })
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect(plans.length).toBe(1);
-    } finally {
-      void fx;
-    }
+    const plans = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect(plans.length).toBe(1);
   });
 
   test("regenerate slice with workAreaId touches only its area; other areas' rows unchanged, same version", async () => {
@@ -474,57 +467,53 @@ describe("roster actions: generateRoster", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const { generateRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      const before = await readPlanRows(plan.id);
-      const beforeB = before.filter((r) => r.workAreaId === areaB);
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    const before = await readPlanRows(plan.id);
+    const beforeB = before.filter((r) => r.workAreaId === areaB);
 
-      const regen = await generateRoster({
-        weekStart: MON,
-        workAreaId: areaA,
-        siteLocationId: fx.locationId,
-      });
-      expect(regen.ok).toBe(true);
+    const regen = await generateRoster({
+      weekStart: MON,
+      workAreaId: areaA,
+      siteLocationId: fx.locationId,
+    });
+    expect(regen.ok).toBe(true);
 
-      const [planAfter] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect(planAfter.id).toBe(plan.id);
-      expect(planAfter.version).toBe(1);
-      expect(planAfter.status).toBe("draft");
+    const [planAfter] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect(planAfter.id).toBe(plan.id);
+    expect(planAfter.version).toBe(1);
+    expect(planAfter.status).toBe("draft");
 
-      const after = await readPlanRows(plan.id);
-      const afterA = after.filter((r) => r.workAreaId === areaA);
-      const afterB = after.filter((r) => r.workAreaId === areaB);
+    const after = await readPlanRows(plan.id);
+    const afterA = after.filter((r) => r.workAreaId === areaA);
+    const afterB = after.filter((r) => r.workAreaId === areaB);
 
-      // Area B untouched; area A still exactly one row (deterministic pick).
-      expect(afterB).toEqual(beforeB);
-      expect(afterA).toEqual([
-        { workerId: wa, workAreaId: areaA, shiftDefinitionId: shiftA, date: MON },
-      ]);
-      expect(after.length).toBe(before.length);
+    // Area B untouched; area A still exactly one row (deterministic pick).
+    expect(afterB).toEqual(beforeB);
+    expect(afterA).toEqual([
+      { workerId: wa, workAreaId: areaA, shiftDefinitionId: shiftA, date: MON },
+    ]);
+    expect(after.length).toBe(before.length);
 
-      const [audit] = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "roster.regenerate"),
-            eq(auditLog.actorId, actor.id),
-          ),
-        );
-      expect(audit).toBeDefined();
-      expect(audit.details).toEqual({ planId: plan.id, version: 1, workAreaId: areaA });
-    } finally {
-      void fx;
-    }
+    const [audit] = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "roster.regenerate"),
+          eq(auditLog.actorId, actor.id),
+        ),
+      );
+    expect(audit).toBeDefined();
+    expect(audit.details).toEqual({ planId: plan.id, version: 1, workAreaId: areaA });
   });
 });
 
@@ -558,45 +547,41 @@ describe("roster actions: publishRoster", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, publishRoster } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
 
-      // Plant a TUE row for the same worker on a LOWER order index: MON 2 →
-      // TUE 1 on consecutive days is a C3 downshift.
-      await db.insert(rosterAssignment).values({
-        planId: plan.id,
-        siteId: fx.siteId,
-        siteLocationId: fx.locationId,
-        workerId: w,
-        workAreaId: area,
-        shiftDefinitionId: shiftLow,
-        date: TUE,
-      });
+    // Plant a TUE row for the same worker on a LOWER order index: MON 2 →
+    // TUE 1 on consecutive days is a C3 downshift.
+    await db.insert(rosterAssignment).values({
+      planId: plan.id,
+      siteId: fx.siteId,
+      siteLocationId: fx.locationId,
+      workerId: w,
+      workAreaId: area,
+      shiftDefinitionId: shiftLow,
+      date: TUE,
+    });
 
-      const result = await publishRoster(plan.id);
-      expect(result.ok).toBe(false);
-      expect(result.message).toContain("downshift");
-      expect(result.message).toContain(TUE);
-      expect(result.message).toContain("from Night to Morning");
-      expect(result.message).not.toContain(shiftHigh);
-      expect(result.message).not.toContain(shiftLow);
+    const result = await publishRoster(plan.id);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("downshift");
+    expect(result.message).toContain(TUE);
+    expect(result.message).toContain("from Night to Morning");
+    expect(result.message).not.toContain(shiftHigh);
+    expect(result.message).not.toContain(shiftLow);
 
-      const [planAfter] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.id, plan.id));
-      expect(planAfter.status).toBe("draft");
-      expect(planAfter.publishedAt).toBeNull();
-      expect(planAfter.publishedBy).toBeNull();
-    } finally {
-      void fx;
-    }
+    const [planAfter] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.id, plan.id));
+    expect(planAfter.status).toBe("draft");
+    expect(planAfter.publishedAt).toBeNull();
+    expect(planAfter.publishedBy).toBeNull();
   });
 
   test("publish blocked by a C7 violation: refusal names the work area, not its id", async () => {
@@ -644,31 +629,27 @@ describe("roster actions: publishRoster", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, publishRoster } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
 
-      // The worker dies AFTER the draft was generated.
-      await db.update(worker).set({ isActive: false }).where(eq(worker.id, w));
+    // The worker dies AFTER the draft was generated.
+    await db.update(worker).set({ isActive: false }).where(eq(worker.id, w));
 
-      const result = await publishRoster(plan.id);
-      expect(result.ok).toBe(false);
-      expect(result.message).toContain("no longer active");
+    const result = await publishRoster(plan.id);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no longer active");
 
-      const [planAfter] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.id, plan.id));
-      expect(planAfter.status).toBe("draft");
-      expect(planAfter.publishedBy).toBeNull();
-    } finally {
-      void fx;
-    }
+    const [planAfter] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.id, plan.id));
+    expect(planAfter.status).toBe("draft");
+    expect(planAfter.publishedBy).toBeNull();
   });
 
   test("publish happy: published fields + audit with zero violations", async () => {
@@ -677,41 +658,37 @@ describe("roster actions: publishRoster", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, publishRoster } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
 
-      const result = await publishRoster(plan.id);
-      expect(result.ok).toBe(true);
+    const result = await publishRoster(plan.id);
+    expect(result.ok).toBe(true);
 
-      const [planAfter] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.id, plan.id));
-      expect(planAfter.status).toBe("published");
-      expect(planAfter.publishedAt).not.toBeNull();
-      expect(planAfter.publishedBy).toBe(actor.id);
-      expect(planAfter.version).toBe(1);
+    const [planAfter] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.id, plan.id));
+    expect(planAfter.status).toBe("published");
+    expect(planAfter.publishedAt).not.toBeNull();
+    expect(planAfter.publishedBy).toBe(actor.id);
+    expect(planAfter.version).toBe(1);
 
-      const [audit] = await db
-        .select()
-        .from(auditLog)
-        .where(and(eq(auditLog.action, "roster.publish"), eq(auditLog.actorId, actor.id)));
-      expect(audit).toBeDefined();
-      expect(audit.details).toEqual({
-        planId: plan.id,
-        version: 1,
-        violationCount: 0,
-        deficitCount: 0,
-      });
-    } finally {
-      void fx;
-    }
+    const [audit] = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "roster.publish"), eq(auditLog.actorId, actor.id)));
+    expect(audit).toBeDefined();
+    expect(audit.details).toEqual({
+      planId: plan.id,
+      version: 1,
+      violationCount: 0,
+      deficitCount: 0,
+    });
   });
 });
 
@@ -840,63 +817,59 @@ describe("roster actions: setAssignment + ensureDraftVersion", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, setAssignment } = await import("./actions");
-      const { ensureDraftVersion } = await import("@/lib/roster-plan-mutations");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const { generateRoster, setAssignment } = await import("./actions");
+    const { ensureDraftVersion } = await import("@/lib/roster-plan-mutations");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
-      const [v1] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      const v1RowsBefore = await readPlanRows(v1.id);
-      await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, v1.id));
+    const [v1] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    const v1RowsBefore = await readPlanRows(v1.id);
+    await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, v1.id));
 
-      const result = await setAssignment({
-        planId: v1.id,
-        workerId: w,
-        date: MON,
-        workAreaId: area,
-        shiftDefId: shift2,
-      });
-      expect(result.ok).toBe(true);
-      expect(result.data?.violations).toEqual([]);
+    const result = await setAssignment({
+      planId: v1.id,
+      workerId: w,
+      date: MON,
+      workAreaId: area,
+      shiftDefId: shift2,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data?.violations).toEqual([]);
 
-      // v1 published row untouched: status/rows byte-identical.
-      const [v1After] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, v1.id));
-      expect(v1After.status).toBe("published");
-      expect(v1After.version).toBe(1);
-      expect(await readPlanRows(v1.id)).toEqual(v1RowsBefore);
+    // v1 published row untouched: status/rows byte-identical.
+    const [v1After] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, v1.id));
+    expect(v1After.status).toBe("published");
+    expect(v1After.version).toBe(1);
+    expect(await readPlanRows(v1.id)).toEqual(v1RowsBefore);
 
-      // v2 draft exists with the copied row showing the EDIT.
-      const [v2] = await db
-        .select()
-        .from(rosterPlan)
-        .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.status, "draft")));
-      expect(v2).toBeDefined();
-      expect(v2.version).toBe(2);
-      expect(v2.publishedAt).toBeNull();
-      expect(v2.publishedBy).toBeNull();
-      expect(await readPlanRows(v2.id)).toEqual([
-        { workerId: w, workAreaId: area, shiftDefinitionId: shift2, date: MON },
-      ]);
+    // v2 draft exists with the copied row showing the EDIT.
+    const [v2] = await db
+      .select()
+      .from(rosterPlan)
+      .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.status, "draft")));
+    expect(v2).toBeDefined();
+    expect(v2.version).toBe(2);
+    expect(v2.publishedAt).toBeNull();
+    expect(v2.publishedBy).toBeNull();
+    expect(await readPlanRows(v2.id)).toEqual([
+      { workerId: w, workAreaId: area, shiftDefinitionId: shift2, date: MON },
+    ]);
 
-      const [reviseAudit] = await db
-        .select()
-        .from(auditLog)
-        .where(and(eq(auditLog.action, "roster.revise"), eq(auditLog.actorId, actor.id)));
-      expect(reviseAudit).toBeDefined();
-      expect(reviseAudit.details).toEqual({
-        planId: v1.id,
-        newPlanId: v2.id,
-        version: 2,
-      });
+    const [reviseAudit] = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "roster.revise"), eq(auditLog.actorId, actor.id)));
+    expect(reviseAudit).toBeDefined();
+    expect(reviseAudit.details).toEqual({
+      planId: v1.id,
+      newPlanId: v2.id,
+      version: 2,
+    });
 
-      // ensureDraftVersion on the already-draft v2 returns it unchanged.
-      expect(await ensureDraftVersion(v2.id, actor.id)).toBe(v2.id);
-    } finally {
-      void fx;
-    }
+    // ensureDraftVersion on the already-draft v2 returns it unchanged.
+    expect(await ensureDraftVersion(v2.id, actor.id)).toBe(v2.id);
   });
 
   test("copy-on-edit guard: the write path refuses a plan that turned published mid-edit", async () => {
@@ -910,41 +883,37 @@ describe("roster actions: setAssignment + ensureDraftVersion", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster } = await import("./actions");
-      const { applyAssignmentEdit } = await import("@/lib/roster-plan-mutations");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const { generateRoster } = await import("./actions");
+    const { applyAssignmentEdit } = await import("@/lib/roster-plan-mutations");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
 
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      const rowsBefore = await readPlanRows(plan.id);
-      await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    const rowsBefore = await readPlanRows(plan.id);
+    await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
 
-      // Unit-drive the WRITE half with the now-published plan id — the
-      // state a publish wedged between ensureDraftVersion and the write
-      // would present.
-      const result = await applyAssignmentEdit(plan.id, {
-        planId: plan.id,
-        workerId: w,
-        date: MON,
-        workAreaId: area,
-        shiftDefId: shift1,
-      });
-      expect(result).toEqual({
-        ok: false,
-        message: "Plan was published while editing, retry",
-      });
+    // Unit-drive the WRITE half with the now-published plan id — the
+    // state a publish wedged between ensureDraftVersion and the write
+    // would present.
+    const result = await applyAssignmentEdit(plan.id, {
+      planId: plan.id,
+      workerId: w,
+      date: MON,
+      workAreaId: area,
+      shiftDefId: shift1,
+    });
+    expect(result).toEqual({
+      ok: false,
+      message: "Plan was published while editing, retry",
+    });
 
-      // Nothing landed: rows byte-identical, status untouched.
-      expect(await readPlanRows(plan.id)).toEqual(rowsBefore);
-      const [planAfter] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, plan.id));
-      expect(planAfter.status).toBe("published");
-      expect(planAfter.version).toBe(1);
-    } finally {
-      void fx;
-    }
+    // Nothing landed: rows byte-identical, status untouched.
+    expect(await readPlanRows(plan.id)).toEqual(rowsBefore);
+    const [planAfter] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, plan.id));
+    expect(planAfter.status).toBe("published");
+    expect(planAfter.version).toBe(1);
   });
 });
 
@@ -958,27 +927,23 @@ describe("roster actions: fillDailyRequest", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { fillDailyRequest } = await import("./actions");
-      const result = await fillDailyRequest({
-        requestId,
-        workAreaId: area,
-        shiftDefId: shift,
-        date: TUE,
-        positionId: randomUUID(),
-        workerId: w,
-        siteLocationId: fx.locationId,
-      });
-      expect(result).toEqual({ ok: false, message: "Publish the weekly roster first" });
+    const { fillDailyRequest } = await import("./actions");
+    const result = await fillDailyRequest({
+      requestId,
+      workAreaId: area,
+      shiftDefId: shift,
+      date: TUE,
+      positionId: randomUUID(),
+      workerId: w,
+      siteLocationId: fx.locationId,
+    });
+    expect(result).toEqual({ ok: false, message: "Publish the weekly roster first" });
 
-      const plans = await db
-        .select({ id: rosterPlan.id })
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect(plans.length).toBe(0);
-    } finally {
-      void fx;
-    }
+    const plans = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect(plans.length).toBe(0);
   });
 
   test("daily fill happy: daily plan + assignment + audit over the published week", async () => {
@@ -999,54 +964,50 @@ describe("roster actions: fillDailyRequest", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, publishRoster, fillDailyRequest } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [weeklyPlan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
+    const { generateRoster, publishRoster, fillDailyRequest } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [weeklyPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
 
-      const result = await fillDailyRequest({
-        requestId,
-        workAreaId: area,
-        shiftDefId: shift,
-        date: TUE,
-        positionId: pos,
-        workerId: w,
-        siteLocationId: fx.locationId,
-      });
-      expect(result.ok).toBe(true);
+    const result = await fillDailyRequest({
+      requestId,
+      workAreaId: area,
+      shiftDefId: shift,
+      date: TUE,
+      positionId: pos,
+      workerId: w,
+      siteLocationId: fx.locationId,
+    });
+    expect(result.ok).toBe(true);
 
-      const [dailyPlan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.kind, "daily")));
-      expect(dailyPlan).toBeDefined();
-      expect(dailyPlan.requestDate).toBe(TUE);
-      expect(dailyPlan.status).toBe("draft");
-      expect(dailyPlan.sourceRequestId).toBe(requestId);
+    const [dailyPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.kind, "daily")));
+    expect(dailyPlan).toBeDefined();
+    expect(dailyPlan.requestDate).toBe(TUE);
+    expect(dailyPlan.status).toBe("draft");
+    expect(dailyPlan.sourceRequestId).toBe(requestId);
 
-      const rows = await readPlanRows(dailyPlan.id);
-      expect(rows).toEqual([
-        { workerId: w, workAreaId: area, shiftDefinitionId: shift, date: TUE },
-      ]);
+    const rows = await readPlanRows(dailyPlan.id);
+    expect(rows).toEqual([
+      { workerId: w, workAreaId: area, shiftDefinitionId: shift, date: TUE },
+    ]);
 
-      const [audit] = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "roster.daily_request.fill"),
-            eq(auditLog.actorId, actor.id),
-          ),
-        );
-      expect(audit).toBeDefined();
-      expect(audit.details).toEqual({ requestId, workerId: w, date: TUE, positionId: pos });
-    } finally {
-      void fx;
-    }
+    const [audit] = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "roster.daily_request.fill"),
+          eq(auditLog.actorId, actor.id),
+        ),
+      );
+    expect(audit).toBeDefined();
+    expect(audit.details).toEqual({ requestId, workerId: w, date: TUE, positionId: pos });
   });
 
   test("double daily fill on the same date: friendly duplicate message", async () => {
@@ -1074,42 +1035,38 @@ describe("roster actions: fillDailyRequest", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, publishRoster, fillDailyRequest } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [weeklyPlan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
+    const { generateRoster, publishRoster, fillDailyRequest } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [weeklyPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
 
-      const input = {
-        requestId,
-        workAreaId: area,
-        shiftDefId: shift,
-        date: TUE,
-        positionId: pos,
-        workerId: w,
-        siteLocationId: fx.locationId,
-      };
-      expect((await fillDailyRequest(input)).ok).toBe(true);
+    const input = {
+      requestId,
+      workAreaId: area,
+      shiftDefId: shift,
+      date: TUE,
+      positionId: pos,
+      workerId: w,
+      siteLocationId: fx.locationId,
+    };
+    expect((await fillDailyRequest(input)).ok).toBe(true);
 
-      const second = await fillDailyRequest(input);
-      expect(second.ok).toBe(false);
-      expect(second.message).toContain("already");
-      expect(second.message).not.toBe("Something went wrong. Please try again.");
+    const second = await fillDailyRequest(input);
+    expect(second.ok).toBe(false);
+    expect(second.message).toContain("already");
+    expect(second.message).not.toBe("Something went wrong. Please try again.");
 
-      // Still exactly one daily plan and one assignment.
-      const plans = await db
-        .select({ id: rosterPlan.id })
-        .from(rosterPlan)
-        .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.kind, "daily")));
-      expect(plans.length).toBe(1);
-      const rows = await readPlanRows(plans[0].id);
-      expect(rows.length).toBe(1);
-    } finally {
-      void fx;
-    }
+    // Still exactly one daily plan and one assignment.
+    const plans = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.kind, "daily")));
+    expect(plans.length).toBe(1);
+    const rows = await readPlanRows(plans[0].id);
+    expect(rows.length).toBe(1);
   });
 
   test("fill with a position the worker does not hold: POSITION_MISMATCH, no assignment", async () => {
@@ -1132,38 +1089,34 @@ describe("roster actions: fillDailyRequest", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, publishRoster, fillDailyRequest } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [weeklyPlan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
+    const { generateRoster, publishRoster, fillDailyRequest } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [weeklyPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
 
-      const result = await fillDailyRequest({
-        requestId,
-        workAreaId: area,
-        shiftDefId: shift,
-        date: TUE,
-        positionId: otherPos,
-        workerId: w,
-        siteLocationId: fx.locationId,
-      });
-      expect(result).toEqual({
-        ok: false,
-        message: "Worker does not hold the requested position",
-      });
+    const result = await fillDailyRequest({
+      requestId,
+      workAreaId: area,
+      shiftDefId: shift,
+      date: TUE,
+      positionId: otherPos,
+      workerId: w,
+      siteLocationId: fx.locationId,
+    });
+    expect(result).toEqual({
+      ok: false,
+      message: "Worker does not hold the requested position",
+    });
 
-      // Nothing landed: no daily plan, therefore no assignment row.
-      const plans = await db
-        .select({ id: rosterPlan.id })
-        .from(rosterPlan)
-        .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.kind, "daily")));
-      expect(plans.length).toBe(0);
-    } finally {
-      void fx;
-    }
+    // Nothing landed: no daily plan, therefore no assignment row.
+    const plans = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.kind, "daily")));
+    expect(plans.length).toBe(0);
   });
 
   // Shared setup for the fulfilment pins: a published week plus an admin
@@ -1506,41 +1459,37 @@ describe("roster actions: suggestReplacementsAction", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, suggestReplacementsAction } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
+    const { generateRoster, suggestReplacementsAction } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
 
-      // Context = the published week's rows: both posA holders work TUE, so
-      // a TUE line admits nobody — empty data, still ok.
-      const empty = await suggestReplacementsAction({
-        workAreaId: area,
-        shiftDefId: shift,
-        date: TUE,
-        positionId: posA,
-      });
-      expect(empty).toEqual({ ok: true, data: [] });
+    // Context = the published week's rows: both posA holders work TUE, so
+    // a TUE line admits nobody — empty data, still ok.
+    const empty = await suggestReplacementsAction({
+      workAreaId: area,
+      shiftDefId: shift,
+      date: TUE,
+      positionId: posA,
+    });
+    expect(empty).toEqual({ ok: true, data: [] });
 
-      // MON has no rows in the published week: the posA holders are clean
-      // candidates; the posB-only worker is NOT — suggestions respect the
-      // line's requested position.
-      const fresh = (await suggestReplacementsAction({
-        workAreaId: area,
-        shiftDefId: shift,
-        date: MON,
-        positionId: posA,
-      })) as { ok: true; data: { workerId: string; employeeId: string; reason: string }[] };
-      expect(fresh.ok).toBe(true);
-      expect(fresh.data.map((c) => c.workerId).sort()).toEqual([wBusy, wFree].sort());
-      expect(fresh.data.every((c) => c.employeeId.startsWith("t-roster-emp-free-") || c.employeeId.startsWith("t-roster-emp-busy-"))).toBe(true);
-      expect(fresh.data.every((c) => typeof c.reason === "string" && c.reason.length > 0)).toBe(true);
-    } finally {
-      void fx;
-    }
+    // MON has no rows in the published week: the posA holders are clean
+    // candidates; the posB-only worker is NOT — suggestions respect the
+    // line's requested position.
+    const fresh = (await suggestReplacementsAction({
+      workAreaId: area,
+      shiftDefId: shift,
+      date: MON,
+      positionId: posA,
+    })) as { ok: true; data: { workerId: string; employeeId: string; reason: string }[] };
+    expect(fresh.ok).toBe(true);
+    expect(fresh.data.map((c) => c.workerId).sort()).toEqual([wBusy, wFree].sort());
+    expect(fresh.data.every((c) => c.employeeId.startsWith("t-roster-emp-free-") || c.employeeId.startsWith("t-roster-emp-busy-"))).toBe(true);
+    expect(fresh.data.every((c) => typeof c.reason === "string" && c.reason.length > 0)).toBe(true);
   });
 
   // A published week plus an open daily request for two heads on TUE, four
@@ -1673,22 +1622,18 @@ describe("roster actions: session scope", () => {
     actor = makeActor("ho", fx.siteId, null);
     await seedUser(actor);
 
-    try {
-      const { generateRoster } = await import("./actions");
-      const result = await generateRoster({
-        weekStart: MON,
-        siteLocationId: fx.locationId,
-      });
-      expect(result).toEqual({ ok: false, message: "Only admins generate rosters" });
+    const { generateRoster } = await import("./actions");
+    const result = await generateRoster({
+      weekStart: MON,
+      siteLocationId: fx.locationId,
+    });
+    expect(result).toEqual({ ok: false, message: "Only admins generate rosters" });
 
-      const plans = await db
-        .select({ id: rosterPlan.id })
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect(plans.length).toBe(0);
-    } finally {
-      void fx;
-    }
+    const plans = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect(plans.length).toBe(0);
   });
 
   test("ho suggestions are limited to their own site: a foreign location's pick is refused with no worker identities", async () => {
@@ -1709,52 +1654,47 @@ describe("roster actions: session scope", () => {
     actor = makeActor("admin", null, foreign.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, suggestReplacementsAction } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: foreign.locationId })).ok).toBe(true);
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, foreign.locationId));
-      await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
+    const { generateRoster, suggestReplacementsAction } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: foreign.locationId })).ok).toBe(true);
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, foreign.locationId));
+    await db.update(rosterPlan).set({ status: "published" }).where(eq(rosterPlan.id, plan.id));
 
-      // The call runs as an ho bound to the OTHER site, reaching across.
-      actor = makeActor("ho", own.siteId, null);
-      await seedUser(actor);
+    // The call runs as an ho bound to the OTHER site, reaching across.
+    actor = makeActor("ho", own.siteId, null);
+    await seedUser(actor);
 
-      const refused = await suggestReplacementsAction({
-        workAreaId: foreignArea,
-        shiftDefId: foreignShift,
-        date: TUE,
-        positionId: randomUUID(),
-        siteLocationId: foreign.locationId,
-      });
-      expect(refused).toEqual({
-        ok: false,
-        message: "Suggestions are limited to your own site",
-      });
+    const refused = await suggestReplacementsAction({
+      workAreaId: foreignArea,
+      shiftDefId: foreignShift,
+      date: TUE,
+      positionId: randomUUID(),
+      siteLocationId: foreign.locationId,
+    });
+    expect(refused).toEqual({
+      ok: false,
+      message: "Suggestions are limited to your own site",
+    });
 
-      // Positive control: the ho's own-site location answers normally
-      // (the read grant is site-scoped, not a blanket refusal).
-      const ownPos = await createPosition(own, "op");
-      const ownShift = await createShift(own, 1);
-      const ownWorker = await createWorker(own, "ow");
-      const ownArea = await createWorkArea(own, "oa");
-      await requireAreaPosition(own, ownArea, ownPos);
-      await giveWorkerPosition(own, ownWorker, ownPos);
-      const allowed = (await suggestReplacementsAction({
-        workAreaId: ownArea,
-        shiftDefId: ownShift,
-        date: TUE,
-        positionId: ownPos,
-        siteLocationId: own.locationId,
-      })) as { ok: true; data: { workerId: string }[] };
-      expect(allowed.ok).toBe(true);
-      expect(allowed.data.map((c) => c.workerId)).toEqual([ownWorker]);
-    } finally {
-      void own;
-      void foreign;
-    }
+    // Positive control: the ho's own-site location answers normally
+    // (the read grant is site-scoped, not a blanket refusal).
+    const ownPos = await createPosition(own, "op");
+    const ownShift = await createShift(own, 1);
+    const ownWorker = await createWorker(own, "ow");
+    const ownArea = await createWorkArea(own, "oa");
+    await requireAreaPosition(own, ownArea, ownPos);
+    await giveWorkerPosition(own, ownWorker, ownPos);
+    const allowed = (await suggestReplacementsAction({
+      workAreaId: ownArea,
+      shiftDefId: ownShift,
+      date: TUE,
+      positionId: ownPos,
+      siteLocationId: own.locationId,
+    })) as { ok: true; data: { workerId: string }[] };
+    expect(allowed.ok).toBe(true);
+    expect(allowed.data.map((c) => c.workerId)).toEqual([ownWorker]);
   });
 });
 
@@ -1772,54 +1712,50 @@ describe("roster actions: revisePlan (guarded revise entry)", () => {
     await seedUser(adminA);
     actor = adminA;
 
-    try {
-      const { generateRoster, publishRoster, revisePlan } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [v1] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect((await publishRoster(v1.id)).ok).toBe(true);
+    const { generateRoster, publishRoster, revisePlan } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [v1] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect((await publishRoster(v1.id)).ok).toBe(true);
 
-      // A DIFFERENT admin of the same location clicks "Revise plan".
-      const adminB = makeActor("admin", null, fx.locationId);
-      await seedUser(adminB);
-      actor = adminB;
+    // A DIFFERENT admin of the same location clicks "Revise plan".
+    const adminB = makeActor("admin", null, fx.locationId);
+    await seedUser(adminB);
+    actor = adminB;
 
-      const result = await revisePlan(v1.id);
-      expect(result.ok).toBe(true);
+    const result = await revisePlan(v1.id);
+    expect(result.ok).toBe(true);
 
-      const [clone] = await db
-        .select()
-        .from(rosterPlan)
-        .where(
-          and(
-            eq(rosterPlan.siteLocationId, fx.locationId),
-            eq(rosterPlan.status, "draft"),
-          ),
-        );
-      expect(clone.id).toBe((result as { draftPlanId: string }).draftPlanId);
-      expect(clone.version).toBe(2);
-      expect(clone.generatedBy).toBe(adminB.id);
+    const [clone] = await db
+      .select()
+      .from(rosterPlan)
+      .where(
+        and(
+          eq(rosterPlan.siteLocationId, fx.locationId),
+          eq(rosterPlan.status, "draft"),
+        ),
+      );
+    expect(clone.id).toBe((result as { draftPlanId: string }).draftPlanId);
+    expect(clone.version).toBe(2);
+    expect(clone.generatedBy).toBe(adminB.id);
 
-      const [audit] = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "roster.revise"),
-            eq(auditLog.actorId, adminB.id),
-          ),
-        );
-      expect(audit).toBeDefined();
-      expect(audit.details).toEqual({
-        planId: v1.id,
-        newPlanId: clone.id,
-        version: 2,
-      });
-    } finally {
-      void fx;
-    }
+    const [audit] = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "roster.revise"),
+          eq(auditLog.actorId, adminB.id),
+        ),
+      );
+    expect(audit).toBeDefined();
+    expect(audit.details).toEqual({
+      planId: v1.id,
+      newPlanId: clone.id,
+      version: 2,
+    });
   });
 
   test("ho revise: refused outright, nothing cloned", async () => {
@@ -1833,28 +1769,24 @@ describe("roster actions: revisePlan (guarded revise entry)", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, revisePlan } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [plan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    const { generateRoster, revisePlan } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
 
-      actor = makeActor("ho", fx.siteId, null);
-      await seedUser(actor);
+    actor = makeActor("ho", fx.siteId, null);
+    await seedUser(actor);
 
-      const result = await revisePlan(plan.id);
-      expect(result).toEqual({ ok: false, message: "Only admins revise rosters" });
+    const result = await revisePlan(plan.id);
+    expect(result).toEqual({ ok: false, message: "Only admins revise rosters" });
 
-      const plans = await db
-        .select({ id: rosterPlan.id })
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect(plans.length).toBe(1);
-    } finally {
-      void fx;
-    }
+    const plans = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect(plans.length).toBe(1);
   });
 });
 
@@ -1870,53 +1802,49 @@ describe("roster actions: revise guard (decision-7, daily fills)", () => {
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
+    const { generateRoster, revisePlan } = await import("./actions");
+    const { ensureDraftVersion, ActionAbort } = await import(
+      "@/lib/roster-plan-mutations"
+    );
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [weekly] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+
+    // A daily fill exists on the same week (TUE of the weekly plan's week).
+    await db.insert(rosterPlan).values({
+      siteId: fx.siteId,
+      siteLocationId: fx.locationId,
+      kind: "daily",
+      requestDate: TUE,
+      rulesSnapshot: {},
+    });
+
+    let aborted: unknown;
     try {
-      const { generateRoster, revisePlan } = await import("./actions");
-      const { ensureDraftVersion, ActionAbort } = await import(
-        "@/lib/roster-plan-mutations"
-      );
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [weekly] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-
-      // A daily fill exists on the same week (TUE of the weekly plan's week).
-      await db.insert(rosterPlan).values({
-        siteId: fx.siteId,
-        siteLocationId: fx.locationId,
-        kind: "daily",
-        requestDate: TUE,
-        rulesSnapshot: {},
-      });
-
-      let aborted: unknown;
-      try {
-        await ensureDraftVersion(weekly.id, actor.id);
-      } catch (err) {
-        aborted = err;
-      }
-      expect(aborted).toBeInstanceOf(ActionAbort);
-      expect((aborted as InstanceType<typeof ActionAbort>).state).toEqual({
-        ok: false,
-        message: "Daily fills exist for this week — clear them before revising",
-      });
-
-      // The guarded action surfaces the same refusal as an envelope.
-      expect(await revisePlan(weekly.id)).toEqual({
-        ok: false,
-        message: "Daily fills exist for this week — clear them before revising",
-      });
-
-      // No clone was written.
-      const plans = await db
-        .select({ id: rosterPlan.id })
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect(plans.length).toBe(2); // the weekly draft + the daily plan only
-    } finally {
-      void fx;
+      await ensureDraftVersion(weekly.id, actor.id);
+    } catch (err) {
+      aborted = err;
     }
+    expect(aborted).toBeInstanceOf(ActionAbort);
+    expect((aborted as InstanceType<typeof ActionAbort>).state).toEqual({
+      ok: false,
+      message: "Daily fills exist for this week — clear them before revising",
+    });
+
+    // The guarded action surfaces the same refusal as an envelope.
+    expect(await revisePlan(weekly.id)).toEqual({
+      ok: false,
+      message: "Daily fills exist for this week — clear them before revising",
+    });
+
+    // No clone was written.
+    const plans = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect(plans.length).toBe(2); // the weekly draft + the daily plan only
   });
 });
 
@@ -1938,63 +1866,59 @@ describe("roster actions: versioned prior history (revise-republish dedupe)", ()
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, publishRoster } = await import("./actions");
-      const { ensureDraftVersion } = await import("@/lib/roster-plan-mutations");
+    const { generateRoster, publishRoster } = await import("./actions");
+    const { ensureDraftVersion } = await import("@/lib/roster-plan-mutations");
 
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [v1] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
-      expect((await publishRoster(v1.id)).ok).toBe(true);
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [v1] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect((await publishRoster(v1.id)).ok).toBe(true);
 
-      // v2: copy-on-edit revise, then drop one row so v2 ≠ v1.
-      const v2Id = await ensureDraftVersion(v1.id, actor.id);
-      await db
-        .delete(rosterAssignment)
-        .where(and(eq(rosterAssignment.planId, v2Id), eq(rosterAssignment.workerId, w2)));
-      expect((await publishRoster(v2Id)).ok).toBe(true);
+    // v2: copy-on-edit revise, then drop one row so v2 ≠ v1.
+    const v2Id = await ensureDraftVersion(v1.id, actor.id);
+    await db
+      .delete(rosterAssignment)
+      .where(and(eq(rosterAssignment.planId, v2Id), eq(rosterAssignment.workerId, w2)));
+    expect((await publishRoster(v2Id)).ok).toBe(true);
 
-      // Both v1 and v2 of the SAME week are published now — prior history
-      // must collapse to v2 only (one row per worker-day).
-      const prior = await loadPriorAssignments(fx.locationId, NEXT_MON);
-      expect(prior).toEqual([
-        { workerId: w1, date: MON, shiftDefId: shift1, workAreaId: area },
-      ]);
+    // Both v1 and v2 of the SAME week are published now — prior history
+    // must collapse to v2 only (one row per worker-day).
+    const prior = await loadPriorAssignments(fx.locationId, NEXT_MON);
+    expect(prior).toEqual([
+      { workerId: w1, date: MON, shiftDefId: shift1, workAreaId: area },
+    ]);
 
-      // And the further week still fills (tightened C1 makes any doubled
-      // history reject every candidate — the bricked-generation symptom).
-      await tightenRule(fx, "C1", 1);
-      const requestId = await createRequest(fx, {
-        type: "weekly",
-        weekStart: NEXT_MON,
-      });
-      await addRequestLine(fx, requestId, {
-        workAreaId: area,
-        shiftDefinitionId: shift1,
-        date: NEXT_MON,
-        headcount: 1,
-        positionId: pos,
-      });
-      expect((await generateRoster({ weekStart: NEXT_MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [nextPlan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(
-          and(
-            eq(rosterPlan.siteLocationId, fx.locationId),
-            eq(rosterPlan.weekStart, NEXT_MON),
-          ),
-        );
-      expect(nextPlan).toBeDefined();
-      const nextRows = await readPlanRows(nextPlan.id);
-      expect(nextRows.length).toBe(1);
-      expect(nextRows[0].date).toBe(NEXT_MON);
-      expect(nextRows[0].workAreaId).toBe(area);
-    } finally {
-      void fx;
-    }
+    // And the further week still fills (tightened C1 makes any doubled
+    // history reject every candidate — the bricked-generation symptom).
+    await tightenRule(fx, "C1", 1);
+    const requestId = await createRequest(fx, {
+      type: "weekly",
+      weekStart: NEXT_MON,
+    });
+    await addRequestLine(fx, requestId, {
+      workAreaId: area,
+      shiftDefinitionId: shift1,
+      date: NEXT_MON,
+      headcount: 1,
+      positionId: pos,
+    });
+    expect((await generateRoster({ weekStart: NEXT_MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [nextPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(
+        and(
+          eq(rosterPlan.siteLocationId, fx.locationId),
+          eq(rosterPlan.weekStart, NEXT_MON),
+        ),
+      );
+    expect(nextPlan).toBeDefined();
+    const nextRows = await readPlanRows(nextPlan.id);
+    expect(nextRows.length).toBe(1);
+    expect(nextRows[0].date).toBe(NEXT_MON);
+    expect(nextRows[0].workAreaId).toBe(area);
   });
 });
 
@@ -2016,77 +1940,73 @@ describe("roster actions: publish gate horizon (retroactive tightening)", () => 
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
 
-    try {
-      const { generateRoster, publishRoster } = await import("./actions");
-      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [v1] = await db
-        .select()
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [v1] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
 
-      // The published week holds three worked days for w1 (legal under the
-      // default C1 = 5 at publish time).
-      for (const date of [TUE, "2026-01-07"]) {
-        await db.insert(rosterAssignment).values({
-          planId: v1.id,
-          siteId: fx.siteId,
-          siteLocationId: fx.locationId,
-          workerId: w1,
-          workAreaId: area,
-          shiftDefinitionId: shift1,
-          date,
-        });
-      }
-      expect((await publishRoster(v1.id)).ok).toBe(true);
-
-      // Retroactive tightening: C1 drops to 2 — the PUBLISHED history now
-      // violates, the plan's own world is done with it.
-      await tightenRule(fx, "C1", 2);
-
-      // A next-week plan whose own rows are clean under C1 = 2.
-      const requestId = await createRequest(fx, {
-        type: "weekly",
-        weekStart: NEXT_MON,
-      });
-      await addRequestLine(fx, requestId, {
+    // The published week holds three worked days for w1 (legal under the
+    // default C1 = 5 at publish time).
+    for (const date of [TUE, "2026-01-07"]) {
+      await db.insert(rosterAssignment).values({
+        planId: v1.id,
+        siteId: fx.siteId,
+        siteLocationId: fx.locationId,
+        workerId: w1,
         workAreaId: area,
         shiftDefinitionId: shift1,
-        date: NEXT_MON,
-        headcount: 1,
-        positionId: pos,
+        date,
       });
-      expect((await generateRoster({ weekStart: NEXT_MON, siteLocationId: fx.locationId })).ok).toBe(true);
-      const [nextPlan] = await db
-        .select()
-        .from(rosterPlan)
-        .where(
-          and(
-            eq(rosterPlan.siteLocationId, fx.locationId),
-            eq(rosterPlan.weekStart, NEXT_MON),
-          ),
-        );
-      // The generator admits w2 (only the candidate worker's own horizon
-      // gates admission); w1's prior-week excess is why the plan's own
-      // world can still be clean while the history violates the tightened
-      // rule.
-      const nextRows = await readPlanRows(nextPlan.id);
-      expect(nextRows).toEqual([
-        { workerId: w2, workAreaId: area, shiftDefinitionId: shift1, date: NEXT_MON },
-      ]);
-
-      const result = await publishRoster(nextPlan.id);
-      // Only the plan's own horizon can refuse; the prior-week excess of
-      // the tightened rule is surfaced as a warning, not a refusal.
-      expect(result.ok).toBe(true);
-      expect(result.message).toContain("Prior-plan warnings (not blocking)");
-      expect(result.message).toContain("2026-01-07");
-
-      const [after] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, nextPlan.id));
-      expect(after.status).toBe("published");
-      expect(after.publishedAt).not.toBeNull();
-    } finally {
-      void fx;
     }
+    expect((await publishRoster(v1.id)).ok).toBe(true);
+
+    // Retroactive tightening: C1 drops to 2 — the PUBLISHED history now
+    // violates, the plan's own world is done with it.
+    await tightenRule(fx, "C1", 2);
+
+    // A next-week plan whose own rows are clean under C1 = 2.
+    const requestId = await createRequest(fx, {
+      type: "weekly",
+      weekStart: NEXT_MON,
+    });
+    await addRequestLine(fx, requestId, {
+      workAreaId: area,
+      shiftDefinitionId: shift1,
+      date: NEXT_MON,
+      headcount: 1,
+      positionId: pos,
+    });
+    expect((await generateRoster({ weekStart: NEXT_MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [nextPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(
+        and(
+          eq(rosterPlan.siteLocationId, fx.locationId),
+          eq(rosterPlan.weekStart, NEXT_MON),
+        ),
+      );
+    // The generator admits w2 (only the candidate worker's own horizon
+    // gates admission); w1's prior-week excess is why the plan's own
+    // world can still be clean while the history violates the tightened
+    // rule.
+    const nextRows = await readPlanRows(nextPlan.id);
+    expect(nextRows).toEqual([
+      { workerId: w2, workAreaId: area, shiftDefinitionId: shift1, date: NEXT_MON },
+    ]);
+
+    const result = await publishRoster(nextPlan.id);
+    // Only the plan's own horizon can refuse; the prior-week excess of
+    // the tightened rule is surfaced as a warning, not a refusal.
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("Prior-plan warnings (not blocking)");
+    expect(result.message).toContain("2026-01-07");
+
+    const [after] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, nextPlan.id));
+    expect(after.status).toBe("published");
+    expect(after.publishedAt).not.toBeNull();
   });
 });
 

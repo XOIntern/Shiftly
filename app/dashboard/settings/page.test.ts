@@ -6,6 +6,11 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { rosterRuleConfig, site, siteLocation } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The settings page reads its actor through requireUser — swapped for a
 // stub so the real server component can render against the test database.
@@ -99,109 +104,107 @@ describe("settings roster rules card (issue #53)", () => {
     const locA = await seedLocation(siteA, `t6-rules-loc-a-${randomUUID().slice(0, 6)}`);
     const locB = await seedLocation(siteA, `t6-rules-loc-b-${randomUUID().slice(0, 6)}`);
     const globalId = randomUUID();
-    try {
-      // Global base row for C1; site override for C2 on the ho's own site.
-      await db.insert(rosterRuleConfig).values([
-        { id: globalId, ruleKey: "C1", intValue: 5 },
-        { id: randomUUID(), ruleKey: "C2", siteId: siteA, intValue: 18 },
-      ]);
-
-      actor = {
-        id: randomUUID(),
-        name: "T6 Rules Ho",
-        email: `t6-rules-${randomUUID()}@shiftly.test`,
-        role: "ho",
-        siteId: siteA,
-        siteLocationId: null,
-        isActive: true,
-      };
-      const props = await renderSettings();
-
-      expect(props.canEdit).toBe(true);
-      expect(props.role).toBe("ho");
-      expect(props.rows).toHaveLength(7);
-      // Every row carries a meaning and a valid source label.
-      for (const r of props.rows) {
-        expect(r.meaning.length).toBeGreaterThan(0);
-        expect(["default", "global", "site", "location"]).toContain(r.source);
-        expect(["int", "bool"]).toContain(r.kind);
-      }
-      // After the renumber the rule set is C1–C7 and C7 is the work
-      // qualification rule — the old work-area rule is gone from the table
-      // entirely. The engine check is dormant until qualification data
-      // exists, so the row carries that caveat alongside the pinned meaning.
-      expect(row(props.rows, "C7")).toEqual({
-        key: "C7",
-        meaning: "Work qualification match",
-        kind: "bool",
-        // Shared dev DB: a stray global C7 row may exist, so the effective
-        // value and source are asserted as base scopes, not pinned literals.
-        value: expect.any(Boolean),
-        source: expect.any(String),
-        note: "Dormant until worker qualifications are recorded",
-      });
-      expect(["default", "global"]).toContain(row(props.rows, "C7").source);
-      // No work-area rule survives the renumber, by meaning or by key.
-      expect(
-        props.rows.find((r) => r.meaning === "Work area match"),
-      ).toBeUndefined();
-      expect(props.rows.find((r) => r.key === "C8")).toBeUndefined();
-      // Most-specific-wins: global row wins C1, the ho's site row wins C2.
-      expect(row(props.rows, "C1")).toEqual({
-        key: "C1",
-        meaning: expect.any(String),
-        kind: "int",
-        value: 5,
-        source: "global",
-      });
-      expect(row(props.rows, "C2")).toEqual({
-        key: "C2",
-        meaning: expect.any(String),
-        kind: "int",
-        value: 18,
-        source: "site",
-      });
-      // The location dropdown is limited to the actor's own site.
-      expect(props.locations.map((l) => l.id).sort()).toEqual([locA, locB].sort());
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(rosterRuleConfig).where(eq(rosterRuleConfig.id, globalId));
       await cleanup([siteA]);
+    });
+    // Global base row for C1; site override for C2 on the ho's own site.
+    await db.insert(rosterRuleConfig).values([
+      { id: globalId, ruleKey: "C1", intValue: 5 },
+      { id: randomUUID(), ruleKey: "C2", siteId: siteA, intValue: 18 },
+    ]);
+
+    actor = {
+      id: randomUUID(),
+      name: "T6 Rules Ho",
+      email: `t6-rules-${randomUUID()}@shiftly.test`,
+      role: "ho",
+      siteId: siteA,
+      siteLocationId: null,
+      isActive: true,
+    };
+    const props = await renderSettings();
+
+    expect(props.canEdit).toBe(true);
+    expect(props.role).toBe("ho");
+    expect(props.rows).toHaveLength(7);
+    // Every row carries a meaning and a valid source label.
+    for (const r of props.rows) {
+      expect(r.meaning.length).toBeGreaterThan(0);
+      expect(["default", "global", "site", "location"]).toContain(r.source);
+      expect(["int", "bool"]).toContain(r.kind);
     }
+    // After the renumber the rule set is C1–C7 and C7 is the work
+    // qualification rule — the old work-area rule is gone from the table
+    // entirely. The engine check is dormant until qualification data
+    // exists, so the row carries that caveat alongside the pinned meaning.
+    expect(row(props.rows, "C7")).toEqual({
+      key: "C7",
+      meaning: "Work qualification match",
+      kind: "bool",
+      // Shared dev DB: a stray global C7 row may exist, so the effective
+      // value and source are asserted as base scopes, not pinned literals.
+      value: expect.any(Boolean),
+      source: expect.any(String),
+      note: "Dormant until worker qualifications are recorded",
+    });
+    expect(["default", "global"]).toContain(row(props.rows, "C7").source);
+    // No work-area rule survives the renumber, by meaning or by key.
+    expect(
+      props.rows.find((r) => r.meaning === "Work area match"),
+    ).toBeUndefined();
+    expect(props.rows.find((r) => r.key === "C8")).toBeUndefined();
+    // Most-specific-wins: global row wins C1, the ho's site row wins C2.
+    expect(row(props.rows, "C1")).toEqual({
+      key: "C1",
+      meaning: expect.any(String),
+      kind: "int",
+      value: 5,
+      source: "global",
+    });
+    expect(row(props.rows, "C2")).toEqual({
+      key: "C2",
+      meaning: expect.any(String),
+      kind: "int",
+      value: 18,
+      source: "site",
+    });
+    // The location dropdown is limited to the actor's own site.
+    expect(props.locations.map((l) => l.id).sort()).toEqual([locA, locB].sort());
   });
 
   test("admin sees effective rules read-only — no edit controls", async () => {
     const siteA = await seedSite();
     const locA = await seedLocation(siteA, `t6-rules-admin-loc-${randomUUID().slice(0, 6)}`);
-    try {
-      // Location-level override for C1 under the admin's own location.
-      await db.insert(rosterRuleConfig).values({
-        id: randomUUID(),
-        ruleKey: "C1",
-        siteId: siteA,
-        siteLocationId: locA,
-        intValue: 7,
-      });
-
-      actor = {
-        id: randomUUID(),
-        name: "T6 Rules Admin",
-        email: `t6-rules-${randomUUID()}@shiftly.test`,
-        role: "admin",
-        siteId: null,
-        siteLocationId: locA,
-        isActive: true,
-      };
-      const props = await renderSettings();
-
-      expect(props.canEdit).toBe(false);
-      expect(props.role).toBe("admin");
-      expect(props.rows).toHaveLength(7);
-      // The admin still sees real effective values — the location row wins.
-      expect(row(props.rows, "C1").value).toBe(7);
-      expect(row(props.rows, "C1").source).toBe("location");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await cleanup([siteA]);
-    }
+    });
+    // Location-level override for C1 under the admin's own location.
+    await db.insert(rosterRuleConfig).values({
+      id: randomUUID(),
+      ruleKey: "C1",
+      siteId: siteA,
+      siteLocationId: locA,
+      intValue: 7,
+    });
+
+    actor = {
+      id: randomUUID(),
+      name: "T6 Rules Admin",
+      email: `t6-rules-${randomUUID()}@shiftly.test`,
+      role: "admin",
+      siteId: null,
+      siteLocationId: locA,
+      isActive: true,
+    };
+    const props = await renderSettings();
+
+    expect(props.canEdit).toBe(false);
+    expect(props.role).toBe("admin");
+    expect(props.rows).toHaveLength(7);
+    // The admin still sees real effective values — the location row wins.
+    expect(row(props.rows, "C1").value).toBe(7);
+    expect(row(props.rows, "C1").source).toBe("location");
   });
 
   test("a null-bound ho renders defaults instead of crashing", async () => {
@@ -228,30 +231,29 @@ describe("settings roster rules card (issue #53)", () => {
   test("a superadmin renders the global base view with edit controls and every site's locations", async () => {
     const siteA = await seedSite();
     const locA = await seedLocation(siteA, `t6-rules-sa-loc-${randomUUID().slice(0, 6)}`);
-    try {
-      actor = {
-        id: randomUUID(),
-        name: "T6 Super",
-        email: `t6-rules-${randomUUID()}@shiftly.test`,
-        role: "superadmin",
-        siteId: null,
-        siteLocationId: null,
-        isActive: true,
-      };
-      const props = await renderSettings();
-
-      expect(props.canEdit).toBe(true);
-      expect(props.role).toBe("superadmin");
-      expect(props.rows).toHaveLength(7);
-      for (const r of props.rows) {
-        expect(["default", "global"]).toContain(r.source);
-      }
-      // No site of their own, but every live location is a writable target
-      // — shared dev DB, so assert presence of the fixture rather than the
-      // full list.
-      expect(props.locations.map((l) => l.id)).toContain(locA);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await cleanup([siteA]);
+    });
+    actor = {
+      id: randomUUID(),
+      name: "T6 Super",
+      email: `t6-rules-${randomUUID()}@shiftly.test`,
+      role: "superadmin",
+      siteId: null,
+      siteLocationId: null,
+      isActive: true,
+    };
+    const props = await renderSettings();
+
+    expect(props.canEdit).toBe(true);
+    expect(props.role).toBe("superadmin");
+    expect(props.rows).toHaveLength(7);
+    for (const r of props.rows) {
+      expect(["default", "global"]).toContain(r.source);
     }
+    // No site of their own, but every live location is a writable target
+    // — shared dev DB, so assert presence of the fixture rather than the
+    // full list.
+    expect(props.locations.map((l) => l.id)).toContain(locA);
   });
 });

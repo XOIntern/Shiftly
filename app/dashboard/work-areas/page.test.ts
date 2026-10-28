@@ -6,6 +6,11 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { position, site, siteLocation, workArea } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The work-areas page reads its actor through requireUser (all three roles
 // manage their own scope) — swapped for a stub so the real server component
@@ -182,113 +187,106 @@ async function renderDialogOptions(
 describe("work-areas page server queries (issue #64)", () => {
   test("admin sees only their own site_location's work areas", async () => {
     const fx = await seedWorkAreaFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locA1);
-
-      const page = await renderWorkAreas();
-      expect(page.workAreas.map((w) => w.id)).toEqual([fx.ids.waA1]);
-      expect(page.total).toBe(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locA1);
+
+    const page = await renderWorkAreas();
+    expect(page.workAreas.map((w) => w.id)).toEqual([fx.ids.waA1]);
+    expect(page.total).toBe(1);
   });
 
   test("ho sees all work areas under their site across locations, not other sites'", async () => {
     const fx = await seedWorkAreaFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      // A crafted siteId param is ignored for a ho — scope is data-level.
-      const crafted = await renderWorkAreas({ siteId: fx.ids.siteB });
-      expect(crafted.workAreas.map((w) => w.id)).toEqual([
-        fx.ids.waA1,
-        fx.ids.waA2,
-      ]);
-      expect(crafted.total).toBe(2);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    // A crafted siteId param is ignored for a ho — scope is data-level.
+    const crafted = await renderWorkAreas({ siteId: fx.ids.siteB });
+    expect(crafted.workAreas.map((w) => w.id)).toEqual([
+      fx.ids.waA1,
+      fx.ids.waA2,
+    ]);
+    expect(crafted.total).toBe(2);
   });
 
   test("superadmin siteId filter keeps only that site's work areas; junk shows all", async () => {
     const fx = await seedWorkAreaFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      // Shared dev DB: other suites' work areas may exist, so the
-      // unfiltered and junk renders assert presence, while the filtered
-      // one is exact.
-      const filtered = await renderWorkAreas({ siteId: fx.ids.siteA });
-      expect(filtered.workAreas.map((w) => w.id)).toEqual([
-        fx.ids.waA1,
-        fx.ids.waA2,
-      ]);
-      expect(filtered.total).toBe(2);
-
-      const junk = await renderWorkAreas({ siteId: "junk" as never });
-      const junkIds = junk.workAreas.map((w) => w.id);
-      expect(junkIds).toContain(fx.ids.waA1);
-      expect(junkIds).toContain(fx.ids.waA2);
-      expect(junkIds).toContain(fx.ids.waB1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    // Shared dev DB: other suites' work areas may exist, so the
+    // unfiltered and junk renders assert presence, while the filtered
+    // one is exact.
+    const filtered = await renderWorkAreas({ siteId: fx.ids.siteA });
+    expect(filtered.workAreas.map((w) => w.id)).toEqual([
+      fx.ids.waA1,
+      fx.ids.waA2,
+    ]);
+    expect(filtered.total).toBe(2);
+
+    const junk = await renderWorkAreas({ siteId: "junk" as never });
+    const junkIds = junk.workAreas.map((w) => w.id);
+    expect(junkIds).toContain(fx.ids.waA1);
+    expect(junkIds).toContain(fx.ids.waA2);
+    expect(junkIds).toContain(fx.ids.waB1);
   });
 
   test("superadmin SiteFilter receives all site options (no zero-row join)", async () => {
     const fx = await seedWorkAreaFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const page = await renderWorkAreas();
-      expect(page.showSiteFilter).toBe(true);
-      const siteIds = page.sites?.map((s) => s.id) ?? [];
-      expect(siteIds).toContain(fx.ids.siteA);
-      expect(siteIds).toContain(fx.ids.siteB);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const page = await renderWorkAreas();
+    expect(page.showSiteFilter).toBe(true);
+    const siteIds = page.sites?.map((s) => s.id) ?? [];
+    expect(siteIds).toContain(fx.ids.siteA);
+    expect(siteIds).toContain(fx.ids.siteB);
   });
 
   test("unbound admin sees nothing", async () => {
     const fx = await seedWorkAreaFixtures();
-    try {
-      actor = makeActor("admin", null, null);
-
-      const page = await renderWorkAreas();
-      expect(page.workAreas).toEqual([]);
-      expect(page.total).toBe(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, null);
+
+    const page = await renderWorkAreas();
+    expect(page.workAreas).toEqual([]);
+    expect(page.total).toBe(0);
   });
 });
 
 describe("work-areas create dialog site options", () => {
   test("a superadmin's dialog receives every site for the site-first pick", async () => {
     const fx = await seedWorkAreaFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const dialog = await renderDialogOptions();
-      const siteIds = dialog.sites?.map((s) => s.id) ?? [];
-      expect(siteIds).toContain(fx.ids.siteA);
-      expect(siteIds).toContain(fx.ids.siteB);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const dialog = await renderDialogOptions();
+    const siteIds = dialog.sites?.map((s) => s.id) ?? [];
+    expect(siteIds).toContain(fx.ids.siteA);
+    expect(siteIds).toContain(fx.ids.siteB);
   });
 
   test("a ho's dialog receives only their own site", async () => {
     const fx = await seedWorkAreaFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const dialog = await renderDialogOptions();
-      expect(dialog.sites?.map((s) => s.id)).toEqual([fx.ids.siteA]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const dialog = await renderDialogOptions();
+    expect(dialog.sites?.map((s) => s.id)).toEqual([fx.ids.siteA]);
   });
 });
 
@@ -313,48 +311,45 @@ describe("work-areas create dialog positions", () => {
   test("a superadmin's dialog receives the positions of every site", async () => {
     const fx = await seedWorkAreaFixtures();
     const pos = await seedPositions(fx);
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const dialog = await renderDialogOptions();
-      const ids = dialog.positions?.map((p) => p.id) ?? [];
-      expect(ids).toContain(pos.posA);
-      expect(ids).toContain(pos.posB);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await pos.cleanup();
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const dialog = await renderDialogOptions();
+    const ids = dialog.positions?.map((p) => p.id) ?? [];
+    expect(ids).toContain(pos.posA);
+    expect(ids).toContain(pos.posB);
   });
 
   test("a ho's dialog receives only their own site's positions", async () => {
     const fx = await seedWorkAreaFixtures();
     const pos = await seedPositions(fx);
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const dialog = await renderDialogOptions();
-      const ids = dialog.positions?.map((p) => p.id) ?? [];
-      expect(ids).toContain(pos.posA);
-      expect(ids).not.toContain(pos.posB);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await pos.cleanup();
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const dialog = await renderDialogOptions();
+    const ids = dialog.positions?.map((p) => p.id) ?? [];
+    expect(ids).toContain(pos.posA);
+    expect(ids).not.toContain(pos.posB);
   });
 
   test("an admin's dialog receives only their location's site positions", async () => {
     const fx = await seedWorkAreaFixtures();
     const pos = await seedPositions(fx);
-    try {
-      actor = makeActor("admin", null, fx.ids.locA1);
-
-      const dialog = await renderDialogOptions();
-      const ids = dialog.positions?.map((p) => p.id) ?? [];
-      expect(ids).toContain(pos.posA);
-      expect(ids).not.toContain(pos.posB);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await pos.cleanup();
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locA1);
+
+    const dialog = await renderDialogOptions();
+    const ids = dialog.positions?.map((p) => p.id) ?? [];
+    expect(ids).toContain(pos.posA);
+    expect(ids).not.toContain(pos.posB);
   });
 });

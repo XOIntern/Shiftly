@@ -18,7 +18,12 @@ mock.module("@/lib/session", () => ({
   requireHO: async () => actor,
   requireSuperadmin: async () => actor,
 }));
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 

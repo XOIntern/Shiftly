@@ -24,6 +24,11 @@ import type {
   MpRequestCreateInput,
   MpRequestLineInput,
 } from "@/validation/request-line";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The request actions resolve their actor through requireUser — swapped
 // for a stub so the real server actions read against the test database.
@@ -37,7 +42,12 @@ mock.module("@/lib/session", () => ({
   requireSuperadmin: async () => actor,
 }));
 // No Next request context under bun test — revalidation is a no-op stub.
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 
@@ -261,72 +271,7 @@ describe("request actions: createRequest", () => {
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
 
-    try {
-      const { createRequest } = await import("./actions");
-      const result = await createRequest(
-        weeklyInput({
-          // A foreign pick is ignored — the admin binding pins the location.
-          siteLocationId: fx.locB,
-          lines: [
-            {
-              workAreaId: waA1,
-              shiftDefinitionId: shiftA1,
-              positionId: posA1,
-              date: MONDAY,
-              headcount: 2,
-            },
-            {
-              workAreaId: waA1,
-              shiftDefinitionId: shiftA1,
-              positionId: posA1,
-              date: "2026-03-04",
-              headcount: 3,
-            },
-          ],
-        }),
-      );
-      expect(result.ok).toBe(true);
-
-      const [row] = await db
-        .select()
-        .from(mpRequest)
-        .where(eq(mpRequest.siteLocationId, fx.locA1));
-      expect(row).toBeDefined();
-      expect(row.siteId).toBe(fx.siteA);
-      expect(row.type).toBe("weekly");
-      expect(row.weekStart).toBe(MONDAY);
-      expect(row.requestDate).toBeNull();
-      expect(row.status).toBe("open");
-      expect(row.createdBy).toBe(actor.id);
-
-      const lines = await db
-        .select()
-        .from(mpRequestLine)
-        .where(eq(mpRequestLine.requestId, row.id));
-      expect(lines.length).toBe(2);
-      expect(lines.every((line) => line.siteId === fx.siteA)).toBe(true);
-      // Each line carries its demanded position (#135).
-      expect(lines.every((line) => line.positionId === posA1)).toBe(true);
-
-      const [audit] = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "mp_request.create"),
-            eq(auditLog.actorId, actor.id),
-          ),
-        );
-      expect(audit).toBeDefined();
-      expect(audit.actorId).toBe(actor.id);
-      expect(audit.siteId).toBe(fx.siteA);
-      expect(audit.siteLocationId).toBe(fx.locA1);
-      expect(audit.details).toEqual({
-        requestId: row.id,
-        type: "weekly",
-        lineCount: 2,
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -334,7 +279,71 @@ describe("request actions: createRequest", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { createRequest } = await import("./actions");
+    const result = await createRequest(
+      weeklyInput({
+        // A foreign pick is ignored — the admin binding pins the location.
+        siteLocationId: fx.locB,
+        lines: [
+          {
+            workAreaId: waA1,
+            shiftDefinitionId: shiftA1,
+            positionId: posA1,
+            date: MONDAY,
+            headcount: 2,
+          },
+          {
+            workAreaId: waA1,
+            shiftDefinitionId: shiftA1,
+            positionId: posA1,
+            date: "2026-03-04",
+            headcount: 3,
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+
+    const [row] = await db
+      .select()
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(row).toBeDefined();
+    expect(row.siteId).toBe(fx.siteA);
+    expect(row.type).toBe("weekly");
+    expect(row.weekStart).toBe(MONDAY);
+    expect(row.requestDate).toBeNull();
+    expect(row.status).toBe("open");
+    expect(row.createdBy).toBe(actor.id);
+
+    const lines = await db
+      .select()
+      .from(mpRequestLine)
+      .where(eq(mpRequestLine.requestId, row.id));
+    expect(lines.length).toBe(2);
+    expect(lines.every((line) => line.siteId === fx.siteA)).toBe(true);
+    // Each line carries its demanded position (#135).
+    expect(lines.every((line) => line.positionId === posA1)).toBe(true);
+
+    const [audit] = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "mp_request.create"),
+          eq(auditLog.actorId, actor.id),
+        ),
+      );
+    expect(audit).toBeDefined();
+    expect(audit.actorId).toBe(actor.id);
+    expect(audit.siteId).toBe(fx.siteA);
+    expect(audit.siteLocationId).toBe(fx.locA1);
+    expect(audit.details).toEqual({
+      requestId: row.id,
+      type: "weekly",
+      lineCount: 2,
+    });
   });
 
   test("ho create is refused: only admins enter requests", async () => {
@@ -342,22 +351,21 @@ describe("request actions: createRequest", () => {
     actor = makeActor("ho", fx.siteA, null);
     await seedUser(actor);
 
-    try {
-      const { createRequest } = await import("./actions");
-      const result = await createRequest(
-        weeklyInput({ siteLocationId: fx.locA1, lines: [] }),
-      );
-
-      expect(result).toEqual({ ok: false, message: "Only admins enter requests" });
-
-      const rows = await db
-        .select({ id: mpRequest.id })
-        .from(mpRequest)
-        .where(eq(mpRequest.siteLocationId, fx.locA1));
-      expect(rows.length).toBe(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { createRequest } = await import("./actions");
+    const result = await createRequest(
+      weeklyInput({ siteLocationId: fx.locA1, lines: [] }),
+    );
+
+    expect(result).toEqual({ ok: false, message: "Only admins enter requests" });
+
+    const rows = await db
+      .select({ id: mpRequest.id })
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(rows.length).toBe(0);
   });
 
   test("duplicate open request for the same week: friendly message", async () => {
@@ -374,34 +382,7 @@ describe("request actions: createRequest", () => {
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
 
-    try {
-      const { createRequest } = await import("./actions");
-      const input = weeklyInput({
-        lines: [
-          {
-            workAreaId: waA1,
-            shiftDefinitionId: shiftA1,
-            positionId: posA1,
-            date: MONDAY,
-            headcount: 1,
-          },
-        ],
-      });
-      expect((await createRequest(input)).ok).toBe(true);
-
-      const second = await createRequest(input);
-      expect(second.ok).toBe(false);
-      expect(second.message).toBe(
-        "An open request for this week/date already exists",
-      );
-
-      // The refusal wrote nothing: exactly one request for the week.
-      const rows = await db
-        .select({ id: mpRequest.id })
-        .from(mpRequest)
-        .where(eq(mpRequest.siteLocationId, fx.locA1));
-      expect(rows.length).toBe(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -409,7 +390,33 @@ describe("request actions: createRequest", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { createRequest } = await import("./actions");
+    const input = weeklyInput({
+      lines: [
+        {
+          workAreaId: waA1,
+          shiftDefinitionId: shiftA1,
+          positionId: posA1,
+          date: MONDAY,
+          headcount: 1,
+        },
+      ],
+    });
+    expect((await createRequest(input)).ok).toBe(true);
+
+    const second = await createRequest(input);
+    expect(second.ok).toBe(false);
+    expect(second.message).toBe(
+      "An open request for this week/date already exists",
+    );
+
+    // The refusal wrote nothing: exactly one request for the week.
+    const rows = await db
+      .select({ id: mpRequest.id })
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(rows.length).toBe(1);
   });
 
   test("line with a foreign-location work area: FK message, nothing written", async () => {
@@ -426,34 +433,7 @@ describe("request actions: createRequest", () => {
     actor = makeActor("superadmin", null, null);
     await seedUser(actor);
 
-    try {
-      const { createRequest } = await import("./actions");
-      const result = await createRequest(
-        weeklyInput({
-          siteLocationId: fx.locA1,
-          lines: [
-            {
-              workAreaId: waB,
-              shiftDefinitionId: shiftA1,
-              positionId: posB,
-              date: MONDAY,
-              headcount: 1,
-            },
-          ],
-        }),
-      );
-
-      expect(result.ok).toBe(false);
-      expect(result.message).toBe(
-        "Selected work area, shift or position must belong to this request's location",
-      );
-
-      const rows = await db
-        .select({ id: mpRequest.id })
-        .from(mpRequest)
-        .where(eq(mpRequest.siteLocationId, fx.locA1));
-      expect(rows.length).toBe(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waB],
@@ -461,7 +441,33 @@ describe("request actions: createRequest", () => {
         positionIds: [posB],
         ...fx,
       });
-    }
+    });
+    const { createRequest } = await import("./actions");
+    const result = await createRequest(
+      weeklyInput({
+        siteLocationId: fx.locA1,
+        lines: [
+          {
+            workAreaId: waB,
+            shiftDefinitionId: shiftA1,
+            positionId: posB,
+            date: MONDAY,
+            headcount: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe(
+      "Selected work area, shift or position must belong to this request's location",
+    );
+
+    const rows = await db
+      .select({ id: mpRequest.id })
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(rows.length).toBe(0);
   });
   test("line with a soft-deleted work area: refused, nothing written", async () => {
     const fx = await seedGlobalData();
@@ -483,34 +489,7 @@ describe("request actions: createRequest", () => {
     actor = makeActor("superadmin", null, null);
     await seedUser(actor);
 
-    try {
-      const { createRequest } = await import("./actions");
-      const result = await createRequest(
-        weeklyInput({
-          siteLocationId: fx.locA1,
-          lines: [
-            {
-              workAreaId: waA1,
-              shiftDefinitionId: shiftA1,
-              positionId: posA1,
-              date: MONDAY,
-              headcount: 1,
-            },
-          ],
-        }),
-      );
-
-      expect(result).toEqual({
-        ok: false,
-        message: "Selected work area, shift or position no longer exists",
-      });
-
-      const rows = await db
-        .select({ id: mpRequest.id })
-        .from(mpRequest)
-        .where(eq(mpRequest.siteLocationId, fx.locA1));
-      expect(rows.length).toBe(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -518,7 +497,33 @@ describe("request actions: createRequest", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { createRequest } = await import("./actions");
+    const result = await createRequest(
+      weeklyInput({
+        siteLocationId: fx.locA1,
+        lines: [
+          {
+            workAreaId: waA1,
+            shiftDefinitionId: shiftA1,
+            positionId: posA1,
+            date: MONDAY,
+            headcount: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Selected work area, shift or position no longer exists",
+    });
+
+    const rows = await db
+      .select({ id: mpRequest.id })
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(rows.length).toBe(0);
   });
 });
 
@@ -555,30 +560,7 @@ describe("request actions: updateRequestLines", () => {
       headcount: 1,
     });
 
-    try {
-      const { updateRequestLines } = await import("./actions");
-      const result = await updateRequestLines(requestId, [
-        {
-          workAreaId: waA1,
-          shiftDefinitionId: shiftA1,
-          positionId: posA1,
-          date: MONDAY,
-          headcount: 9,
-        },
-      ]);
-
-      expect(result).toEqual({
-        ok: false,
-        message: "Only open requests can be edited",
-      });
-
-      // The refusal wrote nothing: headcount untouched.
-      const [line] = await db
-        .select()
-        .from(mpRequestLine)
-        .where(eq(mpRequestLine.requestId, requestId));
-      expect(line.headcount).toBe(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -586,7 +568,29 @@ describe("request actions: updateRequestLines", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { updateRequestLines } = await import("./actions");
+    const result = await updateRequestLines(requestId, [
+      {
+        workAreaId: waA1,
+        shiftDefinitionId: shiftA1,
+        positionId: posA1,
+        date: MONDAY,
+        headcount: 9,
+      },
+    ]);
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Only open requests can be edited",
+    });
+
+    // The refusal wrote nothing: headcount untouched.
+    const [line] = await db
+      .select()
+      .from(mpRequestLine)
+      .where(eq(mpRequestLine.requestId, requestId));
+    expect(line.headcount).toBe(1);
   });
 
   test("inactive-preserve: keeping the line passes, re-adding the inactive shift fails", async () => {
@@ -629,57 +633,7 @@ describe("request actions: updateRequestLines", () => {
       .set({ isActive: false })
       .where(eq(shiftDefinition.id, shiftA1));
 
-    try {
-      const { updateRequestLines } = await import("./actions");
-
-      // Keeping the line unchanged survives the deactivation.
-      const keep = await updateRequestLines(requestId, [keptLine]);
-      expect(keep.ok).toBe(true);
-
-      const linesAfterKeep = await db
-        .select()
-        .from(mpRequestLine)
-        .where(eq(mpRequestLine.requestId, requestId));
-      expect(linesAfterKeep.length).toBe(1);
-      expect(linesAfterKeep[0].headcount).toBe(2);
-
-      const [updateAudit] = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "mp_request.update"),
-            eq(auditLog.actorId, actor.id),
-          ),
-        );
-      expect(updateAudit).toBeDefined();
-      expect(updateAudit.actorId).toBe(actor.id);
-      expect(updateAudit.details).toEqual({
-        requestId,
-        oldLineCount: 1,
-        newLineCount: 1,
-      });
-
-      // Re-adding the inactive shift on a NEW line is refused.
-      const reAdd = await updateRequestLines(requestId, [
-        keptLine,
-        {
-          workAreaId: waA1,
-          shiftDefinitionId: shiftA1,
-          positionId: posA1,
-          date: "2026-03-04",
-          headcount: 3,
-        },
-      ]);
-      expect(reAdd.ok).toBe(false);
-      expect(reAdd.fieldErrors?.lines).toBeDefined();
-
-      const linesAfterReAdd = await db
-        .select()
-        .from(mpRequestLine)
-        .where(eq(mpRequestLine.requestId, requestId));
-      expect(linesAfterReAdd.length).toBe(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -687,7 +641,56 @@ describe("request actions: updateRequestLines", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { updateRequestLines } = await import("./actions");
+
+    // Keeping the line unchanged survives the deactivation.
+    const keep = await updateRequestLines(requestId, [keptLine]);
+    expect(keep.ok).toBe(true);
+
+    const linesAfterKeep = await db
+      .select()
+      .from(mpRequestLine)
+      .where(eq(mpRequestLine.requestId, requestId));
+    expect(linesAfterKeep.length).toBe(1);
+    expect(linesAfterKeep[0].headcount).toBe(2);
+
+    const [updateAudit] = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "mp_request.update"),
+          eq(auditLog.actorId, actor.id),
+        ),
+      );
+    expect(updateAudit).toBeDefined();
+    expect(updateAudit.actorId).toBe(actor.id);
+    expect(updateAudit.details).toEqual({
+      requestId,
+      oldLineCount: 1,
+      newLineCount: 1,
+    });
+
+    // Re-adding the inactive shift on a NEW line is refused.
+    const reAdd = await updateRequestLines(requestId, [
+      keptLine,
+      {
+        workAreaId: waA1,
+        shiftDefinitionId: shiftA1,
+        positionId: posA1,
+        date: "2026-03-04",
+        headcount: 3,
+      },
+    ]);
+    expect(reAdd.ok).toBe(false);
+    expect(reAdd.fieldErrors?.lines).toBeDefined();
+
+    const linesAfterReAdd = await db
+      .select()
+      .from(mpRequestLine)
+      .where(eq(mpRequestLine.requestId, requestId));
+    expect(linesAfterReAdd.length).toBe(1);
   });
 
   test("a same-site position outside the area's required set: refused, nothing written", async () => {
@@ -700,33 +703,7 @@ describe("request actions: updateRequestLines", () => {
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
 
-    try {
-      const { createRequest } = await import("./actions");
-      const result = await createRequest(
-        weeklyInput({
-          lines: [
-            {
-              workAreaId: waA1,
-              shiftDefinitionId: shiftA1,
-              positionId: posA1,
-              date: MONDAY,
-              headcount: 2,
-            },
-          ],
-        }),
-      );
-
-      expect(result.ok).toBe(false);
-      expect(result.fieldErrors?.lines).toBe(
-        "Position must be a required position of the work area",
-      );
-
-      const rows = await db
-        .select({ id: mpRequest.id })
-        .from(mpRequest)
-        .where(eq(mpRequest.siteLocationId, fx.locA1));
-      expect(rows.length).toBe(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -734,7 +711,32 @@ describe("request actions: updateRequestLines", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { createRequest } = await import("./actions");
+    const result = await createRequest(
+      weeklyInput({
+        lines: [
+          {
+            workAreaId: waA1,
+            shiftDefinitionId: shiftA1,
+            positionId: posA1,
+            date: MONDAY,
+            headcount: 2,
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors?.lines).toBe(
+      "Position must be a required position of the work area",
+    );
+
+    const rows = await db
+      .select({ id: mpRequest.id })
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(rows.length).toBe(0);
   });
 
   test("a cross-site position: FK message, nothing written", async () => {
@@ -754,33 +756,7 @@ describe("request actions: updateRequestLines", () => {
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
 
-    try {
-      const { createRequest } = await import("./actions");
-      const result = await createRequest(
-        weeklyInput({
-          lines: [
-            {
-              workAreaId: waA1,
-              shiftDefinitionId: shiftA1,
-              positionId: posB,
-              date: MONDAY,
-              headcount: 1,
-            },
-          ],
-        }),
-      );
-
-      expect(result.ok).toBe(false);
-      expect(result.message).toBe(
-        "Selected work area, shift or position must belong to this request's location",
-      );
-
-      const rows = await db
-        .select({ id: mpRequest.id })
-        .from(mpRequest)
-        .where(eq(mpRequest.siteLocationId, fx.locA1));
-      expect(rows.length).toBe(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -788,7 +764,32 @@ describe("request actions: updateRequestLines", () => {
         positionIds: [posA1, posB],
         ...fx,
       });
-    }
+    });
+    const { createRequest } = await import("./actions");
+    const result = await createRequest(
+      weeklyInput({
+        lines: [
+          {
+            workAreaId: waA1,
+            shiftDefinitionId: shiftA1,
+            positionId: posB,
+            date: MONDAY,
+            headcount: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe(
+      "Selected work area, shift or position must belong to this request's location",
+    );
+
+    const rows = await db
+      .select({ id: mpRequest.id })
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(rows.length).toBe(0);
   });
 
   test("duplicate wa|shift|position|date in one submit: LINE_DUPLICATE, stored lines intact", async () => {
@@ -822,38 +823,7 @@ describe("request actions: updateRequestLines", () => {
       headcount: 1,
     });
 
-    try {
-      const { updateRequestLines } = await import("./actions");
-      const duplicate = await updateRequestLines(requestId, [
-        {
-          workAreaId: waA1,
-          shiftDefinitionId: shiftA1,
-          positionId: posA1,
-          date: MONDAY,
-          headcount: 2,
-        },
-        {
-          workAreaId: waA1,
-          shiftDefinitionId: shiftA1,
-          positionId: posA1,
-          date: MONDAY,
-          headcount: 5,
-        },
-      ]);
-
-      expect(duplicate.ok).toBe(false);
-      expect(duplicate.fieldErrors?.lines).toBe(
-        "Duplicate work area, shift, position and date combination",
-      );
-
-      // The refusal rolled back: the stored line survives untouched.
-      const lines = await db
-        .select()
-        .from(mpRequestLine)
-        .where(eq(mpRequestLine.requestId, requestId));
-      expect(lines.length).toBe(1);
-      expect(lines[0].headcount).toBe(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -861,7 +831,37 @@ describe("request actions: updateRequestLines", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { updateRequestLines } = await import("./actions");
+    const duplicate = await updateRequestLines(requestId, [
+      {
+        workAreaId: waA1,
+        shiftDefinitionId: shiftA1,
+        positionId: posA1,
+        date: MONDAY,
+        headcount: 2,
+      },
+      {
+        workAreaId: waA1,
+        shiftDefinitionId: shiftA1,
+        positionId: posA1,
+        date: MONDAY,
+        headcount: 5,
+      },
+    ]);
+
+    expect(duplicate.ok).toBe(false);
+    expect(duplicate.fieldErrors?.lines).toBe(
+      "Duplicate work area, shift, position and date combination",
+    );
+
+    // The refusal rolled back: the stored line survives untouched.
+    const lines = await db
+      .select()
+      .from(mpRequestLine)
+      .where(eq(mpRequestLine.requestId, requestId));
+    expect(lines.length).toBe(1);
+    expect(lines[0].headcount).toBe(1);
   });
 
   test("inactive-preserve for positions: keeping the line passes, re-adding the inactive position fails", async () => {
@@ -902,41 +902,7 @@ describe("request actions: updateRequestLines", () => {
     // weld does not follow deactivation).
     await db.update(position).set({ isActive: false }).where(eq(position.id, posA1));
 
-    try {
-      const { updateRequestLines } = await import("./actions");
-
-      // Keeping the stored line byte-identical survives the deactivation.
-      const keep = await updateRequestLines(requestId, [keptLine]);
-      expect(keep.ok).toBe(true);
-      const linesAfterKeep = await db
-        .select()
-        .from(mpRequestLine)
-        .where(eq(mpRequestLine.requestId, requestId));
-      expect(linesAfterKeep.length).toBe(1);
-      expect(linesAfterKeep[0].headcount).toBe(4);
-
-      // Re-adding the inactive position on a NEW date is refused.
-      const reAdd = await updateRequestLines(requestId, [
-        keptLine,
-        {
-          workAreaId: waA1,
-          shiftDefinitionId: shiftA1,
-          positionId: posA1,
-          date: "2026-03-05",
-          headcount: 2,
-        },
-      ]);
-      expect(reAdd.ok).toBe(false);
-      expect(reAdd.fieldErrors?.lines).toBe(
-        "Inactive positions can only be kept unchanged, not re-added",
-      );
-
-      const linesAfterReAdd = await db
-        .select()
-        .from(mpRequestLine)
-        .where(eq(mpRequestLine.requestId, requestId));
-      expect(linesAfterReAdd.length).toBe(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -944,7 +910,40 @@ describe("request actions: updateRequestLines", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { updateRequestLines } = await import("./actions");
+
+    // Keeping the stored line byte-identical survives the deactivation.
+    const keep = await updateRequestLines(requestId, [keptLine]);
+    expect(keep.ok).toBe(true);
+    const linesAfterKeep = await db
+      .select()
+      .from(mpRequestLine)
+      .where(eq(mpRequestLine.requestId, requestId));
+    expect(linesAfterKeep.length).toBe(1);
+    expect(linesAfterKeep[0].headcount).toBe(4);
+
+    // Re-adding the inactive position on a NEW date is refused.
+    const reAdd = await updateRequestLines(requestId, [
+      keptLine,
+      {
+        workAreaId: waA1,
+        shiftDefinitionId: shiftA1,
+        positionId: posA1,
+        date: "2026-03-05",
+        headcount: 2,
+      },
+    ]);
+    expect(reAdd.ok).toBe(false);
+    expect(reAdd.fieldErrors?.lines).toBe(
+      "Inactive positions can only be kept unchanged, not re-added",
+    );
+
+    const linesAfterReAdd = await db
+      .select()
+      .from(mpRequestLine)
+      .where(eq(mpRequestLine.requestId, requestId));
+    expect(linesAfterReAdd.length).toBe(1);
   });
 });
 
@@ -971,31 +970,30 @@ describe("request actions: advanceStatus", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "approved");
-      expect(result.ok).toBe(true);
-      expect(await statusOf(requestId)).toBe("approved");
-
-      const audits = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "mp_request.status_change"),
-            eq(auditLog.actorId, actor.id),
-          ),
-        );
-      expect(audits).toHaveLength(1);
-      expect(audits[0].details).toEqual({
-        requestId,
-        type: "weekly",
-        oldValue: "open",
-        newValue: "approved",
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id, creator.id], ...fx });
-    }
+    });
+    const { advanceStatus } = await import("./actions");
+    const result = await advanceStatus(requestId, "approved");
+    expect(result.ok).toBe(true);
+    expect(await statusOf(requestId)).toBe("approved");
+
+    const audits = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "mp_request.status_change"),
+          eq(auditLog.actorId, actor.id),
+        ),
+      );
+    expect(audits).toHaveLength(1);
+    expect(audits[0].details).toEqual({
+      requestId,
+      type: "weekly",
+      oldValue: "open",
+      newValue: "approved",
+    });
   });
 
   test("superadmin rejects an open weekly request", async () => {
@@ -1010,30 +1008,29 @@ describe("request actions: advanceStatus", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "rejected");
-      expect(result.ok).toBe(true);
-      expect(await statusOf(requestId)).toBe("rejected");
-
-      const [audit] = await db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "mp_request.status_change"),
-            eq(auditLog.actorId, actor.id),
-          ),
-        );
-      expect(audit.details).toEqual({
-        requestId,
-        type: "weekly",
-        oldValue: "open",
-        newValue: "rejected",
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { advanceStatus } = await import("./actions");
+    const result = await advanceStatus(requestId, "rejected");
+    expect(result.ok).toBe(true);
+    expect(await statusOf(requestId)).toBe("rejected");
+
+    const [audit] = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "mp_request.status_change"),
+          eq(auditLog.actorId, actor.id),
+        ),
+      );
+    expect(audit.details).toEqual({
+      requestId,
+      type: "weekly",
+      oldValue: "open",
+      newValue: "rejected",
+    });
   });
 
   test("admin of the same location is refused with the approver-only message and the row stays open", async () => {
@@ -1048,23 +1045,22 @@ describe("request actions: advanceStatus", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "approved");
-      expect(result).toEqual({
-        ok: false,
-        message: "Only HO can approve or reject requests.",
-      });
-      expect(await statusOf(requestId)).toBe("open");
-
-      const audits = await db
-        .select()
-        .from(auditLog)
-        .where(eq(auditLog.actorId, actor.id));
-      expect(audits).toHaveLength(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { advanceStatus } = await import("./actions");
+    const result = await advanceStatus(requestId, "approved");
+    expect(result).toEqual({
+      ok: false,
+      message: "Only HO can approve or reject requests.",
+    });
+    expect(await statusOf(requestId)).toBe("open");
+
+    const audits = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.actorId, actor.id));
+    expect(audits).toHaveLength(0);
   });
 
   test("approved → rejected is refused as an illegal transition", async () => {
@@ -1080,17 +1076,16 @@ describe("request actions: advanceStatus", () => {
       status: "approved",
     });
 
-    try {
-      const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "rejected");
-      expect(result).toEqual({
-        ok: false,
-        message: "That status change is not allowed",
-      });
-      expect(await statusOf(requestId)).toBe("approved");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { advanceStatus } = await import("./actions");
+    const result = await advanceStatus(requestId, "rejected");
+    expect(result).toEqual({
+      ok: false,
+      message: "That status change is not allowed",
+    });
+    expect(await statusOf(requestId)).toBe("approved");
   });
 
   test("approving a daily request is refused with the weekly-only message", async () => {
@@ -1105,17 +1100,16 @@ describe("request actions: advanceStatus", () => {
       requestDate: "2026-03-04",
     });
 
-    try {
-      const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(requestId, "approved");
-      expect(result).toEqual({
-        ok: false,
-        message: "Only weekly requests need approval.",
-      });
-      expect(await statusOf(requestId)).toBe("open");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { advanceStatus } = await import("./actions");
+    const result = await advanceStatus(requestId, "approved");
+    expect(result).toEqual({
+      ok: false,
+      message: "Only weekly requests need approval.",
+    });
+    expect(await statusOf(requestId)).toBe("open");
   });
 
   test("fulfilled is not a target status: refused at the runtime boundary", async () => {
@@ -1131,17 +1125,16 @@ describe("request actions: advanceStatus", () => {
       status: "approved",
     });
 
-    try {
-      const { advanceStatus } = await import("./actions");
-      const result = await advanceStatus(
-        requestId,
-        "fulfilled" as Parameters<typeof advanceStatus>[1],
-      );
-      expect(result.ok).toBe(false);
-      expect(await statusOf(requestId)).toBe("approved");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { advanceStatus } = await import("./actions");
+    const result = await advanceStatus(
+      requestId,
+      "fulfilled" as Parameters<typeof advanceStatus>[1],
+    );
+    expect(result.ok).toBe(false);
+    expect(await statusOf(requestId)).toBe("approved");
   });
 
   test("two concurrent approvals: exactly one ok, the other gets the race message", async () => {
@@ -1156,25 +1149,24 @@ describe("request actions: advanceStatus", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { advanceStatus } = await import("./actions");
-      const results = await Promise.all([
-        advanceStatus(requestId, "approved"),
-        advanceStatus(requestId, "approved"),
-      ]);
-      expect(results.filter((r) => r.ok)).toHaveLength(1);
-      // The loser blocks on the row lock, re-reads "approved" and is refused
-      // as an illegal edge; a loser that read before the winner committed
-      // trips the guarded write instead.
-      const loser = results.find((r) => !r.ok);
-      expect(loser?.message).toBeOneOf([
-        "Request state changed, reload",
-        "That status change is not allowed",
-      ]);
-      expect(await statusOf(requestId)).toBe("approved");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { advanceStatus } = await import("./actions");
+    const results = await Promise.all([
+      advanceStatus(requestId, "approved"),
+      advanceStatus(requestId, "approved"),
+    ]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    // The loser blocks on the row lock, re-reads "approved" and is refused
+    // as an illegal edge; a loser that read before the winner committed
+    // trips the guarded write instead.
+    const loser = results.find((r) => !r.ok);
+    expect(loser?.message).toBeOneOf([
+      "Request state changed, reload",
+      "That status change is not allowed",
+    ]);
+    expect(await statusOf(requestId)).toBe("approved");
   });
 });
 
@@ -1203,26 +1195,25 @@ describe("request actions: withdrawRequest", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { withdrawRequest } = await import("./actions");
-      const result = await withdrawRequest(requestId);
-      expect(result.ok).toBe(true);
-      expect(await statusOf(requestId)).toBe("withdrawn");
-
-      const audits = await auditsOf(actor.id);
-      expect(audits).toHaveLength(1);
-      expect(audits[0].action).toBe("mp_request.status_change");
-      expect(audits[0].siteId).toBe(fx.siteA);
-      expect(audits[0].siteLocationId).toBe(fx.locA1);
-      expect(audits[0].details).toEqual({
-        requestId,
-        type: "weekly",
-        oldValue: "open",
-        newValue: "withdrawn",
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { withdrawRequest } = await import("./actions");
+    const result = await withdrawRequest(requestId);
+    expect(result.ok).toBe(true);
+    expect(await statusOf(requestId)).toBe("withdrawn");
+
+    const audits = await auditsOf(actor.id);
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe("mp_request.status_change");
+    expect(audits[0].siteId).toBe(fx.siteA);
+    expect(audits[0].siteLocationId).toBe(fx.locA1);
+    expect(audits[0].details).toEqual({
+      requestId,
+      type: "weekly",
+      oldValue: "open",
+      newValue: "withdrawn",
+    });
   });
 
   test("admin withdraws an open daily request", async () => {
@@ -1237,22 +1228,21 @@ describe("request actions: withdrawRequest", () => {
       requestDate: "2026-03-04",
     });
 
-    try {
-      const { withdrawRequest } = await import("./actions");
-      expect((await withdrawRequest(requestId)).ok).toBe(true);
-      expect(await statusOf(requestId)).toBe("withdrawn");
-
-      const audits = await auditsOf(actor.id);
-      expect(audits).toHaveLength(1);
-      expect(audits[0].details).toEqual({
-        requestId,
-        type: "daily",
-        oldValue: "open",
-        newValue: "withdrawn",
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { withdrawRequest } = await import("./actions");
+    expect((await withdrawRequest(requestId)).ok).toBe(true);
+    expect(await statusOf(requestId)).toBe("withdrawn");
+
+    const audits = await auditsOf(actor.id);
+    expect(audits).toHaveLength(1);
+    expect(audits[0].details).toEqual({
+      requestId,
+      type: "daily",
+      oldValue: "open",
+      newValue: "withdrawn",
+    });
   });
 
   test("superadmin withdraws any open request", async () => {
@@ -1267,14 +1257,13 @@ describe("request actions: withdrawRequest", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { withdrawRequest } = await import("./actions");
-      expect((await withdrawRequest(requestId)).ok).toBe(true);
-      expect(await statusOf(requestId)).toBe("withdrawn");
-      expect(await auditsOf(actor.id)).toHaveLength(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { withdrawRequest } = await import("./actions");
+    expect((await withdrawRequest(requestId)).ok).toBe(true);
+    expect(await statusOf(requestId)).toBe("withdrawn");
+    expect(await auditsOf(actor.id)).toHaveLength(1);
   });
 
   test("HO is refused with the HO message and the row stays open (no audit row)", async () => {
@@ -1291,18 +1280,17 @@ describe("request actions: withdrawRequest", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { withdrawRequest } = await import("./actions");
-      const result = await withdrawRequest(requestId);
-      expect(result).toEqual({
-        ok: false,
-        message: "HO rejects requests instead of withdrawing them.",
-      });
-      expect(await statusOf(requestId)).toBe("open");
-      expect(await auditsOf(actor.id)).toHaveLength(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id, creator.id], ...fx });
-    }
+    });
+    const { withdrawRequest } = await import("./actions");
+    const result = await withdrawRequest(requestId);
+    expect(result).toEqual({
+      ok: false,
+      message: "HO rejects requests instead of withdrawing them.",
+    });
+    expect(await statusOf(requestId)).toBe("open");
+    expect(await auditsOf(actor.id)).toHaveLength(0);
   });
 
   test("an admin cannot withdraw another location's request (not found, row unchanged)", async () => {
@@ -1317,15 +1305,14 @@ describe("request actions: withdrawRequest", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { withdrawRequest } = await import("./actions");
-      const result = await withdrawRequest(requestId);
-      expect(result).toEqual({ ok: false, message: "Request not found." });
-      expect(await statusOf(requestId)).toBe("open");
-      expect(await auditsOf(actor.id)).toHaveLength(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
-    }
+    });
+    const { withdrawRequest } = await import("./actions");
+    const result = await withdrawRequest(requestId);
+    expect(result).toEqual({ ok: false, message: "Request not found." });
+    expect(await statusOf(requestId)).toBe("open");
+    expect(await auditsOf(actor.id)).toHaveLength(0);
   });
 
   test("a malformed id is refused with field errors", async () => {
@@ -1354,20 +1341,19 @@ describe("request actions: withdrawRequest", () => {
       });
     }
 
-    try {
-      const { withdrawRequest } = await import("./actions");
-      for (const status of statuses) {
-        const result = await withdrawRequest(ids[status]);
-        expect(result).toEqual({
-          ok: false,
-          message: "Only open requests can be withdrawn.",
-        });
-        expect(await statusOf(ids[status])).toBe(status);
-      }
-      expect(await auditsOf(actor.id)).toHaveLength(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [actor.id], ...fx });
+    });
+    const { withdrawRequest } = await import("./actions");
+    for (const status of statuses) {
+      const result = await withdrawRequest(ids[status]);
+      expect(result).toEqual({
+        ok: false,
+        message: "Only open requests can be withdrawn.",
+      });
+      expect(await statusOf(ids[status])).toBe(status);
     }
+    expect(await auditsOf(actor.id)).toHaveLength(0);
   });
 
   test("after a withdraw a new weekly request for the same location and week can be created", async () => {
@@ -1391,31 +1377,7 @@ describe("request actions: withdrawRequest", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { createRequest, withdrawRequest } = await import("./actions");
-      const input = weeklyInput({
-        lines: [
-          {
-            workAreaId: waA1,
-            shiftDefinitionId: shiftA1,
-            positionId: posA1,
-            date: MONDAY,
-            headcount: 2,
-          },
-        ],
-      });
-      // The open request holds the week's slot until it is withdrawn.
-      expect((await createRequest(input)).ok).toBe(false);
-
-      expect((await withdrawRequest(requestId)).ok).toBe(true);
-      expect((await createRequest(input)).ok).toBe(true);
-
-      const rows = await db
-        .select({ id: mpRequest.id, status: mpRequest.status })
-        .from(mpRequest)
-        .where(eq(mpRequest.siteLocationId, fx.locA1));
-      expect(rows.map((r) => r.status).sort()).toEqual(["open", "withdrawn"]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -1423,7 +1385,30 @@ describe("request actions: withdrawRequest", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { createRequest, withdrawRequest } = await import("./actions");
+    const input = weeklyInput({
+      lines: [
+        {
+          workAreaId: waA1,
+          shiftDefinitionId: shiftA1,
+          positionId: posA1,
+          date: MONDAY,
+          headcount: 2,
+        },
+      ],
+    });
+    // The open request holds the week's slot until it is withdrawn.
+    expect((await createRequest(input)).ok).toBe(false);
+
+    expect((await withdrawRequest(requestId)).ok).toBe(true);
+    expect((await createRequest(input)).ok).toBe(true);
+
+    const rows = await db
+      .select({ id: mpRequest.id, status: mpRequest.status })
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(rows.map((r) => r.status).sort()).toEqual(["open", "withdrawn"]);
   });
 
   test("a withdrawn request is absent from loadRequirementsForWeek and loadDailyRequirements", async () => {
@@ -1482,46 +1467,7 @@ describe("request actions: withdrawRequest", () => {
       });
     }
 
-    try {
-      const { loadDailyRequirements, loadRequirementsForWeek } = await import(
-        "@/lib/roster-data"
-      );
-      const { withdrawRequest } = await import("./actions");
-      // The daily request is live demand until withdrawn.
-      expect(
-        await loadDailyRequirements(fx.locA1, dailyDate, dailyDate),
-      ).toHaveLength(1);
-
-      expect((await withdrawRequest(weeklyId)).ok).toBe(true);
-      expect((await withdrawRequest(dailyId)).ok).toBe(true);
-
-      const weekALines = [
-        {
-          workAreaId: waA1,
-          shiftDefId: shiftA1,
-          positionId: posA1,
-          date: MONDAY,
-          headcount: 2,
-        },
-      ];
-      expect(await loadRequirementsForWeek(fx.locA1, weekB)).toEqual([
-        { ...weekALines[0], date: weekB },
-      ]);
-      expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual([]);
-      // The same request counted as demand under a live status, so the empty
-      // result above comes from "withdrawn" and nothing else.
-      await db
-        .update(mpRequest)
-        .set({ status: "approved" })
-        .where(eq(mpRequest.id, weeklyId));
-      expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual(weekALines);
-      await db
-        .update(mpRequest)
-        .set({ status: "withdrawn" })
-        .where(eq(mpRequest.id, weeklyId));
-      expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual([]);
-      expect(await loadDailyRequirements(fx.locA1, dailyDate, dailyDate)).toEqual([]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [waA1],
@@ -1529,7 +1475,45 @@ describe("request actions: withdrawRequest", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { loadDailyRequirements, loadRequirementsForWeek } = await import(
+      "@/lib/roster-data"
+    );
+    const { withdrawRequest } = await import("./actions");
+    // The daily request is live demand until withdrawn.
+    expect(
+      await loadDailyRequirements(fx.locA1, dailyDate, dailyDate),
+    ).toHaveLength(1);
+
+    expect((await withdrawRequest(weeklyId)).ok).toBe(true);
+    expect((await withdrawRequest(dailyId)).ok).toBe(true);
+
+    const weekALines = [
+      {
+        workAreaId: waA1,
+        shiftDefId: shiftA1,
+        positionId: posA1,
+        date: MONDAY,
+        headcount: 2,
+      },
+    ];
+    expect(await loadRequirementsForWeek(fx.locA1, weekB)).toEqual([
+      { ...weekALines[0], date: weekB },
+    ]);
+    expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual([]);
+    // The same request counted as demand under a live status, so the empty
+    // result above comes from "withdrawn" and nothing else.
+    await db
+      .update(mpRequest)
+      .set({ status: "approved" })
+      .where(eq(mpRequest.id, weeklyId));
+    expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual(weekALines);
+    await db
+      .update(mpRequest)
+      .set({ status: "withdrawn" })
+      .where(eq(mpRequest.id, weeklyId));
+    expect(await loadRequirementsForWeek(fx.locA1, MONDAY)).toEqual([]);
+    expect(await loadDailyRequirements(fx.locA1, dailyDate, dailyDate)).toEqual([]);
   });
 
   test("concurrent approve and withdraw of one open request: exactly one succeeds and the final status matches the winner", async () => {
@@ -1546,35 +1530,34 @@ describe("request actions: withdrawRequest", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { advanceStatus, withdrawRequest } = await import("./actions");
-      // Each action resolves its actor synchronously on entry, so swapping
-      // the stub between the two calls hands each its own role.
-      actor = ho;
-      const approving = advanceStatus(requestId, "approved");
-      actor = admin;
-      const withdrawing = withdrawRequest(requestId);
-      const [approveResult, withdrawResult] = await Promise.all([
-        approving,
-        withdrawing,
-      ]);
-
-      expect([approveResult.ok, withdrawResult.ok].filter(Boolean)).toHaveLength(1);
-      if (approveResult.ok) {
-        expect(await statusOf(requestId)).toBe("approved");
-        expect(withdrawResult.message).toBeOneOf([
-          "Request state changed, reload",
-          "Only open requests can be withdrawn.",
-        ]);
-      } else {
-        expect(await statusOf(requestId)).toBe("withdrawn");
-        expect(approveResult.message).toBeOneOf([
-          "Request state changed, reload",
-          "That status change is not allowed",
-        ]);
-      }
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [admin.id, ho.id], ...fx });
+    });
+    const { advanceStatus, withdrawRequest } = await import("./actions");
+    // Each action resolves its actor synchronously on entry, so swapping
+    // the stub between the two calls hands each its own role.
+    actor = ho;
+    const approving = advanceStatus(requestId, "approved");
+    actor = admin;
+    const withdrawing = withdrawRequest(requestId);
+    const [approveResult, withdrawResult] = await Promise.all([
+      approving,
+      withdrawing,
+    ]);
+
+    expect([approveResult.ok, withdrawResult.ok].filter(Boolean)).toHaveLength(1);
+    if (approveResult.ok) {
+      expect(await statusOf(requestId)).toBe("approved");
+      expect(withdrawResult.message).toBeOneOf([
+        "Request state changed, reload",
+        "Only open requests can be withdrawn.",
+      ]);
+    } else {
+      expect(await statusOf(requestId)).toBe("withdrawn");
+      expect(approveResult.message).toBeOneOf([
+        "Request state changed, reload",
+        "That status change is not allowed",
+      ]);
     }
   });
 
@@ -1590,33 +1573,32 @@ describe("request actions: withdrawRequest", () => {
       weekStart: MONDAY,
     });
 
-    try {
-      const { withdrawRequest } = await import("./actions");
-      // A double-click on the confirm button: both calls start before either
-      // resolves, and both share the actor.
-      actor = admin;
-      const first = withdrawRequest(requestId);
-      const second = withdrawRequest(requestId);
-      const results = await Promise.all([first, second]);
-
-      expect(results.filter((r) => r.ok)).toHaveLength(1);
-      const refused = results.find((r) => !r.ok);
-      expect(refused?.message).toBeOneOf([
-        "Request state changed, reload",
-        "Only open requests can be withdrawn.",
-      ]);
-      expect(await statusOf(requestId)).toBe("withdrawn");
-
-      const audits = (await auditsOf(admin.id)).filter(
-        (row) =>
-          row.action === "mp_request.status_change" &&
-          (row.details as { requestId?: string } | null)?.requestId ===
-            requestId,
-      );
-      expect(audits).toHaveLength(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({ userIds: [admin.id], ...fx });
-    }
+    });
+    const { withdrawRequest } = await import("./actions");
+    // A double-click on the confirm button: both calls start before either
+    // resolves, and both share the actor.
+    actor = admin;
+    const first = withdrawRequest(requestId);
+    const second = withdrawRequest(requestId);
+    const results = await Promise.all([first, second]);
+
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    const refused = results.find((r) => !r.ok);
+    expect(refused?.message).toBeOneOf([
+      "Request state changed, reload",
+      "Only open requests can be withdrawn.",
+    ]);
+    expect(await statusOf(requestId)).toBe("withdrawn");
+
+    const audits = (await auditsOf(admin.id)).filter(
+      (row) =>
+        row.action === "mp_request.status_change" &&
+        (row.details as { requestId?: string } | null)?.requestId ===
+          requestId,
+    );
+    expect(audits).toHaveLength(1);
   });
 
   test("a daily request withdrawn after a partial fill leaves the daily plan's assignments untouched", async () => {
@@ -1681,23 +1663,7 @@ describe("request actions: withdrawRequest", () => {
       date,
     });
 
-    try {
-      const { withdrawRequest } = await import("./actions");
-      expect((await withdrawRequest(requestId)).ok).toBe(true);
-      expect(await statusOf(requestId)).toBe("withdrawn");
-
-      const assignments = await db
-        .select()
-        .from(rosterAssignment)
-        .where(eq(rosterAssignment.planId, plan.id));
-      expect(assignments).toHaveLength(1);
-      expect(assignments[0].workerId).toBe(workerId);
-      const plans = await db
-        .select({ id: rosterPlan.id, status: rosterPlan.status })
-        .from(rosterPlan)
-        .where(eq(rosterPlan.siteLocationId, fx.locA1));
-      expect(plans).toEqual([{ id: plan.id, status: "draft" }]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(rosterAssignment).where(eq(rosterAssignment.planId, plan.id));
       await db.delete(rosterPlan).where(eq(rosterPlan.id, plan.id));
       await db.delete(worker).where(eq(worker.id, workerId));
@@ -1708,7 +1674,22 @@ describe("request actions: withdrawRequest", () => {
         positionIds: [posA1],
         ...fx,
       });
-    }
+    });
+    const { withdrawRequest } = await import("./actions");
+    expect((await withdrawRequest(requestId)).ok).toBe(true);
+    expect(await statusOf(requestId)).toBe("withdrawn");
+
+    const assignments = await db
+      .select()
+      .from(rosterAssignment)
+      .where(eq(rosterAssignment.planId, plan.id));
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0].workerId).toBe(workerId);
+    const plans = await db
+      .select({ id: rosterPlan.id, status: rosterPlan.status })
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locA1));
+    expect(plans).toEqual([{ id: plan.id, status: "draft" }]);
   });
 });
 
@@ -1772,80 +1753,80 @@ describe("request actions: loadCopySource", () => {
     await seedUser(actor);
     const otherAdmin = makeActor("admin", null, fx.locA2);
     await seedUser(otherAdmin);
-    let otherMasters: Awaited<ReturnType<typeof seedMasters>> | undefined;
+    // Filled in mid-test; the teardown below reads it when it runs.
+    const other: { masters?: Awaited<ReturnType<typeof seedMasters>> } = {};
 
-    try {
-      const { loadCopySource } = await import("./actions");
-
-      // Nothing yet.
-      expect(await loadCopySource(fx.locA1, WEEK_3)).toBeNull();
-
-      await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_1,
-        headcount: 2,
-        status: "approved",
-      });
-      await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_2,
-        headcount: 7,
-        status: "rejected",
-      });
-
-      // The newer rejected week is skipped for the older approved one.
-      const skipped = await loadCopySource(fx.locA1, WEEK_3);
-      expect(skipped?.weekStart).toBe(WEEK_1);
-      expect(skipped?.lines).toHaveLength(1);
-      expect(skipped?.lines[0]).toMatchObject({
-        workAreaId: masters.workAreaId,
-        workAreaName: `t-mp-wa-${masters.workAreaId}`,
-        shiftDefinitionId: masters.shiftId,
-        shiftLabel: `t-mp-shift-${masters.shiftId}`,
-        positionId: masters.positionId,
-        positionName: `t-mp-pos-${masters.positionId}`,
-        date: WEEK_1,
-        headcount: 2,
-      });
-
-      // An open later week wins; only weeks strictly before the anchor count.
-      await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_3,
-        headcount: 9,
-        status: "open",
-      });
-      const latest = await loadCopySource(fx.locA1, "2026-02-23");
-      expect(latest?.weekStart).toBe(WEEK_3);
-      expect(latest?.lines[0].headcount).toBe(9);
-      expect((await loadCopySource(fx.locA1, WEEK_3))?.weekStart).toBe(WEEK_1);
-      expect(await loadCopySource(fx.locA1, WEEK_1)).toBeNull();
-
-      // Another location's request never leaks to an admin.
-      const mastersA2 = await seedMasters(fx, fx.locA2);
-      otherMasters = mastersA2;
-      await seedWeek(fx, mastersA2, {
-        createdBy: otherAdmin.id,
-        weekStart: WEEK_2,
-        headcount: 4,
-        status: "approved",
-        siteLocationId: fx.locA2,
-      });
-      expect(await loadCopySource(fx.locA2, "2026-03-02")).toBeNull();
-      expect((await loadCopySource(fx.locA1, "2026-03-02"))?.weekStart).toBe(WEEK_3);
-
-      // Malformed input fails closed.
-      expect(await loadCopySource("not-a-uuid", WEEK_3)).toBeNull();
-      expect(await loadCopySource(fx.locA1, "soon")).toBeNull();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id, otherAdmin.id],
-        workAreaIds: [masters.workAreaId, ...(otherMasters ? [otherMasters.workAreaId] : [])],
-        shiftIds: [masters.shiftId, ...(otherMasters ? [otherMasters.shiftId] : [])],
-        positionIds: [masters.positionId, ...(otherMasters ? [otherMasters.positionId] : [])],
+        workAreaIds: [masters.workAreaId, ...(other.masters ? [other.masters.workAreaId] : [])],
+        shiftIds: [masters.shiftId, ...(other.masters ? [other.masters.shiftId] : [])],
+        positionIds: [masters.positionId, ...(other.masters ? [other.masters.positionId] : [])],
         ...fx,
       });
-    }
+    });
+    const { loadCopySource } = await import("./actions");
+
+    // Nothing yet.
+    expect(await loadCopySource(fx.locA1, WEEK_3)).toBeNull();
+
+    await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_1,
+      headcount: 2,
+      status: "approved",
+    });
+    await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_2,
+      headcount: 7,
+      status: "rejected",
+    });
+
+    // The newer rejected week is skipped for the older approved one.
+    const skipped = await loadCopySource(fx.locA1, WEEK_3);
+    expect(skipped?.weekStart).toBe(WEEK_1);
+    expect(skipped?.lines).toHaveLength(1);
+    expect(skipped?.lines[0]).toMatchObject({
+      workAreaId: masters.workAreaId,
+      workAreaName: `t-mp-wa-${masters.workAreaId}`,
+      shiftDefinitionId: masters.shiftId,
+      shiftLabel: `t-mp-shift-${masters.shiftId}`,
+      positionId: masters.positionId,
+      positionName: `t-mp-pos-${masters.positionId}`,
+      date: WEEK_1,
+      headcount: 2,
+    });
+
+    // An open later week wins; only weeks strictly before the anchor count.
+    await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_3,
+      headcount: 9,
+      status: "open",
+    });
+    const latest = await loadCopySource(fx.locA1, "2026-02-23");
+    expect(latest?.weekStart).toBe(WEEK_3);
+    expect(latest?.lines[0].headcount).toBe(9);
+    expect((await loadCopySource(fx.locA1, WEEK_3))?.weekStart).toBe(WEEK_1);
+    expect(await loadCopySource(fx.locA1, WEEK_1)).toBeNull();
+
+    // Another location's request never leaks to an admin.
+    const mastersA2 = await seedMasters(fx, fx.locA2);
+    other.masters = mastersA2;
+    await seedWeek(fx, mastersA2, {
+      createdBy: otherAdmin.id,
+      weekStart: WEEK_2,
+      headcount: 4,
+      status: "approved",
+      siteLocationId: fx.locA2,
+    });
+    expect(await loadCopySource(fx.locA2, "2026-03-02")).toBeNull();
+    expect((await loadCopySource(fx.locA1, "2026-03-02"))?.weekStart).toBe(WEEK_3);
+
+    // Malformed input fails closed.
+    expect(await loadCopySource("not-a-uuid", WEEK_3)).toBeNull();
+    expect(await loadCopySource(fx.locA1, "soon")).toBeNull();
   });
 
   test("withdrawn requests are left out of the copy source: a withdrawn-only week is skipped for the next earlier week, and a week mixing fulfilled and withdrawn copies only the fulfilled lines", async () => {
@@ -1854,38 +1835,7 @@ describe("request actions: loadCopySource", () => {
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
 
-    try {
-      const { loadCopySource } = await import("./actions");
-
-      await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_1,
-        headcount: 2,
-        status: "fulfilled",
-      });
-      await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_1,
-        headcount: 6,
-        status: "withdrawn",
-      });
-      await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_2,
-        headcount: 9,
-        status: "withdrawn",
-      });
-
-      const source = await loadCopySource(fx.locA1, WEEK_3);
-      expect(source?.weekStart).toBe(WEEK_1);
-      expect(source?.lines).toHaveLength(1);
-      expect(source?.lines[0]).toMatchObject({ date: WEEK_1, headcount: 2 });
-
-      // Only the week-1 requests precede week 2, and week 1 holds no
-      // withdrawn lines in its source; nothing precedes week 1.
-      expect((await loadCopySource(fx.locA1, WEEK_2))?.lines).toHaveLength(1);
-      expect(await loadCopySource(fx.locA1, WEEK_1)).toBeNull();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [masters.workAreaId],
@@ -1893,7 +1843,37 @@ describe("request actions: loadCopySource", () => {
         positionIds: [masters.positionId],
         ...fx,
       });
-    }
+    });
+    const { loadCopySource } = await import("./actions");
+
+    await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_1,
+      headcount: 2,
+      status: "fulfilled",
+    });
+    await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_1,
+      headcount: 6,
+      status: "withdrawn",
+    });
+    await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_2,
+      headcount: 9,
+      status: "withdrawn",
+    });
+
+    const source = await loadCopySource(fx.locA1, WEEK_3);
+    expect(source?.weekStart).toBe(WEEK_1);
+    expect(source?.lines).toHaveLength(1);
+    expect(source?.lines[0]).toMatchObject({ date: WEEK_1, headcount: 2 });
+
+    // Only the week-1 requests precede week 2, and week 1 holds no
+    // withdrawn lines in its source; nothing precedes week 1.
+    expect((await loadCopySource(fx.locA1, WEEK_2))?.lines).toHaveLength(1);
+    expect(await loadCopySource(fx.locA1, WEEK_1)).toBeNull();
   });
 
   test("merges every open, approved or fulfilled request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
@@ -1903,59 +1883,7 @@ describe("request actions: loadCopySource", () => {
     await seedUser(actor);
     const TUESDAY = "2026-02-03";
 
-    try {
-      const { loadCopySource } = await import("./actions");
-      const line = (requestId: string, date: string, headcount: number) =>
-        seedLine({
-          requestId,
-          siteId: fx.siteA,
-          siteLocationId: fx.locA1,
-          workAreaId: masters.workAreaId,
-          shiftDefinitionId: masters.shiftId,
-          positionId: masters.positionId,
-          date,
-          headcount,
-        });
-
-      // Seeded late-first so insertion order cannot decide the answer.
-      const late = await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_1,
-        headcount: 1,
-        status: "approved",
-      });
-      await line(late, TUESDAY, 3);
-      const rejected = await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_1,
-        headcount: 5,
-        status: "rejected",
-      });
-      await line(rejected, TUESDAY, 5);
-      await seedWeek(fx, masters, {
-        createdBy: actor.id,
-        weekStart: WEEK_1,
-        headcount: 2,
-        status: "fulfilled",
-      });
-
-      const source = await loadCopySource(fx.locA1, WEEK_2);
-      const shared = {
-        workAreaId: masters.workAreaId,
-        workAreaName: `t-mp-wa-${masters.workAreaId}`,
-        shiftDefinitionId: masters.shiftId,
-        shiftLabel: `t-mp-shift-${masters.shiftId}`,
-        positionId: masters.positionId,
-        positionName: `t-mp-pos-${masters.positionId}`,
-      };
-      expect(source).toEqual({
-        weekStart: WEEK_1,
-        lines: [
-          { ...shared, date: WEEK_1, headcount: 3 },
-          { ...shared, date: TUESDAY, headcount: 3 },
-        ],
-      });
-    } finally {
+    fixtureCleanup.defer(async () => {
       await dropAll({
         userIds: [actor.id],
         workAreaIds: [masters.workAreaId],
@@ -1963,6 +1891,57 @@ describe("request actions: loadCopySource", () => {
         positionIds: [masters.positionId],
         ...fx,
       });
-    }
+    });
+    const { loadCopySource } = await import("./actions");
+    const line = (requestId: string, date: string, headcount: number) =>
+      seedLine({
+        requestId,
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
+        workAreaId: masters.workAreaId,
+        shiftDefinitionId: masters.shiftId,
+        positionId: masters.positionId,
+        date,
+        headcount,
+      });
+
+    // Seeded late-first so insertion order cannot decide the answer.
+    const late = await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_1,
+      headcount: 1,
+      status: "approved",
+    });
+    await line(late, TUESDAY, 3);
+    const rejected = await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_1,
+      headcount: 5,
+      status: "rejected",
+    });
+    await line(rejected, TUESDAY, 5);
+    await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_1,
+      headcount: 2,
+      status: "fulfilled",
+    });
+
+    const source = await loadCopySource(fx.locA1, WEEK_2);
+    const shared = {
+      workAreaId: masters.workAreaId,
+      workAreaName: `t-mp-wa-${masters.workAreaId}`,
+      shiftDefinitionId: masters.shiftId,
+      shiftLabel: `t-mp-shift-${masters.shiftId}`,
+      positionId: masters.positionId,
+      positionName: `t-mp-pos-${masters.positionId}`,
+    };
+    expect(source).toEqual({
+      weekStart: WEEK_1,
+      lines: [
+        { ...shared, date: WEEK_1, headcount: 3 },
+        { ...shared, date: TUESDAY, headcount: 3 },
+      ],
+    });
   });
 });

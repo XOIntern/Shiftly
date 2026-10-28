@@ -7,6 +7,11 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { site, siteLocation, shiftDefinition } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The shifts page reads its actor through requireUser (all three roles see
 // the page; scope differs per role) — swapped for a stub so the real server
@@ -25,7 +30,9 @@ mock.module("@/lib/session", () => ({
 // StatusFilter) that read navigation hooks; no Next request context exists
 // under bun test, so next/navigation is stubbed. The dialog module's
 // "use server" imports pull next/cache at module scope — stubbed the same way.
+const realNavigation = { ...(await import("next/navigation")) };
 mock.module("next/navigation", () => ({
+  ...realNavigation,
   redirect: () => {
     throw new Error("redirect");
   },
@@ -39,7 +46,12 @@ mock.module("next/navigation", () => ({
   usePathname: () => "/dashboard/shifts",
   useSearchParams: () => new URLSearchParams(),
 }));
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 
@@ -146,49 +158,46 @@ function makeActor(
 describe("shifts page SSR (mp-requests Task 4)", () => {
   test("renders the Shifts heading and an ho's own-site rows with the manage UI", async () => {
     const fx = await seedShiftFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const html = await renderShifts();
-      expect(html.includes("Shifts")).toBeTrue();
-      expect(html.includes(fx.labels.shA1)).toBeTrue();
-      expect(html.includes(fx.labels.shA2)).toBeTrue();
-      expect(html.includes(fx.labels.shB1)).toBeFalse();
-      expect(html.includes("Add shift")).toBeTrue();
-      expect(html.includes(`Actions for ${fx.labels.shA1}`)).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const html = await renderShifts();
+    expect(html.includes("Shifts")).toBeTrue();
+    expect(html.includes(fx.labels.shA1)).toBeTrue();
+    expect(html.includes(fx.labels.shA2)).toBeTrue();
+    expect(html.includes(fx.labels.shB1)).toBeFalse();
+    expect(html.includes("Add shift")).toBeTrue();
+    expect(html.includes(`Actions for ${fx.labels.shA1}`)).toBeTrue();
   });
 
   test("admin sees only their own location's shifts and the create button", async () => {
     const fx = await seedShiftFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locA1);
-
-      const html = await renderShifts();
-      expect(html.includes(fx.labels.shA1)).toBeTrue();
-      expect(html.includes(fx.labels.shA2)).toBeFalse();
-      expect(html.includes(fx.labels.shB1)).toBeFalse();
-      expect(html.includes("Add shift")).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locA1);
+
+    const html = await renderShifts();
+    expect(html.includes(fx.labels.shA1)).toBeTrue();
+    expect(html.includes(fx.labels.shA2)).toBeFalse();
+    expect(html.includes(fx.labels.shB1)).toBeFalse();
+    expect(html.includes("Add shift")).toBeTrue();
   });
 
   test("superadmin sees every site's shifts", async () => {
     const fx = await seedShiftFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const html = await renderShifts();
-      expect(html.includes(fx.labels.shA1)).toBeTrue();
-      expect(html.includes(fx.labels.shA2)).toBeTrue();
-      expect(html.includes(fx.labels.shB1)).toBeTrue();
-      expect(html.includes("Add shift")).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const html = await renderShifts();
+    expect(html.includes(fx.labels.shA1)).toBeTrue();
+    expect(html.includes(fx.labels.shA2)).toBeTrue();
+    expect(html.includes(fx.labels.shB1)).toBeTrue();
+    expect(html.includes("Add shift")).toBeTrue();
   });
 
   test("an unbound admin's empty scope shows the first-shift empty state", async () => {

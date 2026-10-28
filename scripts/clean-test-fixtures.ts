@@ -28,10 +28,10 @@ const {
 // Matching is exact: a known test prefix AND a random uuid suffix (never an
 // e-mail domain), so hand-made rows that merely look similar are left alone.
 //
-// Out of scope: the `t-mp-*` (requests/actions.test.ts) and
-// `t-roster-t4-dd-*` fixture graphs. Their users own requests, plans and
-// workers, so removing them means deleting operational rows, not just
-// fixture identities; this script does not match them.
+// The `t-mp-*` sites and actors of requests/actions.test.ts are matched too.
+// Their graphs can own requests, plans and workers: those references block
+// the row like any other, so a graph that still holds operational rows is
+// listed as BLOCKED and skipped, never cascaded away.
 //
 // The database URL is validated before any connection is made: a missing,
 // unparseable or unexpanded (`${...}`) DATABASE_URL exits 1, because the pg
@@ -41,14 +41,21 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
 export const FIXTURE_PATTERNS = {
   // locations/bulk.test.ts: the foreign site of the deleteBulk test.
-  siteName: [new RegExp(`^t4-loc-fs-${UUID}$`)],
-  // lib/auth-rbac-guard.test.ts actors.
-  userEmail: [new RegExp(`^auth-guard-${UUID}@shiftly\\.test$`)],
+  // requests/actions.test.ts: the two sites of its standard fixture.
+  siteName: [
+    new RegExp(`^t4-loc-fs-${UUID}$`),
+    new RegExp(`^t-mp-s-[ab]-${UUID}$`),
+  ],
+  // lib/auth-rbac-guard.test.ts actors, requests/actions.test.ts actors.
+  userEmail: [
+    new RegExp(`^auth-guard-${UUID}@shiftly\\.test$`),
+    new RegExp(`^t-mp-act-${UUID}@shiftly\\.test$`),
+  ],
 } as const;
 
 // SQL LIKE prefilters; the regexes above make the final call.
-const SITE_PREFIXES = ["t4-loc-fs-%"];
-const USER_EMAIL_PREFIXES = ["auth-guard-%"];
+const SITE_PREFIXES = ["t4-loc-fs-%", "t-mp-s-%"];
+const USER_EMAIL_PREFIXES = ["auth-guard-%", "t-mp-act-%"];
 
 // Every ON DELETE RESTRICT foreign key into site, site_location or user, by
 // constraint name (drizzle/schema). Each one is checked below; the db test
@@ -72,6 +79,15 @@ export const CHECKED_RESTRICT_FKS = [
   "user_site_location_id_site_location_id_fk",
   "work_area_site_location_site_fk",
   "worker_site_location_site_fk",
+] as const;
+
+// The foreign keys into site, site_location or user that cascade on purpose:
+// a user's own credentials and sessions. The db test compares the live
+// catalog with this list and CHECKED_RESTRICT_FKS, so a new FK of any delete
+// rule (a CASCADE here could delete operational rows) is caught.
+export const CASCADING_FKS = [
+  "account_user_id_user_id_fk",
+  "session_user_id_user_id_fk",
 ] as const;
 
 export function isFixtureSiteName(name: string): boolean {
@@ -106,7 +122,32 @@ export function describeDatabaseUrl(url: string | undefined): UrlCheck {
   if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
     return { ok: false, error: "DATABASE_URL is not a postgres URL" };
   }
-  const name = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+  // pg lets these query parameters override the host, port or database of the
+  // URL itself (`?host=` even switches to a unix socket), so the target
+  // printed below would no longer be the one it connects to.
+  const overrides = ["host", "hostaddr", "port", "dbname", "db", "database"];
+  for (const key of parsed.searchParams.keys()) {
+    if (overrides.includes(key.toLowerCase())) {
+      return {
+        ok: false,
+        error: `DATABASE_URL has a "${key}" query parameter that overrides the target it would print`,
+      };
+    }
+  }
+  // The database name is decoded the way pg decodes it; credentials are
+  // decoded too, so a malformed escape is refused here rather than thrown by
+  // the driver with a stack trace.
+  let name: string;
+  try {
+    name = decodeURI(parsed.pathname.replace(/^\//, ""));
+    decodeURIComponent(parsed.username);
+    decodeURIComponent(parsed.password);
+  } catch {
+    return {
+      ok: false,
+      error: "DATABASE_URL has a malformed percent-encoding",
+    };
+  }
   if (!parsed.hostname || !name) {
     return { ok: false, error: "DATABASE_URL lacks a host or database name" };
   }

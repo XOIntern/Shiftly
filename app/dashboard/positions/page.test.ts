@@ -6,6 +6,11 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { position, site, siteLocation } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The positions page reads its actor through requireUser (all three roles
 // manage their own scope) — swapped for a stub so the real server component
@@ -128,131 +133,123 @@ function makeActor(
 describe("positions page server queries", () => {
   test("admin sees only positions under their binding's site", async () => {
     const fx = await seedPositionFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locA1);
-
-      const page = await renderPositions();
-      expect(page.positions.map((p) => p.id)).toEqual([
-        fx.ids.posA1,
-        fx.ids.posA2,
-      ]);
-      expect(page.total).toBe(2);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locA1);
+
+    const page = await renderPositions();
+    expect(page.positions.map((p) => p.id)).toEqual([
+      fx.ids.posA1,
+      fx.ids.posA2,
+    ]);
+    expect(page.total).toBe(2);
   });
 
   test("ho sees all positions under their site, not other sites'", async () => {
     const fx = await seedPositionFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      // A crafted siteId param is ignored for a ho — scope is data-level.
-      const crafted = await renderPositions({ siteId: fx.ids.siteB });
-      expect(crafted.positions.map((p) => p.id)).toEqual([
-        fx.ids.posA1,
-        fx.ids.posA2,
-      ]);
-      expect(crafted.total).toBe(2);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    // A crafted siteId param is ignored for a ho — scope is data-level.
+    const crafted = await renderPositions({ siteId: fx.ids.siteB });
+    expect(crafted.positions.map((p) => p.id)).toEqual([
+      fx.ids.posA1,
+      fx.ids.posA2,
+    ]);
+    expect(crafted.total).toBe(2);
   });
 
   test("superadmin siteId filter keeps only that site's positions; junk shows all", async () => {
     const fx = await seedPositionFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      // Shared dev DB: other suites' positions may exist, so the
-      // unfiltered and junk renders assert presence, while the filtered
-      // one is exact.
-      const filtered = await renderPositions({ siteId: fx.ids.siteA });
-      expect(filtered.positions.map((p) => p.id)).toEqual([
-        fx.ids.posA1,
-        fx.ids.posA2,
-      ]);
-      expect(filtered.total).toBe(2);
-
-      const junk = await renderPositions({ siteId: "junk" as never });
-      const junkIds = junk.positions.map((p) => p.id);
-      expect(junkIds).toContain(fx.ids.posA1);
-      expect(junkIds).toContain(fx.ids.posA2);
-      expect(junkIds).toContain(fx.ids.posB1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    // Shared dev DB: other suites' positions may exist, so the
+    // unfiltered and junk renders assert presence, while the filtered
+    // one is exact.
+    const filtered = await renderPositions({ siteId: fx.ids.siteA });
+    expect(filtered.positions.map((p) => p.id)).toEqual([
+      fx.ids.posA1,
+      fx.ids.posA2,
+    ]);
+    expect(filtered.total).toBe(2);
+
+    const junk = await renderPositions({ siteId: "junk" as never });
+    const junkIds = junk.positions.map((p) => p.id);
+    expect(junkIds).toContain(fx.ids.posA1);
+    expect(junkIds).toContain(fx.ids.posA2);
+    expect(junkIds).toContain(fx.ids.posB1);
   });
 
   test("superadmin SiteFilter receives all site options (no zero-row join)", async () => {
     const fx = await seedPositionFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const page = await renderPositions();
-      expect(page.showSiteFilter).toBe(true);
-      const siteIds = page.sites?.map((s) => s.id) ?? [];
-      expect(siteIds).toContain(fx.ids.siteA);
-      expect(siteIds).toContain(fx.ids.siteB);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const page = await renderPositions();
+    expect(page.showSiteFilter).toBe(true);
+    const siteIds = page.sites?.map((s) => s.id) ?? [];
+    expect(siteIds).toContain(fx.ids.siteA);
+    expect(siteIds).toContain(fx.ids.siteB);
   });
 
   test("pickers exclude positions under a soft-deleted site", async () => {
     const fx = await seedPositionFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const page = await renderPositions({ pageSize: "50" });
-      const positionIds = page.positions.map((p) => p.id);
-      // Shared dev DB: other suites' live positions may exist, so assert
-      // presence rather than an exact array.
-      expect(positionIds).toContain(fx.ids.posA1);
-      expect(positionIds).not.toContain(fx.ids.posC1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const page = await renderPositions({ pageSize: "50" });
+    const positionIds = page.positions.map((p) => p.id);
+    // Shared dev DB: other suites' live positions may exist, so assert
+    // presence rather than an exact array.
+    expect(positionIds).toContain(fx.ids.posA1);
+    expect(positionIds).not.toContain(fx.ids.posC1);
   });
 
   test("unbound admin sees nothing", async () => {
     const fx = await seedPositionFixtures();
-    try {
-      actor = makeActor("admin", null, null);
-
-      const page = await renderPositions();
-      expect(page.positions).toEqual([]);
-      expect(page.total).toBe(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, null);
+
+    const page = await renderPositions();
+    expect(page.positions).toEqual([]);
+    expect(page.total).toBe(0);
   });
 });
 
 describe("positions create dialog site options", () => {
   test("a superadmin's dialog receives every site for the site pick", async () => {
     const fx = await seedPositionFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const page = await renderPositions();
-      const siteIds = page.sites?.map((s) => s.id) ?? [];
-      expect(siteIds).toContain(fx.ids.siteA);
-      expect(siteIds).toContain(fx.ids.siteB);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const page = await renderPositions();
+    const siteIds = page.sites?.map((s) => s.id) ?? [];
+    expect(siteIds).toContain(fx.ids.siteA);
+    expect(siteIds).toContain(fx.ids.siteB);
   });
 
   test("a ho's dialog receives only their own site", async () => {
     const fx = await seedPositionFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const page = await renderPositions();
-      expect(page.sites?.map((s) => s.id)).toEqual([fx.ids.siteA]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const page = await renderPositions();
+    expect(page.sites?.map((s) => s.id)).toEqual([fx.ids.siteA]);
   });
 });

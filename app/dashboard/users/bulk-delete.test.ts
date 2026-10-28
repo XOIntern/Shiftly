@@ -6,6 +6,11 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { site, siteLocation, user } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // Same stub set as bulk-active.test.ts: the session module swaps wholesale,
 // revalidation is a no-op, and session wipes are recorded instead of written.
@@ -17,7 +22,12 @@ mock.module("@/lib/session", () => ({
   requireHO: async () => actor,
   requireSuperadmin: async () => actor,
 }));
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 // mock.module is process-wide and patches the loaded module in place: the
@@ -63,73 +73,7 @@ describe("deleteUserBulk (bulk soft delete)", () => {
     const hoForeign = randomUUID();
 
     const mkEmail = (id: string) => `bdusers-${id}@shiftly.test`;
-    try {
-      await db.insert(site).values([
-        { id: siteA, name: `bdusers-site-a-${siteA}` },
-        { id: siteB, name: `bdusers-site-b-${siteB}` },
-      ]);
-      await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "BDUsers Bulk Loc A" },
-        { id: locB, siteId: siteB, name: "BDUsers Bulk Loc B" },
-      ]);
-      await db.insert(user).values([
-        {
-          id: hoActor,
-          name: "BDUsers Actor HO",
-          email: mkEmail(hoActor),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteA,
-        },
-        {
-          id: hoForeign,
-          name: "BDUsers Foreign HO",
-          email: mkEmail(hoForeign),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteB,
-        },
-        {
-          id: adminA,
-          name: "BDUsers Admin A",
-          email: mkEmail(adminA),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locA,
-        },
-        {
-          id: adminB,
-          name: "BDUsers Admin B",
-          email: mkEmail(adminB),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locB,
-        },
-      ]);
-
-      actor = {
-        id: hoActor,
-        name: "BDUsers Actor HO",
-        email: mkEmail(hoActor),
-        role: "ho",
-        siteId: siteA,
-        siteLocationId: null,
-        isActive: true,
-      };
-
-      const { deleteUserBulk } = await import("./actions");
-      const result = await deleteUserBulk([adminA, adminB, hoActor, hoForeign]);
-
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(1);
-      expect(await isDeleted(adminA)).toBe(true);
-      expect(await isDeleted(adminB)).toBe(false);
-      expect(await isDeleted(hoForeign)).toBe(false);
-      expect(await isDeleted(hoActor)).toBe(false);
-
-      // Sessions wiped for the deleted row only.
-      expect(sessionWipes).toEqual([adminA]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(user).where(eq(user.id, hoActor));
       await db.delete(user).where(eq(user.id, hoForeign));
       await db.delete(user).where(eq(user.id, adminA));
@@ -138,7 +82,72 @@ describe("deleteUserBulk (bulk soft delete)", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, locB));
       await db.delete(site).where(eq(site.id, siteA));
       await db.delete(site).where(eq(site.id, siteB));
-    }
+    });
+    await db.insert(site).values([
+      { id: siteA, name: `bdusers-site-a-${siteA}` },
+      { id: siteB, name: `bdusers-site-b-${siteB}` },
+    ]);
+    await db.insert(siteLocation).values([
+      { id: locA, siteId: siteA, name: "BDUsers Bulk Loc A" },
+      { id: locB, siteId: siteB, name: "BDUsers Bulk Loc B" },
+    ]);
+    await db.insert(user).values([
+      {
+        id: hoActor,
+        name: "BDUsers Actor HO",
+        email: mkEmail(hoActor),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteA,
+      },
+      {
+        id: hoForeign,
+        name: "BDUsers Foreign HO",
+        email: mkEmail(hoForeign),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteB,
+      },
+      {
+        id: adminA,
+        name: "BDUsers Admin A",
+        email: mkEmail(adminA),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locA,
+      },
+      {
+        id: adminB,
+        name: "BDUsers Admin B",
+        email: mkEmail(adminB),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locB,
+      },
+    ]);
+
+    actor = {
+      id: hoActor,
+      name: "BDUsers Actor HO",
+      email: mkEmail(hoActor),
+      role: "ho",
+      siteId: siteA,
+      siteLocationId: null,
+      isActive: true,
+    };
+
+    const { deleteUserBulk } = await import("./actions");
+    const result = await deleteUserBulk([adminA, adminB, hoActor, hoForeign]);
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(await isDeleted(adminA)).toBe(true);
+    expect(await isDeleted(adminB)).toBe(false);
+    expect(await isDeleted(hoForeign)).toBe(false);
+    expect(await isDeleted(hoActor)).toBe(false);
+
+    // Sessions wiped for the deleted row only.
+    expect(sessionWipes).toEqual([adminA]);
   });
 
   test("an already soft-deleted row is never resurrected by the batch", async () => {
@@ -149,68 +158,67 @@ describe("deleteUserBulk (bulk soft delete)", () => {
     const adminGone = randomUUID();
 
     const mkEmail = (id: string) => `bdusers-${id}@shiftly.test`;
-    try {
-      await db.insert(site).values([
-        { id: siteA, name: `bdusers-site-c-${siteA}` },
-      ]);
-      await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "BDUsers Bulk Loc C" },
-      ]);
-      await db.insert(user).values([
-        {
-          id: hoActor,
-          name: "BDUsers Actor HO C",
-          email: mkEmail(hoActor),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteA,
-        },
-        {
-          id: adminA,
-          name: "BDUsers Admin C",
-          email: mkEmail(adminA),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locA,
-        },
-        {
-          id: adminGone,
-          name: "BDUsers Admin Gone",
-          email: mkEmail(adminGone),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locA,
-          deletedAt: new Date(),
-        },
-      ]);
-
-      actor = {
-        id: hoActor,
-        name: "BDUsers Actor HO C",
-        email: mkEmail(hoActor),
-        role: "ho",
-        siteId: siteA,
-        siteLocationId: null,
-        isActive: true,
-      };
-
-      const { deleteUserBulk } = await import("./actions");
-      const result = await deleteUserBulk([adminA, adminGone]);
-
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(1);
-      expect(await isDeleted(adminA)).toBe(true);
-      // The pre-deleted row stays deleted — and its wipe must not fire,
-      // mirroring the weld that keeps the write from touching it.
-      expect(await isDeleted(adminGone)).toBe(true);
-      expect(sessionWipes).toEqual([adminA]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(user).where(eq(user.id, hoActor));
       await db.delete(user).where(eq(user.id, adminA));
       await db.delete(user).where(eq(user.id, adminGone));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(site).where(eq(site.id, siteA));
-    }
+    });
+    await db.insert(site).values([
+      { id: siteA, name: `bdusers-site-c-${siteA}` },
+    ]);
+    await db.insert(siteLocation).values([
+      { id: locA, siteId: siteA, name: "BDUsers Bulk Loc C" },
+    ]);
+    await db.insert(user).values([
+      {
+        id: hoActor,
+        name: "BDUsers Actor HO C",
+        email: mkEmail(hoActor),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteA,
+      },
+      {
+        id: adminA,
+        name: "BDUsers Admin C",
+        email: mkEmail(adminA),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locA,
+      },
+      {
+        id: adminGone,
+        name: "BDUsers Admin Gone",
+        email: mkEmail(adminGone),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locA,
+        deletedAt: new Date(),
+      },
+    ]);
+
+    actor = {
+      id: hoActor,
+      name: "BDUsers Actor HO C",
+      email: mkEmail(hoActor),
+      role: "ho",
+      siteId: siteA,
+      siteLocationId: null,
+      isActive: true,
+    };
+
+    const { deleteUserBulk } = await import("./actions");
+    const result = await deleteUserBulk([adminA, adminGone]);
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(await isDeleted(adminA)).toBe(true);
+    // The pre-deleted row stays deleted — and its wipe must not fire,
+    // mirroring the weld that keeps the write from touching it.
+    expect(await isDeleted(adminGone)).toBe(true);
+    expect(sessionWipes).toEqual([adminA]);
   });
 
   test("superadmin bulk-deletes, self excluded; empty batch is a no-op", async () => {
@@ -218,50 +226,49 @@ describe("deleteUserBulk (bulk soft delete)", () => {
     const hoTarget = randomUUID();
 
     const mkEmail = (id: string) => `bdusers-${id}@shiftly.test`;
-    try {
-      await db.insert(user).values([
-        {
-          id: superActor,
-          name: "BDUsers Actor Super",
-          email: mkEmail(superActor),
-          emailVerified: true,
-          role: "superadmin",
-        },
-        {
-          id: hoTarget,
-          name: "BDUsers HO Target",
-          email: mkEmail(hoTarget),
-          emailVerified: true,
-          role: "ho",
-        },
-      ]);
-
-      actor = {
+    fixtureCleanup.defer(async () => {
+      await db.delete(user).where(eq(user.id, superActor));
+      await db.delete(user).where(eq(user.id, hoTarget));
+    });
+    await db.insert(user).values([
+      {
         id: superActor,
         name: "BDUsers Actor Super",
         email: mkEmail(superActor),
+        emailVerified: true,
         role: "superadmin",
-        siteId: null,
-        siteLocationId: null,
-        isActive: true,
-      };
+      },
+      {
+        id: hoTarget,
+        name: "BDUsers HO Target",
+        email: mkEmail(hoTarget),
+        emailVerified: true,
+        role: "ho",
+      },
+    ]);
 
-      const { deleteUserBulk } = await import("./actions");
-      const result = await deleteUserBulk([hoTarget, superActor]);
+    actor = {
+      id: superActor,
+      name: "BDUsers Actor Super",
+      email: mkEmail(superActor),
+      role: "superadmin",
+      siteId: null,
+      siteLocationId: null,
+      isActive: true,
+    };
 
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(1);
-      expect(await isDeleted(hoTarget)).toBe(true);
-      expect(await isDeleted(superActor)).toBe(false);
+    const { deleteUserBulk } = await import("./actions");
+    const result = await deleteUserBulk([hoTarget, superActor]);
 
-      // Same guard contract as setActiveBulk: an empty batch is a caller
-      // error, not a silent success.
-      const empty = await deleteUserBulk([]);
-      expect(empty.ok).toBe(false);
-      expect(empty.applied).toBeUndefined();
-    } finally {
-      await db.delete(user).where(eq(user.id, superActor));
-      await db.delete(user).where(eq(user.id, hoTarget));
-    }
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(await isDeleted(hoTarget)).toBe(true);
+    expect(await isDeleted(superActor)).toBe(false);
+
+    // Same guard contract as setActiveBulk: an empty batch is a caller
+    // error, not a silent success.
+    const empty = await deleteUserBulk([]);
+    expect(empty.ok).toBe(false);
+    expect(empty.applied).toBeUndefined();
   });
 });

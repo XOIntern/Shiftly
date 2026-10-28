@@ -6,6 +6,11 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { site, siteLocation, user } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The bulk action resolves its actor through requireHO — swapped for a stub
 // so the real server action reads against the test database without a Next
@@ -22,7 +27,12 @@ mock.module("@/lib/session", () => ({
   requireSuperadmin: async () => actor,
 }));
 // No Next request context under bun test — revalidation is a no-op stub.
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 // mock.module is process-wide and patches the loaded module in place: the
@@ -70,85 +80,7 @@ describe("setActiveBulk (bulk deactivation)", () => {
     const superadminRow = randomUUID();
 
     const mkEmail = (id: string) => `t4-users-${id}@shiftly.test`;
-    try {
-      await db.insert(site).values([
-        { id: siteA, name: `t4-users-site-alpha-${siteA}` },
-        { id: siteB, name: `t4-users-site-beta-${siteB}` },
-      ]);
-      await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc A" },
-        { id: locB, siteId: siteB, name: "T4 Users Bulk Loc B" },
-      ]);
-      await db.insert(user).values([
-        {
-          id: hoActor,
-          name: "T4 Actor HO",
-          email: mkEmail(hoActor),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteA,
-        },
-        {
-          id: hoForeign,
-          name: "T4 Foreign HO",
-          email: mkEmail(hoForeign),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteB,
-        },
-        {
-          id: superadminRow,
-          name: "T4 Superadmin",
-          email: mkEmail(superadminRow),
-          emailVerified: true,
-          role: "superadmin",
-        },
-        {
-          id: adminA,
-          name: "T4 Admin A",
-          email: mkEmail(adminA),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locA,
-        },
-        {
-          id: adminB,
-          name: "T4 Admin B",
-          email: mkEmail(adminB),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locB,
-        },
-      ]);
-
-      actor = {
-        id: hoActor,
-        name: "T4 Actor HO",
-        email: mkEmail(hoActor),
-        role: "ho",
-        siteId: siteA,
-        siteLocationId: null,
-        isActive: true,
-      };
-
-      const { setActiveBulk } = await import("./actions");
-      const result = await setActiveBulk(
-        [adminA, adminB, hoActor, superadminRow],
-        false,
-      );
-
-      // Only the own-site admin applied; the rest were skipped, not errors.
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(1);
-      expect(await isActive(adminA)).toBe(false);
-      expect(await isActive(adminB)).toBe(true);
-      expect(await isActive(hoForeign)).toBe(true);
-      expect(await isActive(superadminRow)).toBe(true);
-      expect(await isActive(hoActor)).toBe(true);
-
-      // Exactly one session wipe, for the row that actually changed.
-      expect(sessionWipes).toEqual([adminA]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(user).where(eq(user.id, hoActor));
       await db.delete(user).where(eq(user.id, hoForeign));
       await db.delete(user).where(eq(user.id, superadminRow));
@@ -158,7 +90,84 @@ describe("setActiveBulk (bulk deactivation)", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, locB));
       await db.delete(site).where(eq(site.id, siteA));
       await db.delete(site).where(eq(site.id, siteB));
-    }
+    });
+    await db.insert(site).values([
+      { id: siteA, name: `t4-users-site-alpha-${siteA}` },
+      { id: siteB, name: `t4-users-site-beta-${siteB}` },
+    ]);
+    await db.insert(siteLocation).values([
+      { id: locA, siteId: siteA, name: "T4 Users Bulk Loc A" },
+      { id: locB, siteId: siteB, name: "T4 Users Bulk Loc B" },
+    ]);
+    await db.insert(user).values([
+      {
+        id: hoActor,
+        name: "T4 Actor HO",
+        email: mkEmail(hoActor),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteA,
+      },
+      {
+        id: hoForeign,
+        name: "T4 Foreign HO",
+        email: mkEmail(hoForeign),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteB,
+      },
+      {
+        id: superadminRow,
+        name: "T4 Superadmin",
+        email: mkEmail(superadminRow),
+        emailVerified: true,
+        role: "superadmin",
+      },
+      {
+        id: adminA,
+        name: "T4 Admin A",
+        email: mkEmail(adminA),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locA,
+      },
+      {
+        id: adminB,
+        name: "T4 Admin B",
+        email: mkEmail(adminB),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locB,
+      },
+    ]);
+
+    actor = {
+      id: hoActor,
+      name: "T4 Actor HO",
+      email: mkEmail(hoActor),
+      role: "ho",
+      siteId: siteA,
+      siteLocationId: null,
+      isActive: true,
+    };
+
+    const { setActiveBulk } = await import("./actions");
+    const result = await setActiveBulk(
+      [adminA, adminB, hoActor, superadminRow],
+      false,
+    );
+
+    // Only the own-site admin applied; the rest were skipped, not errors.
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(await isActive(adminA)).toBe(false);
+    expect(await isActive(adminB)).toBe(true);
+    expect(await isActive(hoForeign)).toBe(true);
+    expect(await isActive(superadminRow)).toBe(true);
+    expect(await isActive(hoActor)).toBe(true);
+
+    // Exactly one session wipe, for the row that actually changed.
+    expect(sessionWipes).toEqual([adminA]);
   });
 
   test("deactivating the actor's own id stays out of the batch", async () => {
@@ -168,56 +177,55 @@ describe("setActiveBulk (bulk deactivation)", () => {
     const adminA = randomUUID();
 
     const mkEmail = (id: string) => `t4-users-${id}@shiftly.test`;
-    try {
-      await db.insert(site).values([
-        { id: siteA, name: `t4-users-site-gamma-${siteA}` },
-      ]);
-      await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc G" },
-      ]);
-      await db.insert(user).values([
-        {
-          id: hoActor,
-          name: "T4 Actor HO G",
-          email: mkEmail(hoActor),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteA,
-        },
-        {
-          id: adminA,
-          name: "T4 Admin G",
-          email: mkEmail(adminA),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locA,
-        },
-      ]);
-
-      actor = {
-        id: hoActor,
-        name: "T4 Actor HO G",
-        email: mkEmail(hoActor),
-        role: "ho",
-        siteId: siteA,
-        siteLocationId: null,
-        isActive: true,
-      };
-
-      const { setActiveBulk } = await import("./actions");
-      const result = await setActiveBulk([hoActor, adminA], false);
-
-      // The actor survives their own bulk deactivation; the rest applies.
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(1);
-      expect(await isActive(hoActor)).toBe(true);
-      expect(await isActive(adminA)).toBe(false);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(user).where(eq(user.id, hoActor));
       await db.delete(user).where(eq(user.id, adminA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(site).where(eq(site.id, siteA));
-    }
+    });
+    await db.insert(site).values([
+      { id: siteA, name: `t4-users-site-gamma-${siteA}` },
+    ]);
+    await db.insert(siteLocation).values([
+      { id: locA, siteId: siteA, name: "T4 Users Bulk Loc G" },
+    ]);
+    await db.insert(user).values([
+      {
+        id: hoActor,
+        name: "T4 Actor HO G",
+        email: mkEmail(hoActor),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteA,
+      },
+      {
+        id: adminA,
+        name: "T4 Admin G",
+        email: mkEmail(adminA),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locA,
+      },
+    ]);
+
+    actor = {
+      id: hoActor,
+      name: "T4 Actor HO G",
+      email: mkEmail(hoActor),
+      role: "ho",
+      siteId: siteA,
+      siteLocationId: null,
+      isActive: true,
+    };
+
+    const { setActiveBulk } = await import("./actions");
+    const result = await setActiveBulk([hoActor, adminA], false);
+
+    // The actor survives their own bulk deactivation; the rest applies.
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(await isActive(hoActor)).toBe(true);
+    expect(await isActive(adminA)).toBe(false);
   });
 
   test("malformed ids are dropped from the batch, not fatal", async () => {
@@ -227,57 +235,56 @@ describe("setActiveBulk (bulk deactivation)", () => {
     const adminA = randomUUID();
 
     const mkEmail = (id: string) => `t4-users-${id}@shiftly.test`;
-    try {
-      await db.insert(site).values([
-        { id: siteA, name: `t4-users-site-delta-${siteA}` },
-      ]);
-      await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc D" },
-      ]);
-      await db.insert(user).values([
-        {
-          id: hoActor,
-          name: "T4 Actor HO D",
-          email: mkEmail(hoActor),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteA,
-        },
-        {
-          id: adminA,
-          name: "T4 Admin D",
-          email: mkEmail(adminA),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locA,
-        },
-      ]);
-
-      actor = {
-        id: hoActor,
-        name: "T4 Actor HO D",
-        email: mkEmail(hoActor),
-        role: "ho",
-        siteId: siteA,
-        siteLocationId: null,
-        isActive: true,
-      };
-
-      const { setActiveBulk } = await import("./actions");
-      const result = await setActiveBulk(
-        ["not-a-uuid", adminA],
-        false,
-      );
-
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(1);
-      expect(await isActive(adminA)).toBe(false);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(user).where(eq(user.id, hoActor));
       await db.delete(user).where(eq(user.id, adminA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(site).where(eq(site.id, siteA));
-    }
+    });
+    await db.insert(site).values([
+      { id: siteA, name: `t4-users-site-delta-${siteA}` },
+    ]);
+    await db.insert(siteLocation).values([
+      { id: locA, siteId: siteA, name: "T4 Users Bulk Loc D" },
+    ]);
+    await db.insert(user).values([
+      {
+        id: hoActor,
+        name: "T4 Actor HO D",
+        email: mkEmail(hoActor),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteA,
+      },
+      {
+        id: adminA,
+        name: "T4 Admin D",
+        email: mkEmail(adminA),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locA,
+      },
+    ]);
+
+    actor = {
+      id: hoActor,
+      name: "T4 Actor HO D",
+      email: mkEmail(hoActor),
+      role: "ho",
+      siteId: siteA,
+      siteLocationId: null,
+      isActive: true,
+    };
+
+    const { setActiveBulk } = await import("./actions");
+    const result = await setActiveBulk(
+      ["not-a-uuid", adminA],
+      false,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(await isActive(adminA)).toBe(false);
   });
 
   test("deactivates a better-auth non-uuid ho id (user.id is text, not uuid)", async () => {
@@ -286,44 +293,43 @@ describe("setActiveBulk (bulk deactivation)", () => {
     const hoTarget = "hoTargetAaBbCcDdEeFfGgHhIiJjKkLlMmN2";
     const mkEmail = (id: string) => `t4-users-${id.slice(0, 8)}@shiftly.test`;
 
-    try {
-      await db.insert(user).values([
-        {
-          id: superActor,
-          name: "T4 Actor Super G",
-          email: mkEmail(superActor),
-          emailVerified: true,
-          role: "superadmin",
-        },
-        {
-          id: hoTarget,
-          name: "T4 HO Target G",
-          email: mkEmail(hoTarget),
-          emailVerified: true,
-          role: "ho",
-        },
-      ]);
-
-      actor = {
+    fixtureCleanup.defer(async () => {
+      await db.delete(user).where(eq(user.id, superActor));
+      await db.delete(user).where(eq(user.id, hoTarget));
+    });
+    await db.insert(user).values([
+      {
         id: superActor,
         name: "T4 Actor Super G",
         email: mkEmail(superActor),
+        emailVerified: true,
         role: "superadmin",
-        siteId: null,
-        siteLocationId: null,
-        isActive: true,
-      };
+      },
+      {
+        id: hoTarget,
+        name: "T4 HO Target G",
+        email: mkEmail(hoTarget),
+        emailVerified: true,
+        role: "ho",
+      },
+    ]);
 
-      const { setActiveBulk } = await import("./actions");
-      const result = await setActiveBulk([hoTarget], false);
+    actor = {
+      id: superActor,
+      name: "T4 Actor Super G",
+      email: mkEmail(superActor),
+      role: "superadmin",
+      siteId: null,
+      siteLocationId: null,
+      isActive: true,
+    };
 
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(1);
-      expect(await isActive(hoTarget)).toBe(false);
-    } finally {
-      await db.delete(user).where(eq(user.id, superActor));
-      await db.delete(user).where(eq(user.id, hoTarget));
-    }
+    const { setActiveBulk } = await import("./actions");
+    const result = await setActiveBulk([hoTarget], false);
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(await isActive(hoTarget)).toBe(false);
   });
 
   test("an unbound ho (siteId null) matches nothing, fail closed", async () => {
@@ -333,52 +339,51 @@ describe("setActiveBulk (bulk deactivation)", () => {
     const locA = randomUUID();
 
     const mkEmail = (id: string) => `t4-users-${id}@shiftly.test`;
-    try {
-      await db.insert(site).values([
-        { id: siteA, name: `t4-users-site-eps-${siteA}` },
-      ]);
-      await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "T4 Users Bulk Loc E" },
-      ]);
-      await db.insert(user).values([
-        {
-          id: adminA,
-          name: "T4 Admin E",
-          email: mkEmail(adminA),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locA,
-        },
-        {
-          id: hoActor,
-          name: "T4 Unbound HO",
-          email: mkEmail(hoActor),
-          emailVerified: true,
-          role: "ho",
-        },
-      ]);
-
-      actor = {
-        id: hoActor,
-        name: "T4 Unbound HO",
-        email: mkEmail(hoActor),
-        role: "ho",
-        siteId: null,
-        siteLocationId: null,
-        isActive: true,
-      };
-
-      const { setActiveBulk } = await import("./actions");
-      const result = await setActiveBulk([adminA], false);
-
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(0);
-      expect(await isActive(adminA)).toBe(true);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(user).where(eq(user.id, hoActor));
       await db.delete(user).where(eq(user.id, adminA));
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(site).where(eq(site.id, siteA));
-    }
+    });
+    await db.insert(site).values([
+      { id: siteA, name: `t4-users-site-eps-${siteA}` },
+    ]);
+    await db.insert(siteLocation).values([
+      { id: locA, siteId: siteA, name: "T4 Users Bulk Loc E" },
+    ]);
+    await db.insert(user).values([
+      {
+        id: adminA,
+        name: "T4 Admin E",
+        email: mkEmail(adminA),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locA,
+      },
+      {
+        id: hoActor,
+        name: "T4 Unbound HO",
+        email: mkEmail(hoActor),
+        emailVerified: true,
+        role: "ho",
+      },
+    ]);
+
+    actor = {
+      id: hoActor,
+      name: "T4 Unbound HO",
+      email: mkEmail(hoActor),
+      role: "ho",
+      siteId: null,
+      siteLocationId: null,
+      isActive: true,
+    };
+
+    const { setActiveBulk } = await import("./actions");
+    const result = await setActiveBulk([adminA], false);
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(0);
+    expect(await isActive(adminA)).toBe(true);
   });
 });

@@ -17,6 +17,11 @@ import {
   workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The edit page reads its actor through requireUser and refuses ineligible
 // actors/ids with notFound() — swapped for stubs so the real server
@@ -34,7 +39,9 @@ mock.module("@/lib/session", () => ({
 // RequestFormPage calls useRouter; no Next request context exists under bun
 // test, so next/navigation is stubbed. The form module's "use server"
 // imports pull next/cache at module scope — stubbed the same way.
+const realNavigation = { ...(await import("next/navigation")) };
 mock.module("next/navigation", () => ({
+  ...realNavigation,
   redirect: () => {
     throw new Error("redirect");
   },
@@ -45,7 +52,12 @@ mock.module("next/navigation", () => ({
   usePathname: () => "/dashboard/requests/edit",
   useSearchParams: () => new URLSearchParams(),
 }));
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 
@@ -272,68 +284,64 @@ function makeActor(
 describe("edit request page SSR (requests #129)", () => {
   test("an in-scope admin sees the edit form with stored lines, deactivated pair rendered as a removable inactive pair", async () => {
     const fx = await seedEditFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locId);
-      const html = await renderEdit(fx.ids.rqSubmitted);
-      expect(html.includes("Edit request lines")).toBeTrue();
-      expect(html.includes('href="/dashboard/requests"')).toBeTrue();
-      // Stored line values pre-fill the grid; the inactive pair's value
-      // renders as read-only cell text, not an input.
-      expect(html.includes('value="3"')).toBeTrue();
-      expect(html.includes(">7</td>")).toBeTrue();
-      // The since-deactivated pair still renders — removable, not dropped.
-      expect(html.includes("Inactive — keep unchanged or remove")).toBeTrue();
-      expect(
-        html.includes(
-          `Remove inactive line ${fx.names.waOld} / ${fx.names.shOld} / ${fx.names.posOld}`,
-        ),
-      ).toBeTrue();
-      // The stored active line's area opens as its own section; edit has
-      // no copy step and no Add bar.
-      expect(
-        html.includes(`aria-label="Remove area ${fx.names.waActive}"`),
-      ).toBeTrue();
-      expect(
-        html.includes(
-          `aria-label="Headcount ${fx.names.waActive} / ${fx.names.shActive} / ${fx.names.posActive} / 2026-01-05"`,
-        ),
-      ).toBeTrue();
-      expect(html.includes("Start blank")).toBeFalse();
-      expect(html.includes("Add rows")).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locId);
+    const html = await renderEdit(fx.ids.rqSubmitted);
+    expect(html.includes("Edit request lines")).toBeTrue();
+    expect(html.includes('href="/dashboard/requests"')).toBeTrue();
+    // Stored line values pre-fill the grid; the inactive pair's value
+    // renders as read-only cell text, not an input.
+    expect(html.includes('value="3"')).toBeTrue();
+    expect(html.includes(">7</td>")).toBeTrue();
+    // The since-deactivated pair still renders — removable, not dropped.
+    expect(html.includes("Inactive — keep unchanged or remove")).toBeTrue();
+    expect(
+      html.includes(
+        `Remove inactive line ${fx.names.waOld} / ${fx.names.shOld} / ${fx.names.posOld}`,
+      ),
+    ).toBeTrue();
+    // The stored active line's area opens as its own section; edit has
+    // no copy step and no Add bar.
+    expect(
+      html.includes(`aria-label="Remove area ${fx.names.waActive}"`),
+    ).toBeTrue();
+    expect(
+      html.includes(
+        `aria-label="Headcount ${fx.names.waActive} / ${fx.names.shActive} / ${fx.names.posActive} / 2026-01-05"`,
+      ),
+    ).toBeTrue();
+    expect(html.includes("Start blank")).toBeFalse();
+    expect(html.includes("Add rows")).toBeFalse();
   });
 
   test("a non-open request 404s", async () => {
     const fx = await seedEditFixtures();
     actor = makeActor("superadmin", null, null);
-    try {
-      await expectNotFound(fx.ids.rqReceived);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    await expectNotFound(fx.ids.rqReceived);
   });
 
   test("a foreign/out-of-scope request 404s", async () => {
     const fx = await seedEditFixtures();
     // Bound to the wrong location: the row is outside mpRequestMutationWhere.
     actor = makeActor("admin", null, null);
-    try {
-      await expectNotFound(fx.ids.rqForeign);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    await expectNotFound(fx.ids.rqForeign);
   });
 
   test("ho 404s even on their own site's request", async () => {
     const fx = await seedEditFixtures();
-    try {
-      // (siteId not needed — role check fails first)
-      actor = makeActor("ho", null, null);
-      await expectNotFound(fx.ids.rqSubmitted);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    // (siteId not needed — role check fails first)
+    actor = makeActor("ho", null, null);
+    await expectNotFound(fx.ids.rqSubmitted);
   });
 });
