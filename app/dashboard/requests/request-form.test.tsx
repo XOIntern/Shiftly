@@ -17,6 +17,7 @@ import {
   areasWithoutPositions,
   buildCreateInput,
   collectLines,
+  copyEmptyMessage,
   copyWeekValues,
   dayTotals,
   gridDates,
@@ -1323,5 +1324,29 @@ describe("grouped-by-area form model", () => {
       [cell(WA_A1, SH_A1, POS_A1, "2026-01-12")]: "3",
     });
     expect([...areaIds]).toEqual([WA_A1]);
+  });
+
+  test("copyEmptyMessage says nothing could be copied only when no value survived the catalog filter", () => {
+    const GONE = "ffff1111-1111-4111-8111-111111111111";
+    const dropped = copyWeekValues(
+      [lineView(GONE, SH_A1, POS_A1, "2026-01-05", 3)],
+      "2026-01-05",
+      "2026-01-12",
+      catalog,
+    );
+    expect(copyEmptyMessage(dropped)).toBe(
+      "Nothing could be copied: the areas, shifts or positions were deactivated.",
+    );
+    expect(copyEmptyMessage(copyWeekValues([], "2026-01-05", "2026-01-12", catalog))).toBe(
+      "Nothing could be copied: the areas, shifts or positions were deactivated.",
+    );
+
+    const kept = copyWeekValues(
+      [lineView(WA_A1, SH_A1, POS_A1, "2026-01-05", 3)],
+      "2026-01-05",
+      "2026-01-12",
+      catalog,
+    );
+    expect(copyEmptyMessage(kept)).toBeNull();
   });
 });

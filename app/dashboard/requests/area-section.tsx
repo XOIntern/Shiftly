@@ -1,13 +1,16 @@
+"use client";
+
 import { Fragment } from "react";
 import { ChevronDownIcon, PaintBucketIcon, XIcon } from "lucide-react";
 import { cn } from "cn";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type {
-  AreaGroup,
-  GridRow,
-  GridValues,
+import {
+  dayTotals,
+  type AreaGroup,
+  type GridRow,
+  type GridValues,
 } from "@/app/dashboard/requests/request-form";
 import {
   DAYS,
@@ -23,7 +26,6 @@ export function AreaSection({
   open,
   type,
   dates,
-  totals,
   values,
   quickFill,
   rows,
@@ -38,8 +40,6 @@ export function AreaSection({
   open: boolean;
   type: "weekly" | "daily";
   dates: string[];
-  // The area's per-date headcount totals.
-  totals: number[];
   values: GridValues;
   quickFill: Record<string, string>;
   // Every row of the grid, in submit order: a row's index places the
@@ -56,6 +56,7 @@ export function AreaSection({
   // Columns per row: label, the dates, and (weekly) the "same all days"
   // tail.
   const columnCount = 1 + dates.length + (weekly ? 1 : 0);
+  const totals = dayTotals(values, group.rows, dates);
   const areaWeek = totals.reduce((sum, n) => sum + n, 0);
   const bodyId = `request-area-${group.workAreaId}`;
   return (
@@ -65,6 +66,8 @@ export function AreaSection({
           type="button"
           aria-expanded={open}
           aria-controls={bodyId}
+          aria-labelledby={`${bodyId}-title`}
+          aria-describedby={`${bodyId}-totals`}
           onClick={() => onToggle(group.workAreaId)}
           className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-start outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
         >
@@ -79,18 +82,21 @@ export function AreaSection({
             <span id={`${bodyId}-title`} className="font-medium">
               {group.workAreaName}
             </span>
-            <ul className="flex flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums">
+            <span
+              id={`${bodyId}-totals`}
+              className="flex flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums"
+            >
               {weekly ? (
                 <>
                   {DAYS.map((day, i) => (
-                    <li key={day}>{`${day} ${totals[i] ?? 0}`}</li>
+                    <span key={day}>{`${day} ${totals[i] ?? 0}`}</span>
                   ))}
-                  <li className="font-medium text-foreground">{`Week ${areaWeek}`}</li>
+                  <span className="font-medium text-foreground">{`Week ${areaWeek}`}</span>
                 </>
               ) : (
-                <li>{`Total ${areaWeek}`}</li>
+                <span>{`Total ${areaWeek}`}</span>
               )}
-            </ul>
+            </span>
           </span>
         </button>
         <Button

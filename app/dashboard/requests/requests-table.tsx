@@ -242,7 +242,7 @@ export function RequestsTable({
                 href={href}
                 className="text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
-                View in roster →
+                View in roster <span aria-hidden="true">→</span>
               </Link>
             ) : (
               <span className="text-muted-foreground">

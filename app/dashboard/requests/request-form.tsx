@@ -240,6 +240,17 @@ export function copyWeekValues(
   return { values, areaIds };
 }
 
+export const COPY_EMPTY_MESSAGE =
+  "Nothing could be copied: the areas, shifts or positions were deactivated.";
+
+// The notice for a copy that left nothing behind: every source line was
+// dropped by the catalog filter, so the grid starts empty.
+export function copyEmptyMessage(copied: {
+  values: GridValues;
+}): string | null {
+  return Object.keys(copied.values).length === 0 ? COPY_EMPTY_MESSAGE : null;
+}
+
 // Weekly create: once the user has moved past the copy step, a week edit
 // that lands on another Monday strands the copied/typed cells on the old
 // dates, so the form starts over at the copy step for the new week. Another
@@ -595,6 +606,8 @@ export function RequestForm({
     initialFieldErrors ?? {},
   );
   const [message, setMessage] = useState<string>();
+  // Set when Copy left the grid empty; cleared once the user adds an area.
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   // Type switch on create resets the anchor of the other kind (a weekly
@@ -702,6 +715,7 @@ export function RequestForm({
     setValues({});
     setQuickFill({});
     setCollapsed(new Set());
+    setCopyNotice(null);
     setStep("copy");
   }
 
@@ -736,10 +750,12 @@ export function RequestForm({
     );
     setValues(copied.values);
     setAreaIds(copied.areaIds);
+    setCopyNotice(copyEmptyMessage(copied));
     setStep("grid");
   }
 
   function addArea(workAreaId: string) {
+    setCopyNotice(null);
     setAreaIds((prev) => new Set(prev).add(workAreaId));
   }
 
@@ -976,6 +992,12 @@ export function RequestForm({
               <p className="text-sm text-muted-foreground">{configureHint}</p>
             ) : null}
 
+            {copyNotice ? (
+              <p role="status" className="text-sm text-muted-foreground">
+                {copyNotice}
+              </p>
+            ) : null}
+
             {groups.length === 0 && inactivePairs.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Add an area to start.
@@ -989,7 +1011,6 @@ export function RequestForm({
                 open={!collapsed.has(group.workAreaId)}
                 type={type_}
                 dates={dates}
-                totals={dayTotals(values, group.rows, dates)}
                 values={values}
                 quickFill={quickFill}
                 rows={rows}

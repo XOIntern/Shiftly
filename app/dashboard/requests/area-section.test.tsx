@@ -8,7 +8,7 @@ import type {
 } from "@/types/mp-request";
 
 import { AreaSection } from "./area-section";
-import { dayTotals, gridDates, gridRows, groupByArea } from "./request-form";
+import { gridDates, gridRows, groupByArea } from "./request-form";
 
 const LOC_A1 = "aaaa1111-1111-4111-8111-111111111111";
 const WA_A1 = "cccc1111-1111-4111-8111-111111111111";
@@ -77,7 +77,6 @@ function render(
       open
       type={type}
       dates={dates}
-      totals={dayTotals(values, group.rows, dates)}
       values={values}
       quickFill={{}}
       rows={group.rows}
@@ -129,6 +128,27 @@ describe("AreaSection", () => {
         'aria-label="Fill every day Zone One / Morning / Operator"',
       ),
     ).toBeTrue();
+  });
+
+  test("the disclosure button holds no list markup; its name is the area title and the totals describe it", () => {
+    const html = render();
+    const button = /<button[^>]*aria-expanded[\s\S]*?<\/button>/.exec(html)![0];
+
+    expect(button.includes("<ul")).toBeFalse();
+    expect(button.includes("<li")).toBeFalse();
+    const labelledBy = /aria-labelledby="([^"]+)"/.exec(button)![1]!;
+    const describedBy = /aria-describedby="([^"]+)"/.exec(button)![1]!;
+    expect(
+      new RegExp(`id="${labelledBy}"[^>]*>Zone One<`).test(html),
+    ).toBeTrue();
+    const totalsSpan = new RegExp(
+      `<span[^>]*id="${describedBy}"[^>]*>([\\s\\S]*?)</span>\\s*</span>`,
+    ).exec(html);
+    expect(totalsSpan).not.toBeNull();
+    expect(totalsSpan![1]!.includes("Mon 5")).toBeTrue();
+    expect(totalsSpan![1]!.includes("Week 9")).toBeTrue();
+    // The title is not part of the description.
+    expect(totalsSpan![1]!.includes("Zone One")).toBeFalse();
   });
 
   test("a collapsed area hides its body and reports aria-expanded=false", () => {
