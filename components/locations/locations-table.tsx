@@ -7,6 +7,7 @@ import { deleteBulk, setActiveBulk } from "@/app/dashboard/locations/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { DeletedListFilter } from "@/components/deleted-list-filter";
 import { SiteFilter } from "@/components/sites/site-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
@@ -77,6 +78,7 @@ export function LocationsTable({
         <>
           {showSiteFilter ? <SiteFilter sites={sites} /> : null}
           <StatusFilter />
+          <DeletedListFilter singular="location" plural="locations" />
         </>
       }
       selectionToolbar={({ count, ids, rows, clear }) => (
