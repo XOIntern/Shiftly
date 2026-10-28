@@ -53,6 +53,7 @@ export function validateRoster(
   shiftOrder: readonly string[],
   areaRequirements: Record<string, readonly string[]>,
   shiftLabels?: Readonly<Record<string, string>>,
+  areaNames?: Readonly<Record<string, string>>,
 ): Violation[] {
   const violations: Violation[] = [];
   const indexOf = new Map<string, number>(
@@ -92,6 +93,7 @@ export function validateRoster(
       rules,
       areaRequirements,
       violations,
+      areaNames,
     );
   }
 
@@ -249,8 +251,11 @@ function checkQualification(
   rules: EffectiveRules,
   areaRequirements: Record<string, readonly string[]>,
   violations: Violation[],
+  areaNames?: Readonly<Record<string, string>>,
 ): void {
   if (!rules.c7.value || !profile) return;
+  // An area missing from the lookup (or no lookup) reads as its raw id.
+  const areaLabel = (id: string) => areaNames?.[id] ?? id;
   for (const a of days) {
     const required = areaRequirements[a.workAreaId];
     if (!required || required.length === 0) continue;
@@ -259,7 +264,7 @@ function checkQualification(
         rule: "C7",
         workerId,
         date: a.date,
-        message: `Assigned to ${a.workAreaId} on ${a.date} without any required position`,
+        message: `Assigned to ${areaLabel(a.workAreaId)} on ${a.date} without any required position`,
       });
     }
   }

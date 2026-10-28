@@ -1,6 +1,7 @@
 import { and, eq, gte, lte } from "drizzle-orm";
 
 import { db } from "./db";
+import type { DbExecutor } from "./db";
 import { rosterAssignment, rosterPlan } from "../drizzle/schema";
 import { mondayOf, weekDates } from "./week";
 import { buildWorkersRecord, validateRoster } from "./engine/validate";
@@ -8,6 +9,7 @@ import type { Violation } from "./engine/validate";
 import type { EffectiveRules, RosterAssignment } from "@/types/engine";
 import type { ActionState } from "@/types/action-state";
 import {
+  loadAreaNames,
   loadAreaRequirements,
   loadPriorAssignments,
   loadShiftLabels,
@@ -194,15 +196,31 @@ export async function planViolations(
   siteLocationId: string,
   rules: EffectiveRules,
   rows: RosterAssignment[],
+  // A caller holding a transaction passes its handle so the loaders run on
+  // that connection: through the pool, each held connection would wait on up
+  // to six more and concurrent edits could starve it.
+  executor: DbExecutor = db,
 ): Promise<Violation[]> {
   const weekStart = mondayOf(rows[0]?.date ?? "1970-01-05");
-  const [shiftOrder, shiftLabels, areaRequirements, profiles, prior] = await Promise.all([
-    loadShiftOrder(siteLocationId),
-    loadShiftLabels(siteLocationId),
-    loadAreaRequirements(siteLocationId),
-    loadWorkerProfiles(siteLocationId),
-    loadPriorAssignments(siteLocationId, weekDates(weekStart)[0]),
-  ]);
+  // One connection runs one query at a time (pg is dropping its query
+  // queue): on a caller's transaction the loaders go in sequence, on the pool
+  // they overlap.
+  let tail: Promise<unknown> = Promise.resolve();
+  const load = <T>(fn: () => Promise<T>): Promise<T> => {
+    if (executor === db) return fn();
+    const result = tail.then(fn);
+    tail = result.catch(() => undefined);
+    return result;
+  };
+  const [shiftOrder, shiftLabels, areaNames, areaRequirements, profiles, prior] =
+    await Promise.all([
+      load(() => loadShiftOrder(siteLocationId, executor)),
+      load(() => loadShiftLabels(siteLocationId, executor)),
+      load(() => loadAreaNames(siteLocationId, executor)),
+      load(() => loadAreaRequirements(siteLocationId, executor)),
+      load(() => loadWorkerProfiles(siteLocationId, undefined, executor)),
+      load(() => loadPriorAssignments(siteLocationId, weekDates(weekStart)[0], executor)),
+    ]);
   return validateRoster(
     [...rows, ...prior],
     buildWorkersRecord(profiles),
@@ -210,6 +228,7 @@ export async function planViolations(
     shiftOrder,
     areaRequirements,
     shiftLabels,
+    areaNames,
   );
 }
 
@@ -304,6 +323,7 @@ export async function applyAssignmentEdit(
         plan.siteLocationId,
         plan.rulesSnapshot as EffectiveRules,
         rows,
+        tx,
       );
 
       return { ok: true, data: { violations } };

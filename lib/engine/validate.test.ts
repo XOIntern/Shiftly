@@ -153,6 +153,38 @@ describe("validateRoster (roster-engine task 1)", () => {
     expect(run()).toContain("from s2 to s0");
   });
 
+  test("C7 message uses the work area name", () => {
+    const [c7] = validateRoster(
+      [assign("w1", "2026-01-05", "s0", "wa-a")],
+      workers,
+      rules(),
+      mkShift(1),
+      { "wa-a": ["pos-x"] },
+      undefined,
+      { "wa-a": "Packing Line" },
+    );
+
+    expect(c7.rule).toBe("C7");
+    expect(c7.message).toContain("Assigned to Packing Line on 2026-01-05");
+    expect(c7.message).not.toContain("wa-a");
+  });
+
+  test("C7 message falls back to the work area id when the name is unknown", () => {
+    const run = (areaNames?: Record<string, string>) =>
+      validateRoster(
+        [assign("w1", "2026-01-05", "s0", "wa-a")],
+        workers,
+        rules(),
+        mkShift(1),
+        { "wa-a": ["pos-x"] },
+        undefined,
+        areaNames,
+      )[0].message;
+
+    expect(run({ "wa-b": "Other" })).toContain("Assigned to wa-a on");
+    expect(run()).toContain("Assigned to wa-a on");
+  });
+
   test("C3 accepts forward rotation through increasing order", () => {
     const assignments = [
       assign("w1", "2026-01-05", "s0"),
