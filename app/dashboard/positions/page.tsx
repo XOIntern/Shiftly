@@ -1,4 +1,14 @@
-import { and, asc, count, eq, ilike, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { position, site, siteLocation } from "@/drizzle/schema";
@@ -9,10 +19,12 @@ import {
   ilikePattern,
   parseTableSearchParams,
 } from "@/lib/table-params";
+import { parseListView } from "@/lib/list-view";
 import { requireUser } from "@/lib/session";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreatePositionButton } from "@/components/positions/position-form";
 import type { SiteOption } from "@/types/site";
+import { DeletedPositionsTable } from "@/components/positions/deleted-positions-table";
 import { PositionsTable } from "@/components/positions/positions-table";
 
 // Deliberate block: the page queries master data behind the session check,
@@ -28,6 +40,16 @@ const SORTABLE = {
   isActive: position.isActive,
 };
 const DEFAULT_ORDER = [asc(site.name), asc(position.name)];
+// The deleted view sorts by site, name or when the position was deleted,
+// newest deletion first by default. buildOrder trails every user sort with
+// this default, so the id breaks ties for any sort: positions deleted in the
+// same instant (a bulk delete) keep one order and cannot swap between pages.
+const SORTABLE_DELETED = {
+  name: position.name,
+  siteName: site.name,
+  deletedAt: position.deletedAt,
+};
+const DEFAULT_ORDER_DELETED = [desc(position.deletedAt), asc(position.id)];
 
 // The reference algorithm (see the Sites pilot, epic #24): validate URL
 // state, count first for pageCount, clamp the page, then fetch one page.
@@ -36,8 +58,12 @@ export default async function PositionsPage({
 }: PageProps<"/dashboard/positions">) {
   // requireUser, not requireHO: all three roles manage their own scope.
   const actor = await requireUser();
+  const rawParams = await searchParams;
+  // ?show=deleted picks the soft-deleted list; it is not part of the shared
+  // table params, so it is read off the raw search params.
+  const deletedView = parseListView(rawParams.show) === "deleted";
   const { q, status, siteId, page, sorts, pageSize } = parseTableSearchParams(
-    await searchParams,
+    rawParams,
     PAGE_SIZE_OPTIONS,
   );
   const isSuperadmin = actor.role === "superadmin";
@@ -71,24 +97,34 @@ export default async function PositionsPage({
   const pattern = ilikePattern(q);
   // Name-only search; the joined site name is deliberately not searched
   // (locked decision 3). Null-safe and(...) composes scope+search+filters.
+  // The deletedAt predicate splits the live list from the deleted one
+  // (soft-delete epic #40); the scope stays in place for both, so nobody lists
+  // another site's deleted rows. The live list hides positions of a deleted
+  // site, the deleted list keeps them: restore is where that gets explained.
+  // This one `where` serves the count and the listing below.
   const where = and(
+    deletedView
+      ? isNotNull(position.deletedAt)
+      : isNull(position.deletedAt),
     ...(pattern ? [ilike(position.name, pattern)] : []),
     ...(status ? [eq(position.isActive, status === "active")] : []),
     ...(siteFilter ? [siteFilter] : []),
     ...(scope ? [scope] : []),
-    isNull(site.deletedAt),
+    ...(deletedView ? [] : [isNull(site.deletedAt)]),
   );
 
   // Own-property lookup inside buildOrder: a plain truthiness guard would
   // admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which
   // drizzle rejects mid-render.
-  const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
+  const order = deletedView
+    ? buildOrder(sorts, SORTABLE_DELETED, DEFAULT_ORDER_DELETED)
+    : buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
   const [{ count: rowCount }] = await db
     .select({ count: count() })
     .from(position)
     .innerJoin(site, eq(position.siteId, site.id))
-    .where(and(where, isNull(position.deletedAt)));
+    .where(where);
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
   const clamped = Math.min(page, pageCount); // out-of-range clamps to last page
 
@@ -131,10 +167,11 @@ export default async function PositionsPage({
         isActive: position.isActive,
         siteId: position.siteId,
         siteName: site.name,
+        deletedAt: position.deletedAt,
       })
       .from(position)
       .innerJoin(site, eq(position.siteId, site.id))
-      .where(and(where, isNull(position.deletedAt)))
+      .where(where)
       .orderBy(...order)
       .limit(pageSize)
       .offset((clamped - 1) * pageSize),
@@ -157,14 +194,42 @@ export default async function PositionsPage({
       </div>
       <Card>
         <CardContent>
-          <PositionsTable
-            positions={positions}
-            showSiteFilter={isSuperadmin}
-            sites={sites satisfies SiteOption[]}
-            pinnedSiteName={actor.role === "admin" ? sites[0]?.name : undefined}
-            pageCount={pageCount}
-            total={rowCount}
-          />
+          {deletedView ? (
+            <DeletedPositionsTable
+              positions={positions.map(
+                ({ id, name, siteName, deletedAt }) => ({
+                  id,
+                  name,
+                  siteName,
+                  deletedAt: (deletedAt as Date).toISOString(),
+                }),
+              )}
+              showSiteFilter={isSuperadmin}
+              sites={sites satisfies SiteOption[]}
+              canPurge={isSuperadmin}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          ) : (
+            <PositionsTable
+              positions={positions.map(
+                ({ id, name, isActive, siteId, siteName }) => ({
+                  id,
+                  name,
+                  isActive,
+                  siteId,
+                  siteName,
+                }),
+              )}
+              showSiteFilter={isSuperadmin}
+              sites={sites satisfies SiteOption[]}
+              pinnedSiteName={
+                actor.role === "admin" ? sites[0]?.name : undefined
+              }
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          )}
         </CardContent>
       </Card>
     </div>
