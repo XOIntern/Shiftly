@@ -6,7 +6,7 @@ import { deleteBulk, setActiveBulk } from "@/app/dashboard/sites/actions";
 import { BulkToolbar } from "@/components/bulk-toolbar";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
-import { SitesListFilter } from "@/components/sites/sites-list-filter";
+import { DeletedListFilter } from "@/components/deleted-list-filter";
 import { StatusFilter } from "@/components/status-filter";
 import { StatusBadge } from "@/components/status-badge";
 import { SiteRowActions } from "@/components/sites/site-form";
@@ -60,7 +60,7 @@ export function SitesTable({
       filters={
         <>
           <StatusFilter />
-          <SitesListFilter />
+          <DeletedListFilter singular="site" plural="sites" />
         </>
       }
       selectionToolbar={({ count, ids, rows, clear }) => (

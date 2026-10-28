@@ -65,18 +65,18 @@ describe("DeletedSitesTable", () => {
 // A click on the confirm button cannot be driven through static markup, so the
 // wiring is pinned at the source: a successful single permanent delete must
 // still say so, and the error path must still toast the failure.
-describe("PurgeSiteDialog wiring", () => {
+describe("DeletedRowActions wiring", () => {
   test("a successful permanent delete toasts its success message", async () => {
     const source = await Bun.file(
-      new URL("./deleted-sites-table.tsx", import.meta.url),
+      new URL("../deleted-row-actions.tsx", import.meta.url),
     ).text();
 
-    expect(source).toContain("toast.success(purgeSuccessMessage(site.name))");
+    expect(source).toContain("toast.success(purgeSuccess)");
   });
 
   test("a failed permanent delete still toasts the error", async () => {
     const source = await Bun.file(
-      new URL("./deleted-sites-table.tsx", import.meta.url),
+      new URL("../deleted-row-actions.tsx", import.meta.url),
     ).text();
 
     expect(source).toContain("toast.error(result.message ?? GENERIC_ERROR)");

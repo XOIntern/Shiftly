@@ -1,17 +1,24 @@
-import { describe, expect, mock, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, test } from "bun:test";
 
-// mock.module is process-wide in bun: spread the real module back in so
-// other suites that import next/navigation keep its other exports.
-const realNavigation = await import("next/navigation");
-mock.module("next/navigation", () => ({
-  ...realNavigation,
-  useRouter: () => ({ push: () => {}, replace: () => {} }),
-  usePathname: () => "/dashboard/sites",
-  useSearchParams: () => new URLSearchParams("show=deleted"),
-}));
+import { nextListParams, parseListView } from "./list-view";
 
-const { SitesListFilter, nextListParams } = await import("./sites-list-filter");
+describe("parseListView", () => {
+  test("the exact token selects the deleted view", () => {
+    expect(parseListView("deleted")).toBe("deleted");
+  });
+
+  test.each([
+    ["missing", undefined],
+    ["empty", ""],
+    ["the active token", "active"],
+    ["another case", "DELETED"],
+    ["padded", "deleted "],
+    ["a one-element array", ["deleted"]],
+    ["a repeated param", ["deleted", "active"]],
+  ])("%s falls back to the active view", (_name, raw) => {
+    expect(parseListView(raw)).toBe("active");
+  });
+});
 
 describe("nextListParams", () => {
   const current = () =>
@@ -57,14 +64,5 @@ describe("nextListParams", () => {
 
     expect(params.has("show")).toBe(false);
     expect(params.get("status")).toBe("active");
-  });
-});
-
-describe("SitesListFilter", () => {
-  test("renders a trigger of its own, separate from the status filter", () => {
-    const html = renderToStaticMarkup(<SitesListFilter />);
-
-    expect(html).toContain('aria-label="Choose site list"');
-    expect(html).not.toContain("Filter by status");
   });
 });

@@ -8,6 +8,8 @@ import {
   or,
 } from "drizzle-orm";
 
+import type { PurgeCoverage } from "@/types/deleted";
+
 import {
   auditLog,
   account,
@@ -42,11 +44,7 @@ const NOT_FOUND = "Deleted site not found.";
 // foreign keys, so a table added later that points at one of them cannot be
 // forgotten silently (the RESTRICT backstop would only fail the purge with a
 // generic message). Names come from the drizzle tables, never from literals.
-export const PURGE_COVERAGE: {
-  purged: string[];
-  history: string[];
-  cascade: string[];
-} = {
+export const PURGE_COVERAGE: PurgeCoverage = {
   // Deleted by purgeSiteGuarded below.
   purged: [
     workerPosition,

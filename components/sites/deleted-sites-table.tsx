@@ -1,137 +1,28 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { EllipsisIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
-import { toast } from "sonner";
 
-import { purgeSite, restoreSite } from "@/app/dashboard/sites/actions";
+import {
+  purgeBulk,
+  purgeSite,
+  restoreBulk,
+  restoreSite,
+} from "@/app/dashboard/sites/actions";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
-import { DeletedSitesToolbar } from "@/components/sites/deleted-sites-toolbar";
+import { DeletedBulkToolbar } from "@/components/deleted-bulk-toolbar";
+import { DeletedListFilter } from "@/components/deleted-list-filter";
+import { DeletedRowActions } from "@/components/deleted-row-actions";
 import {
+  bulkPurgeDescription,
   purgeDescription,
   purgeSuccessMessage,
 } from "@/components/sites/purge-copy";
-import { SitesListFilter } from "@/components/sites/sites-list-filter";
 import { StatusFilter } from "@/components/status-filter";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { GENERIC_ERROR } from "@/lib/action-state";
+import { nounFor } from "@/lib/bulk-summary";
 import type { DeletedSiteRow } from "@/types/site";
 
 const helper = createColumnHelper<typeof dataTableFeatures, DeletedSiteRow>();
-
-function DeletedSiteRowActions({ site }: { site: DeletedSiteRow }) {
-  const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
-
-  // Restore runs at once: deleting the site again undoes it.
-  function handleRestore() {
-    startTransition(async () => {
-      const result = await restoreSite(site.id);
-      if (result.ok) {
-        toast.success(`“${site.name}” restored`);
-        return;
-      }
-      toast.error(result.message ?? GENERIC_ERROR);
-    });
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Actions for ${site.name}`}
-          />
-        }
-      >
-        <EllipsisIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        <DropdownMenuGroup>
-          <DropdownMenuItem disabled={pending} onClick={handleRestore}>
-            <RotateCcwIcon />
-            Restore
-          </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" onClick={() => setOpen(true)}>
-            <Trash2Icon />
-            Delete permanently
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-      {/* Controlled dialog lives outside the menu popup so the menu can
-      close before its layer opens. */}
-      <PurgeSiteDialog site={site} open={open} onOpenChange={setOpen} />
-    </DropdownMenu>
-  );
-}
-
-function PurgeSiteDialog({
-  site,
-  open,
-  onOpenChange,
-}: {
-  site: DeletedSiteRow;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const [pending, startTransition] = useTransition();
-
-  function handleConfirm() {
-    startTransition(async () => {
-      const result = await purgeSite(site.id);
-      if (result.ok) {
-        onOpenChange(false);
-        toast.success(purgeSuccessMessage(site.name));
-        return;
-      }
-      toast.error(result.message ?? GENERIC_ERROR);
-    });
-  }
-
-  return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete permanently</AlertDialogTitle>
-          <AlertDialogDescription>
-            {purgeDescription(site.name)}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            disabled={pending}
-            onClick={handleConfirm}
-          >
-            {pending ? "Deleting…" : "Delete permanently"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
 
 // Module scope: useTable requires stable columns across renders.
 const columns = helper.columns([
@@ -157,9 +48,23 @@ const columns = helper.columns([
       thClassName: "min-w-[100px] text-right",
       tdClassName: "text-right",
     },
-    cell: (info) => <DeletedSiteRowActions site={info.row.original} />,
+    cell: (info) => {
+      const { id, name } = info.row.original;
+      return (
+        <DeletedRowActions
+          name={name}
+          restore={() => restoreSite(id)}
+          purge={() => purgeSite(id)}
+          purgeDescription={purgeDescription(name)}
+          purgeSuccess={purgeSuccessMessage(name)}
+          canPurge
+        />
+      );
+    },
   }),
 ]);
+
+const siteNoun = nounFor("site");
 
 export function DeletedSitesTable({
   sites,
@@ -180,12 +85,21 @@ export function DeletedSitesTable({
       filters={
         <>
           <StatusFilter />
-          <SitesListFilter />
+          <DeletedListFilter singular="site" plural="sites" />
         </>
       }
       getRowId={(row) => row.id}
       selectionToolbar={({ count, ids, clear }) => (
-        <DeletedSitesToolbar count={count} ids={ids} clear={clear} />
+        <DeletedBulkToolbar
+          count={count}
+          ids={ids}
+          clear={clear}
+          noun={siteNoun}
+          restore={restoreBulk}
+          purge={purgeBulk}
+          bulkPurgeDescription={bulkPurgeDescription}
+          canPurge
+        />
       )}
     />
   );

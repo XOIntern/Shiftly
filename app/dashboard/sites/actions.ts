@@ -14,6 +14,8 @@ import { siteCreateSchema, siteUpdateSchema } from "@/validation/site";
 import { deleteSiteGuarded } from "@/lib/site-delete";
 import { purgeSiteGuarded } from "@/lib/site-purge";
 import { restoreSiteGuarded } from "@/lib/site-restore";
+import { nounFor } from "@/lib/bulk-summary";
+import { runPerRow } from "@/lib/run-per-row";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -171,72 +173,27 @@ export async function restoreSite(id: string): Promise<ActionState> {
   return { ok: true };
 }
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-// Runs one guarded write per selected site, each in its OWN transaction: a
-// refusal or a driver error on one site (a unique-index clash, a FK) must not
-// undo the sites that went through. Malformed ids are dropped, and a partial
-// write is still a full success — applied counts the sites that went through,
-// blocked the refused, and the FIRST refusal's message rides back so the UI
-// can say why rows were skipped.
-async function runPerSite(
-  ids: string[],
-  guarded: (
-    tx: Tx,
-    id: string,
-  ) => Promise<{ ok: true } | { ok: false; message: string }>,
-): Promise<ActionState> {
-  const validIds = [...new Set(ids)].filter(
-    (id) => z.uuid().safeParse(id).success,
-  );
-  if (validIds.length === 0) {
-    return { ok: false, message: "No sites selected." };
-  }
-
-  let applied = 0;
-  let blocked = 0;
-  let firstBlocker: string | undefined;
-  for (const id of validIds) {
-    let result: { ok: true } | { ok: false; message: string };
-    try {
-      result = await db.transaction((tx) => guarded(tx, id));
-    } catch (err) {
-      result = {
-        ok: false,
-        message: dbResult(err).message ?? GENERIC_ERROR,
-      };
-    }
-    if (result.ok) {
-      applied += 1;
-    } else {
-      blocked += 1;
-      firstBlocker ??= result.message;
-    }
-  }
-
-  revalidatePath("/dashboard/sites");
-  return {
-    ok: true,
-    applied,
-    blocked,
-    message:
-      blocked > 0
-        ? `${blocked} site${blocked === 1 ? "" : "s"} skipped: ${firstBlocker}`
-        : undefined,
-  };
-}
+const perSite = {
+  emptyMessage: "No sites selected.",
+  noun: nounFor("site"),
+  mapError: (err: unknown) => dbResult(err).message ?? GENERIC_ERROR,
+};
 
 // Bulk restore of soft-deleted sites (superadmin only).
 export async function restoreBulk(ids: string[]): Promise<ActionState> {
   await requireSuperadmin();
-  return runPerSite(ids, restoreSiteGuarded);
+  const result = await runPerRow(ids, restoreSiteGuarded, perSite);
+  if (result.ok) revalidatePath("/dashboard/sites");
+  return result;
 }
 
 // Bulk permanent delete of soft-deleted sites (superadmin only). Each site
 // runs the same guarded purge as purgeSite; one with history is skipped.
 export async function purgeBulk(ids: string[]): Promise<ActionState> {
   await requireSuperadmin();
-  return runPerSite(ids, purgeSiteGuarded);
+  const result = await runPerRow(ids, purgeSiteGuarded, perSite);
+  if (result.ok) revalidatePath("/dashboard/sites");
+  return result;
 }
 
 // Bulk subset-write of site.isActive (superadmin only). "Do what you can":
