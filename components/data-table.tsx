@@ -72,7 +72,7 @@ interface DataTableProps<TData extends RowData> {
   pageCount: number;
   total: number;
   /** Shown when the filtered set is empty with no search in the URL. */
-  emptyMessage?: string;
+  emptyMessage?: ReactNode;
   placeholder?: string;
   /** Opt out of the toolbar search box (default true). For tables whose
    * server query has no free-text column left to match — the search would

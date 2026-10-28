@@ -234,6 +234,7 @@ export default async function RequestsPage({
             showLocation={actor.role !== "admin"}
             pageCount={pageCount}
             total={rowCount}
+            filtered={Boolean(status || type)}
           />
         </CardContent>
       </Card>

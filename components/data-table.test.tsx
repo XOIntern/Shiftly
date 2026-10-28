@@ -36,7 +36,7 @@ function renderTable(options: {
   filters?: ReactNode;
   urlQuery?: string;
   data?: TestRow[];
-  emptyMessage?: string;
+  emptyMessage?: ReactNode;
 }) {
   searchParamsHolder.params = new URLSearchParams(options.urlQuery ?? "");
   return renderToStaticMarkup(
@@ -82,5 +82,21 @@ describe("DataTable searchable opt-out", () => {
 
     expect(html.includes('No results for "foo".')).toBeFalse();
     expect(html.includes("empty-message-marker")).toBeTrue();
+  });
+});
+
+describe("DataTable emptyMessage", () => {
+  test("an element renders as the empty-state content, not only a string", () => {
+    const html = renderTable({
+      searchable: false,
+      data: [],
+      emptyMessage: (
+        <span>
+          Nothing here <a href="/reset">Reset</a>
+        </span>
+      ),
+    });
+
+    expect(html.includes('<a href="/reset">Reset</a>')).toBeTrue();
   });
 });
