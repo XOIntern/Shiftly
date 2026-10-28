@@ -14,7 +14,7 @@ import {
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError, pgErrorCode } from "@/error/db-errors";
-import { requireUser } from "@/lib/session";
+import { requireSuperadmin, requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
@@ -27,6 +27,10 @@ import {
   positionMutationWhere,
   positionOwnedByActor,
 } from "@/lib/position-scope";
+import { purgePositionGuarded } from "@/lib/position-purge";
+import { restorePositionGuarded } from "@/lib/position-restore";
+import { nounFor } from "@/lib/bulk-summary";
+import { runPerRow } from "@/lib/run-per-row";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -354,4 +358,89 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
   } catch (err) {
     return dbResult(err);
   }
+}
+
+// Brings a soft-deleted position back (lib/position-restore.ts), inside the
+// actor's scope: an HO only reaches their own site's rows, an admin the site
+// of their location, and anything else answers the plain not-found message.
+// Only the position row returns; a name now taken by a live position refuses
+// with the duplicate message, through the guard or through the unique-index
+// backstop.
+export async function restorePosition(id: string): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid position id." };
+  }
+
+  let result: Awaited<ReturnType<typeof restorePositionGuarded>>;
+  try {
+    result = await db.transaction((tx) =>
+      restorePositionGuarded(tx, actor, id),
+    );
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/positions");
+  return { ok: true };
+}
+
+// Permanent delete of a soft-deleted position (superadmin only). Guards and
+// the write share one transaction (lib/position-purge.ts); any worker or
+// work-area link, soft-deleted owners included, and any request line refuse,
+// and the FK backstop is mapped by dbResult.
+export async function purgePosition(id: string): Promise<ActionState> {
+  await requireSuperadmin();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid position id." };
+  }
+
+  let result: Awaited<ReturnType<typeof purgePositionGuarded>>;
+  try {
+    result = await db.transaction((tx) => purgePositionGuarded(tx, id));
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/positions");
+  return { ok: true };
+}
+
+const perPosition = {
+  emptyMessage: "No positions selected.",
+  noun: nounFor("position"),
+  mapError: (err: unknown) => dbResult(err).message ?? GENERIC_ERROR,
+};
+
+// Bulk restore of soft-deleted positions, inside the actor's scope: rows of
+// another site are skipped like any other refusal.
+export async function restoreBulk(ids: string[]): Promise<ActionState> {
+  const actor = await requireUser();
+  const result = await runPerRow(
+    ids,
+    (tx, id) => restorePositionGuarded(tx, actor, id),
+    perPosition,
+  );
+  if (result.ok) revalidatePath("/dashboard/positions");
+  return result;
+}
+
+// Bulk permanent delete of soft-deleted positions (superadmin only). Each
+// position runs the same guarded purge as purgePosition; one still referenced
+// or with request history is skipped.
+export async function purgeBulk(ids: string[]): Promise<ActionState> {
+  await requireSuperadmin();
+  const result = await runPerRow(ids, purgePositionGuarded, perPosition);
+  if (result.ok) revalidatePath("/dashboard/positions");
+  return result;
 }
