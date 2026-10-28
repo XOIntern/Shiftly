@@ -12,6 +12,7 @@ import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { siteCreateSchema, siteUpdateSchema } from "@/validation/site";
 import { deleteSiteGuarded } from "@/lib/site-delete";
+import { purgeSiteGuarded } from "@/lib/site-purge";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -107,6 +108,31 @@ export async function deleteSite(id: string): Promise<ActionState> {
   let result: Awaited<ReturnType<typeof deleteSiteGuarded>>;
   try {
     result = await db.transaction((tx) => deleteSiteGuarded(tx, id));
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/sites");
+  return { ok: true };
+}
+
+// Permanent delete of a soft-deleted site. Guards and writes share one
+// transaction (lib/site-purge.ts); history refuses, and the FK backstop is
+// mapped by dbResult.
+export async function purgeSite(id: string): Promise<ActionState> {
+  await requireSuperadmin();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid site id." };
+  }
+
+  let result: Awaited<ReturnType<typeof purgeSiteGuarded>>;
+  try {
+    result = await db.transaction((tx) => purgeSiteGuarded(tx, id));
   } catch (err) {
     return dbResult(err);
   }
