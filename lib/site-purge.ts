@@ -11,6 +11,7 @@ import {
 import type { PurgeCoverage } from "@/types/deleted";
 
 import {
+  attendanceRecord,
   auditLog,
   account,
   mpRequest,
@@ -59,7 +60,9 @@ export const PURGE_COVERAGE: PurgeCoverage = {
     site,
   ].map(getTableName),
   // Any row at all refuses the purge.
-  history: [rosterPlan, mpRequest, auditLog].map(getTableName),
+  history: [rosterPlan, mpRequest, auditLog, attendanceRecord].map(
+    getTableName,
+  ),
   // Removed by ON DELETE CASCADE from a table above.
   cascade: [rosterAssignment, mpRequestLine, session, account].map(
     getTableName,
@@ -68,7 +71,7 @@ export const PURGE_COVERAGE: PurgeCoverage = {
 
 // Permanent delete of an already soft-deleted site. Guards read first and the
 // deletes run last, all in the caller's transaction, so a refusal leaves
-// nothing partial. History (roster, request, audit) always refuses; the
+// nothing partial. History (roster, request, audit, attendance) always refuses; the
 // site's master data is removed with it, children first because every FK to
 // site/site_location is ON DELETE RESTRICT. FK RESTRICT stays the backstop
 // (the action maps it through mapDbError).
@@ -166,6 +169,22 @@ export async function purgeSiteGuarded(
     return {
       ok: false,
       message: "Site has audit history and cannot be permanently deleted",
+    };
+  }
+  const [attendance] = await tx
+    .select({ id: attendanceRecord.id })
+    .from(attendanceRecord)
+    .where(
+      or(
+        eq(attendanceRecord.siteId, id),
+        inArray(attendanceRecord.recordedBy, siteUserIds),
+      ),
+    )
+    .limit(1);
+  if (attendance) {
+    return {
+      ok: false,
+      message: "Site has attendance history and cannot be permanently deleted",
     };
   }
 

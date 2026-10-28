@@ -1,6 +1,7 @@
-import { and, eq, getTableName, isNotNull } from "drizzle-orm";
+import { and, eq, getTableName, isNotNull, or } from "drizzle-orm";
 
 import {
+  attendanceRecord,
   mpRequestLine,
   rosterAssignment,
   shiftDefinition,
@@ -21,15 +22,18 @@ export const PURGE_COVERAGE: PurgeCoverage = {
   // Deleted by purgeShiftGuarded below.
   purged: [shiftDefinition].map(getTableName),
   // Any row at all refuses the purge.
-  history: [rosterAssignment, mpRequestLine].map(getTableName),
+  history: [rosterAssignment, mpRequestLine, attendanceRecord].map(
+    getTableName,
+  ),
   cascade: [],
 };
 
 // Permanent delete of an already soft-deleted shift (superadmin only, the
 // caller enforces it). Guards read first and the delete runs last, all in the
 // caller's transaction, so a refusal leaves nothing partial. Roster
-// assignments and request lines are history and always refuse. FK RESTRICT
-// stays the backstop (the action maps it through mapDbError).
+// assignments, request lines and attendance records (as the worked or the
+// rostered shift) are history and always refuse. FK RESTRICT stays the
+// backstop (the action maps it through mapDbError).
 //
 // Exported for tests, mirroring purgeSiteGuarded.
 export async function purgeShiftGuarded(
@@ -65,6 +69,23 @@ export async function purgeShiftGuarded(
     return {
       ok: false,
       message: "Shift has request history and cannot be permanently deleted",
+    };
+  }
+
+  const [attendance] = await tx
+    .select({ id: attendanceRecord.id })
+    .from(attendanceRecord)
+    .where(
+      or(
+        eq(attendanceRecord.shiftDefinitionId, id),
+        eq(attendanceRecord.rosteredShiftDefinitionId, id),
+      ),
+    )
+    .limit(1);
+  if (attendance) {
+    return {
+      ok: false,
+      message: "Shift has attendance history and cannot be permanently deleted",
     };
   }
 

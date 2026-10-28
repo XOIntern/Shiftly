@@ -21,6 +21,14 @@ import {
   workerPosition,
 } from "../drizzle/schema";
 import { installCleanup } from "@/lib/test-cleanup";
+import {
+  seedAttendance,
+  seedLocation,
+  seedShift,
+  seedSite,
+  seedWorkArea,
+  seedWorker,
+} from "@/lib/test-fixtures";
 
 // Fixture teardown runs in afterEach / afterAll, so it still runs after a test
 // times out (a per-test finally would not).
@@ -392,6 +400,49 @@ describe("purgeSiteGuarded", () => {
     });
 
     expect(await purge(f.siteId)).toEqual({ ok: false, message: AUDIT_MESSAGE });
+    expect(await remaining(f)).toEqual(ALL_PRESENT);
+  });
+
+  const ATTENDANCE_MESSAGE =
+    "Site has attendance history and cannot be permanently deleted";
+
+  test("an attendance record at the site is history", async () => {
+    const recorder = await outsideActor();
+    const f = await seedDeletedSite();
+    await seedAttendance(fixtureCleanup, {
+      loc: { id: f.locationId, siteId: f.siteId },
+      workerId: f.workerId,
+      workAreaId: f.areaId,
+      shiftId: f.shiftId,
+      recordedBy: recorder,
+    });
+
+    expect(await purge(f.siteId)).toEqual({
+      ok: false,
+      message: ATTENDANCE_MESSAGE,
+    });
+    expect(await remaining(f)).toEqual(ALL_PRESENT);
+  });
+
+  test("a record at another site recorded by one of the site's users is history", async () => {
+    const f = await seedDeletedSite();
+    const otherSite = await seedSite(fixtureCleanup);
+    const otherLoc = await seedLocation(fixtureCleanup, otherSite.id);
+    const otherWorker = await seedWorker(fixtureCleanup, otherLoc);
+    const otherArea = await seedWorkArea(fixtureCleanup, otherLoc);
+    const otherShift = await seedShift(fixtureCleanup, otherLoc);
+    await seedAttendance(fixtureCleanup, {
+      loc: otherLoc,
+      workerId: otherWorker.id,
+      workAreaId: otherArea.id,
+      shiftId: otherShift.id,
+      recordedBy: f.userId,
+    });
+
+    expect(await purge(f.siteId)).toEqual({
+      ok: false,
+      message: ATTENDANCE_MESSAGE,
+    });
     expect(await remaining(f)).toEqual(ALL_PRESENT);
   });
 

@@ -9,6 +9,7 @@ import { shiftDefinition } from "../drizzle/schema";
 import { installCleanup } from "@/lib/test-cleanup";
 import {
   seedAssignment,
+  seedAttendance,
   seedLocation,
   seedMpRequest,
   seedPosition,
@@ -120,5 +121,59 @@ describe("purgeShiftGuarded", () => {
       message: "Shift has request history and cannot be permanently deleted",
     });
     expect(await exists(shift.id)).toBe(true);
+  });
+
+  const ATTENDANCE =
+    "Shift has attendance history and cannot be permanently deleted";
+
+  test("an attendance record on the worked shift is history: refused and the shift stays", async () => {
+    const site = await seedSite(cleanup);
+    const loc = await seedLocation(cleanup, site.id);
+    const shift = await seedShift(cleanup, loc, { deleted: true });
+    const area = await seedWorkArea(cleanup, loc);
+    const w = await seedWorker(cleanup, loc);
+    const admin = await seedUser(cleanup, {
+      role: "admin",
+      siteId: site.id,
+      siteLocationId: loc.id,
+    });
+    await seedAttendance(cleanup, {
+      loc,
+      workerId: w.id,
+      workAreaId: area.id,
+      shiftId: shift.id,
+      recordedBy: admin.id,
+    });
+
+    expect(await purge(shift.id)).toEqual({ ok: false, message: ATTENDANCE });
+    expect(await exists(shift.id)).toBe(true);
+  });
+
+  test("a record that names the shift only as the rostered one is history too", async () => {
+    const site = await seedSite(cleanup);
+    const loc = await seedLocation(cleanup, site.id);
+    const rostered = await seedShift(cleanup, loc, {
+      deleted: true,
+      orderIndex: 1,
+    });
+    const worked = await seedShift(cleanup, loc, { orderIndex: 2 });
+    const area = await seedWorkArea(cleanup, loc);
+    const w = await seedWorker(cleanup, loc);
+    const admin = await seedUser(cleanup, {
+      role: "admin",
+      siteId: site.id,
+      siteLocationId: loc.id,
+    });
+    await seedAttendance(cleanup, {
+      loc,
+      workerId: w.id,
+      workAreaId: area.id,
+      shiftId: worked.id,
+      rosteredShiftId: rostered.id,
+      recordedBy: admin.id,
+    });
+
+    expect(await purge(rostered.id)).toEqual({ ok: false, message: ATTENDANCE });
+    expect(await exists(rostered.id)).toBe(true);
   });
 });

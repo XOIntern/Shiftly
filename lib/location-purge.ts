@@ -10,6 +10,7 @@ import {
 
 import {
   account,
+  attendanceRecord,
   auditLog,
   mpRequest,
   mpRequestLine,
@@ -48,7 +49,9 @@ export const PURGE_COVERAGE: PurgeCoverage = {
     siteLocation,
   ].map(getTableName),
   // Any row at all refuses the purge.
-  history: [rosterPlan, mpRequest, auditLog].map(getTableName),
+  history: [rosterPlan, mpRequest, auditLog, attendanceRecord].map(
+    getTableName,
+  ),
   // Removed by ON DELETE CASCADE from a table above.
   cascade: [rosterAssignment, mpRequestLine, session, account].map(
     getTableName,
@@ -59,7 +62,7 @@ export const PURGE_COVERAGE: PurgeCoverage = {
 // the deletes run last, all in the caller's transaction, so a refusal leaves
 // nothing partial. Live children refuse (deleting a location only checks its
 // users, so a live work area, worker or shift can still sit under it);
-// history (roster, request, audit) always refuses. The location's own rows are
+// history (roster, request, audit, attendance) always refuses. The location's own rows are
 // removed with it, children first because every FK into site_location is ON
 // DELETE RESTRICT. FK RESTRICT stays the backstop (the action maps it through
 // mapDbError).
@@ -129,7 +132,9 @@ export async function purgeLocationGuarded(
 
   // (2) History: any row at all, deleted or not. A plan or request written by
   // one of the location's users counts even when it sits at another location,
-  // and so does an assignment of one of its workers in a plan elsewhere.
+  // and so does an assignment of one of its workers in a plan elsewhere. The
+  // same goes for attendance: a record at the location, one of its workers
+  // recorded elsewhere, or one recorded by one of its users.
   const [plan] = await tx
     .select({ id: rosterPlan.id })
     .from(rosterPlan)
@@ -184,6 +189,24 @@ export async function purgeLocationGuarded(
     return {
       ok: false,
       message: "Location has audit history and cannot be permanently deleted",
+    };
+  }
+  const [attendance] = await tx
+    .select({ id: attendanceRecord.id })
+    .from(attendanceRecord)
+    .where(
+      or(
+        eq(attendanceRecord.siteLocationId, id),
+        inArray(attendanceRecord.workerId, locationWorkerIds),
+        inArray(attendanceRecord.recordedBy, locationUserIds),
+      ),
+    )
+    .limit(1);
+  if (attendance) {
+    return {
+      ok: false,
+      message:
+        "Location has attendance history and cannot be permanently deleted",
     };
   }
 

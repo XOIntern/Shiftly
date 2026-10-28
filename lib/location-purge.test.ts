@@ -19,6 +19,7 @@ import {
 import { installCleanup } from "@/lib/test-cleanup";
 import {
   seedAssignment,
+  seedAttendance,
   seedAuditLog,
   seedLocation,
   seedMpRequest,
@@ -367,6 +368,73 @@ describe("purgeLocationGuarded", () => {
       await seedAuditLog(cleanup, { actorId: f.userId });
 
       expect(await purge(f.locationId)).toEqual({ ok: false, message: AUDIT });
+      expect(await remaining(f)).toEqual(ALL_PRESENT);
+    });
+
+    const ATTENDANCE =
+      "Location has attendance history and cannot be permanently deleted";
+
+    test("an attendance record at the location", async () => {
+      const f = await seedDeletedLocation();
+      const recorder = await outsideActor();
+      // A worker of a sibling location, so only the record's own location
+      // ties it to the one being purged.
+      const elsewhere = await seedLocation(cleanup, f.siteId);
+      const visitor = await seedWorker(cleanup, elsewhere);
+      await seedAttendance(cleanup, {
+        loc: { id: f.locationId, siteId: f.siteId },
+        workerId: visitor.id,
+        workAreaId: f.areaId,
+        shiftId: f.shiftId,
+        recordedBy: recorder,
+      });
+
+      expect(await purge(f.locationId)).toEqual({
+        ok: false,
+        message: ATTENDANCE,
+      });
+      expect(await remaining(f)).toEqual(ALL_PRESENT);
+    });
+
+    test("a record of one of its workers at another location", async () => {
+      const f = await seedDeletedLocation();
+      const recorder = await outsideActor();
+      const elsewhere = await seedLocation(cleanup, f.siteId);
+      const otherArea = await seedWorkArea(cleanup, elsewhere);
+      const otherShift = await seedShift(cleanup, elsewhere);
+      await seedAttendance(cleanup, {
+        loc: elsewhere,
+        workerId: f.workerId,
+        workAreaId: otherArea.id,
+        shiftId: otherShift.id,
+        recordedBy: recorder,
+      });
+
+      expect(await purge(f.locationId)).toEqual({
+        ok: false,
+        message: ATTENDANCE,
+      });
+      expect(await remaining(f)).toEqual(ALL_PRESENT);
+    });
+
+    test("a record at another location recorded by one of its users", async () => {
+      const f = await seedDeletedLocation();
+      const elsewhere = await seedLocation(cleanup, f.siteId);
+      const otherWorker = await seedWorker(cleanup, elsewhere);
+      const otherArea = await seedWorkArea(cleanup, elsewhere);
+      const otherShift = await seedShift(cleanup, elsewhere);
+      await seedAttendance(cleanup, {
+        loc: elsewhere,
+        workerId: otherWorker.id,
+        workAreaId: otherArea.id,
+        shiftId: otherShift.id,
+        recordedBy: f.userId,
+      });
+
+      expect(await purge(f.locationId)).toEqual({
+        ok: false,
+        message: ATTENDANCE,
+      });
       expect(await remaining(f)).toEqual(ALL_PRESENT);
     });
 

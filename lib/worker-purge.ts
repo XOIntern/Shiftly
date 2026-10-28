@@ -1,6 +1,11 @@
 import { and, eq, getTableName, isNotNull } from "drizzle-orm";
 
-import { rosterAssignment, worker, workerPosition } from "../drizzle/schema";
+import {
+  attendanceRecord,
+  rosterAssignment,
+  worker,
+  workerPosition,
+} from "../drizzle/schema";
 import type { Tx } from "../types/db-tx";
 import type { PurgeCoverage, RowResult } from "../types/deleted";
 
@@ -15,15 +20,15 @@ export const PURGE_COVERAGE: PurgeCoverage = {
   // Deleted by purgeWorkerGuarded below.
   purged: [workerPosition, worker].map(getTableName),
   // Any row at all refuses the purge.
-  history: [rosterAssignment].map(getTableName),
+  history: [rosterAssignment, attendanceRecord].map(getTableName),
   cascade: [],
 };
 
 // Permanent delete of an already soft-deleted worker (superadmin only, the
 // caller enforces it). Guards read first and the deletes run last, all in the
 // caller's transaction, so a refusal leaves nothing partial. A roster
-// assignment is history and always refuses, and leaves the worker's position
-// links in place. The worker's own links are removed with it, first because
+// assignment or an attendance record is history and always refuses, and
+// leaves the worker's position links in place. The worker's own links are removed with it, first because
 // their FK is ON DELETE RESTRICT; the positions themselves belong to the site
 // and stay. FK RESTRICT stays the backstop (the action maps it through
 // mapDbError).
@@ -50,6 +55,18 @@ export async function purgeWorkerGuarded(
     return {
       ok: false,
       message: "Worker has roster history and cannot be permanently deleted",
+    };
+  }
+
+  const [attendance] = await tx
+    .select({ id: attendanceRecord.id })
+    .from(attendanceRecord)
+    .where(eq(attendanceRecord.workerId, id))
+    .limit(1);
+  if (attendance) {
+    return {
+      ok: false,
+      message: "Worker has attendance history and cannot be permanently deleted",
     };
   }
 

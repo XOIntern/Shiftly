@@ -2,6 +2,7 @@ import { and, eq, getTableName, isNotNull, or } from "drizzle-orm";
 
 import {
   account,
+  attendanceRecord,
   auditLog,
   mpRequest,
   mpRequestLine,
@@ -24,7 +25,9 @@ export const PURGE_COVERAGE: PurgeCoverage = {
   // Deleted by purgeUserGuarded below.
   purged: [user].map(getTableName),
   // Any row at all refuses the purge.
-  history: [auditLog, rosterPlan, mpRequest].map(getTableName),
+  history: [auditLog, rosterPlan, mpRequest, attendanceRecord].map(
+    getTableName,
+  ),
   // Removed by ON DELETE CASCADE: sessions and accounts from the user row,
   // assignments and request lines from the history rows above (which refuse
   // the purge, so the cascade never actually fires for a user).
@@ -37,8 +40,8 @@ export const PURGE_COVERAGE: PurgeCoverage = {
 // caller enforces it, so there is no per-actor scope here). Guards read first
 // and the delete runs last, all in the caller's transaction, so a refusal
 // leaves nothing partial. A user who authored an audit row, generated or
-// published a roster plan, or created a request is part of that history and
-// always refuses; the trail is never deleted. Sessions and credential
+// published a roster plan, created a request, or recorded attendance is part
+// of that history and always refuses; the trail is never deleted. Sessions and credential
 // accounts go with the user through their ON DELETE CASCADE foreign keys. FK
 // RESTRICT stays the backstop (the action maps it through mapDbError).
 //
@@ -88,6 +91,18 @@ export async function purgeUserGuarded(
     return {
       ok: false,
       message: "User has request history and cannot be permanently deleted",
+    };
+  }
+
+  const [attendance] = await tx
+    .select({ id: attendanceRecord.id })
+    .from(attendanceRecord)
+    .where(eq(attendanceRecord.recordedBy, id))
+    .limit(1);
+  if (attendance) {
+    return {
+      ok: false,
+      message: "User has attendance history and cannot be permanently deleted",
     };
   }
 
