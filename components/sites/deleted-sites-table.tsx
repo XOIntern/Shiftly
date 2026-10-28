@@ -2,12 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { EllipsisIcon, Trash2Icon } from "lucide-react";
+import { EllipsisIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
-import { purgeSite } from "@/app/dashboard/sites/actions";
+import { purgeSite, restoreSite } from "@/app/dashboard/sites/actions";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
+import { DeletedSitesToolbar } from "@/components/sites/deleted-sites-toolbar";
 import { SitesListFilter } from "@/components/sites/sites-list-filter";
 import { StatusFilter } from "@/components/status-filter";
 import {
@@ -45,6 +46,19 @@ export function purgeDescription(name: string): string {
 
 function DeletedSiteRowActions({ site }: { site: DeletedSiteRow }) {
   const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  // Restore runs at once: deleting the site again undoes it.
+  function handleRestore() {
+    startTransition(async () => {
+      const result = await restoreSite(site.id);
+      if (result.ok) {
+        toast.success(`“${site.name}” restored`);
+        return;
+      }
+      toast.error(result.message ?? GENERIC_ERROR);
+    });
+  }
 
   return (
     <DropdownMenu>
@@ -61,6 +75,10 @@ function DeletedSiteRowActions({ site }: { site: DeletedSiteRow }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuGroup>
+          <DropdownMenuItem disabled={pending} onClick={handleRestore}>
+            <RotateCcwIcon />
+            Restore
+          </DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onClick={() => setOpen(true)}>
             <Trash2Icon />
             Delete permanently
@@ -171,6 +189,9 @@ export function DeletedSitesTable({
         </>
       }
       getRowId={(row) => row.id}
+      selectionToolbar={({ count, ids, clear }) => (
+        <DeletedSitesToolbar count={count} ids={ids} clear={clear} />
+      )}
     />
   );
 }

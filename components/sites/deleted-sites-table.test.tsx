@@ -42,8 +42,13 @@ describe("DeletedSitesTable", () => {
     expect(render([row()])).toContain('aria-label="Actions for Nestle Cikarang"');
   });
 
-  test("there is no selection column", () => {
-    expect(render([row()])).not.toContain('type="checkbox"');
+  test("rows can be selected, with a select-all in the header", () => {
+    const html = render([row()]);
+
+    expect(html).toContain('aria-label="Select all rows"');
+    expect(html).toContain(
+      'aria-label="Select row 11111111-1111-4111-8111-111111111111"',
+    );
   });
 
   test("both filters stay: the status filter and the list filter", () => {
