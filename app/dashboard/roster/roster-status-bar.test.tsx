@@ -13,9 +13,8 @@ mock.module("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-const { RosterStatusBar, discardDialogCopy, publishDialogCopy } = await import(
-  "./roster-status-bar"
-);
+const { RosterStatusBar, discardDialogCopy, publishDialogCopy, warningsText } =
+  await import("./roster-status-bar");
 type BarProps = Parameters<typeof RosterStatusBar>[0];
 
 const PLAN_A = "11111111-1111-4111-8111-111111111111";
@@ -43,6 +42,7 @@ const base: BarProps = {
   totals: { required: 48, filled: 44 },
   violationHead: ["Worker 7 works 6 days"],
   violationCount: 2,
+  blockingViolationCount: 2,
   sites: [],
   siteLocations: [{ id: LOC_1, name: "Canteen North", siteId: SITE }],
   selectedLocationId: LOC_1,
@@ -82,6 +82,29 @@ describe("RosterStatusBar", () => {
   test("the warnings text is a button that opens the violation list", () => {
     const html = render();
     expect(html).toMatch(/<button[^>]*>2 warnings<\/button>/);
+  });
+
+  test("a draft with only historical warnings says none are blocking on the trigger", () => {
+    const html = render({ violationCount: 5, blockingViolationCount: 0 });
+    expect(html).toMatch(/<button[^>]*>5 warnings, none blocking<\/button>/);
+  });
+
+  test("a draft with some blocking warnings shows the blocking count on the trigger", () => {
+    const html = render({ violationCount: 5, blockingViolationCount: 2 });
+    expect(html).toMatch(/<button[^>]*>5 warnings, 2 blocking<\/button>/);
+  });
+
+  test("a published plan with warnings never mentions blocking or blocking publishing", () => {
+    const html = render({
+      gate: { action: "revise", enabled: true, reason: null },
+      planStatus: "published",
+      planVersion: 3,
+      violationCount: 5,
+      blockingViolationCount: 2,
+    });
+    expect(html).toMatch(/<button[^>]*>5 warnings<\/button>/);
+    expect(html).not.toContain("blocking");
+    expect(html).not.toContain("block publishing");
   });
 
   test("no plan says so and shows no version", () => {
@@ -279,6 +302,34 @@ describe("RosterStatusBar", () => {
 
   test("canWrite false hides the primary button on a draft", () => {
     expect(render({ canWrite: false })).not.toContain("Publish roster");
+  });
+});
+
+describe("warningsText", () => {
+  test("no warnings gives no text", () => {
+    expect(warningsText(0, 0, true)).toBeNull();
+    expect(warningsText(0, 0, false)).toBeNull();
+  });
+
+  test("all warnings blocking keeps the plain wording", () => {
+    expect(warningsText(1, 1, true)).toBe("1 warning");
+    expect(warningsText(2, 2, true)).toBe("2 warnings");
+  });
+
+  test("a draft with none blocking says so", () => {
+    expect(warningsText(5, 0, true)).toBe("5 warnings, none blocking");
+    expect(warningsText(1, 0, true)).toBe("1 warning, none blocking");
+  });
+
+  test("a draft with some blocking gives the count", () => {
+    expect(warningsText(5, 2, true)).toBe("5 warnings, 2 blocking");
+    expect(warningsText(3, 1, true)).toBe("3 warnings, 1 blocking");
+  });
+
+  test("a published plan keeps the plain wording whatever the blocking count", () => {
+    expect(warningsText(5, 2, false)).toBe("5 warnings");
+    expect(warningsText(5, 0, false)).toBe("5 warnings");
+    expect(warningsText(1, 0, false)).toBe("1 warning");
   });
 });
 
