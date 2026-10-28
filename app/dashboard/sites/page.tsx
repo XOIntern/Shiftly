@@ -49,11 +49,11 @@ export default async function SitesPage({
   // Null-safe and(...) composes search + filters. The deletedAt predicate
   // splits the live list from the deleted one (soft-delete epic #40) and
   // feeds both the count and the listing — this one `where` serves both
-  // queries below. The isActive filter belongs to the live list only.
+  // queries below.
   const where = and(
     deletedView ? isNotNull(site.deletedAt) : isNull(site.deletedAt),
     ...(pattern ? [ilike(site.name, pattern)] : []),
-    ...(!deletedView && status ? [eq(site.isActive, status === "active")] : []),
+    ...(status ? [eq(site.isActive, status === "active")] : []),
   );
   // buildOrder own-property checks the whitelist: a plain truthiness guard
   // would admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which

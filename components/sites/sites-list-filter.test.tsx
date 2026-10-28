@@ -24,11 +24,11 @@ describe("nextListParams", () => {
     expect(next.get("page")).toBe("1");
   });
 
-  test("a switch keeps the search term but drops status and sort", () => {
+  test("a switch keeps the search term and the status but drops the sort", () => {
     const next = nextListParams(current(), "deleted");
 
     expect(next.get("q")).toBe("foo");
-    expect(next.has("status")).toBe(false);
+    expect(next.get("status")).toBe("active");
     expect(next.has("sort")).toBe(false);
   });
 

@@ -495,17 +495,20 @@ describe("sites page deleted view", () => {
     expect(props.sites.map((row) => row.id)).toEqual([a, b]);
   });
 
-  test("the status filter does not apply to the deleted view", async () => {
+  test("the status filter applies to the deleted list too", async () => {
     const token = `t185-del-${randomUUID().slice(0, 8)}`;
     const [id] = await seed(token, [
       { suffix: "x", deletedAt: new Date("2026-01-01T10:00:00Z") },
     ]);
     asSuperadmin();
 
-    // The seeded row is inactive, so a honoured status=active would hide it.
-    const props = await renderDeleted({ q: token, status: "active" });
+    // The seeded row is inactive (deleting a site requires deactivating it).
+    const inactive = await renderDeleted({ q: token, status: "inactive" });
+    expect(inactive.sites.map((row) => row.id)).toEqual([id]);
 
-    expect(props.sites.map((row) => row.id)).toEqual([id]);
+    const active = await renderDeleted({ q: token, status: "active" });
+    expect(active.sites).toEqual([]);
+    expect(active.total).toBe(0);
   });
 
   test("pagination math holds in the deleted view", async () => {

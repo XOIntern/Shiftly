@@ -19,10 +19,10 @@ const LIST_OPTIONS = [
 ];
 
 // The params after switching list: it restarts at page 1 and keeps the search
-// term. status and sort belong to the list being left (the deleted list has
-// neither the status column nor the isActive sort), so they are dropped. Any
-// value but "deleted" is the active list, whose URL carries no show param.
-// Pure: the caller's params are left alone.
+// term and the status filter (both lists filter by status). The sort belongs
+// to the list being left (the deleted list has no status column to sort by),
+// so it is dropped. Any value but "deleted" is the active list, whose URL
+// carries no show param. Pure: the caller's params are left alone.
 export function nextListParams(
   current: URLSearchParams,
   next: string | null,
@@ -33,7 +33,6 @@ export function nextListParams(
   } else {
     params.delete("show");
   }
-  params.delete("status");
   params.delete("sort");
   params.set("page", "1");
   return params;

@@ -9,6 +9,7 @@ import { purgeSite } from "@/app/dashboard/sites/actions";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { SitesListFilter } from "@/components/sites/sites-list-filter";
+import { StatusFilter } from "@/components/status-filter";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -163,7 +164,12 @@ export function DeletedSitesTable({
       pageCount={pageCount}
       total={total}
       emptyMessage="No deleted sites."
-      filters={<SitesListFilter />}
+      filters={
+        <>
+          <StatusFilter />
+          <SitesListFilter />
+        </>
+      }
       getRowId={(row) => row.id}
     />
   );

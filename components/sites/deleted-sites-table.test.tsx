@@ -46,11 +46,11 @@ describe("DeletedSitesTable", () => {
     expect(render([row()])).not.toContain('type="checkbox"');
   });
 
-  test("the list filter stays so the list can be switched back, the status filter goes", () => {
+  test("both filters stay: the status filter and the list filter", () => {
     const html = render([row()]);
 
+    expect(html).toContain('aria-label="Filter by status"');
     expect(html).toContain('aria-label="Choose site list"');
-    expect(html).not.toContain("Filter by status");
   });
 
   test("an empty list says there are no deleted sites", () => {
