@@ -1,12 +1,15 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CalendarPlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionState } from "@/types/action-state";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import { focusFallbackTarget } from "@/lib/final-focus";
+import {
+  FOCUS_FALLBACK_SELECTOR,
+  focusFallbackTarget,
+} from "@/lib/final-focus";
 import { shouldRefreshAfter } from "@/lib/refresh-after";
 import { runExclusive } from "@/lib/run-exclusive";
 import { useFocusRestore } from "@/hooks/use-focus-restore";
@@ -16,7 +19,7 @@ import {
   publishRoster,
   revisePlan,
 } from "@/app/dashboard/roster/actions";
-import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ConfirmDialog, pendingButtonProps } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -299,6 +302,22 @@ export function RevisePlanButton({ planId }: { planId: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
+  const succeeded = useRef(false);
+
+  // A successful revise swaps this button for Publish when the navigation
+  // commits, so the button unmounts while it holds focus. Once it is gone,
+  // focus that fell to <body> goes to the page title.
+  useEffect(
+    () => () => {
+      if (!succeeded.current) return;
+      setTimeout(() => {
+        const active = document.activeElement;
+        if (active !== null && active !== document.body) return;
+        document.querySelector<HTMLElement>(FOCUS_FALLBACK_SELECTOR)?.focus();
+      }, 0);
+    },
+    [],
+  );
 
   function revise() {
     if (pending) return;
@@ -311,6 +330,7 @@ export function RevisePlanButton({ planId }: { planId: string }) {
           return;
         }
         toast.success("Revision draft created.");
+        succeeded.current = true;
         router.push(
           `${pathname}?${buildReviseHref(searchParams.toString(), outcome.draftPlanId)}`,
           { scroll: false },
@@ -328,9 +348,9 @@ export function RevisePlanButton({ planId }: { planId: string }) {
     <Button
       type="button"
       variant="outline"
-      className="max-sm:h-10"
       onClick={revise}
-      disabled={pending}
+      {...pendingButtonProps(pending)}
+      className="max-sm:h-10 aria-disabled:pointer-events-none aria-disabled:opacity-50"
     >
       {pending ? "Revising…" : "Revise plan"}
     </Button>
