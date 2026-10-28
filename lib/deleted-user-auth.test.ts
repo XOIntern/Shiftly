@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, test } from "bun:test";
+import { eq, inArray } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 
 import { auth } from "./auth";
@@ -17,6 +17,7 @@ async function createUser(
   password: string = PASSWORD,
 ): Promise<string> {
   const userId = randomUUID();
+  createdUserIds.push(userId);
   const passwordHash = await hashPassword(password);
   await db.insert(user).values({
     id: userId,
@@ -36,10 +37,14 @@ async function createUser(
   return userId;
 }
 
-async function cleanup(userId: string) {
-  // Cascades to account and session.
-  await db.delete(user).where(eq(user.id, userId));
-}
+// Every user a test provisions, removed after the test whether it passed or
+// failed. Deleting the user cascades to its account and session rows.
+const createdUserIds: string[] = [];
+afterEach(async () => {
+  if (createdUserIds.length === 0) return;
+  await db.delete(user).where(inArray(user.id, createdUserIds));
+  createdUserIds.length = 0;
+});
 
 describe("soft-deleted user auth", () => {
   test("sign-in for a soft-deleted user is refused with FORBIDDEN and mints no session", async () => {
@@ -77,8 +82,6 @@ describe("soft-deleted user auth", () => {
       .from(session)
       .where(eq(session.userId, userId));
     expect(minted).toHaveLength(0);
-
-    await cleanup(userId);
   });
 
   test("sign-in resolves the live user when a deleted row shared the email", async () => {
@@ -117,8 +120,5 @@ describe("soft-deleted user auth", () => {
       .from(session)
       .where(eq(session.userId, deletedId));
     expect(deletedSessions).toHaveLength(0);
-
-    await cleanup(liveId);
-    await cleanup(deletedId);
   });
 });

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, test } from "bun:test";
+import { inArray } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 
 import { auth } from "./auth";
@@ -15,6 +15,7 @@ const NEW_PASSWORD = "rotated-password-654321";
 // (seed-script style), since Better Auth sign-up is disabled in lib/auth.ts.
 async function createUser(): Promise<string> {
   const userId = randomUUID();
+  createdUserIds.push(userId);
   const passwordHash = await hashPassword(OLD_PASSWORD);
   await db.insert(user).values({
     id: userId,
@@ -34,10 +35,14 @@ async function createUser(): Promise<string> {
   return userId;
 }
 
-async function cleanup(userId: string) {
-  // Cascades to account and session.
-  await db.delete(user).where(eq(user.id, userId));
-}
+// Every user a test provisions, removed after the test whether it passed or
+// failed. Deleting the user cascades to its account and session rows.
+const createdUserIds: string[] = [];
+afterEach(async () => {
+  if (createdUserIds.length === 0) return;
+  await db.delete(user).where(inArray(user.id, createdUserIds));
+  createdUserIds.length = 0;
+});
 
 type SignInResult = { token: string; headers: Headers } | null;
 
@@ -89,8 +94,6 @@ describe("auth.api changePassword contract", () => {
 
     expect(result.rejected).toBe(true);
     expect(result.body?.code).toBe("INVALID_PASSWORD");
-
-    await cleanup(userId);
   });
 
   test("success rotates the credential: old password stops working, new one signs in", async () => {
@@ -111,8 +114,6 @@ describe("auth.api changePassword contract", () => {
     // ...and the NEW password does.
     const newPasswordSignIn = await signIn(userId, NEW_PASSWORD);
     expect(newPasswordSignIn).toBeTruthy();
-
-    await cleanup(userId);
   });
 
   test("revokeOtherSessions: true resolves the other session's cookie to null, keeps the current one", async () => {
@@ -153,8 +154,6 @@ describe("auth.api changePassword contract", () => {
       headers: new Headers({ cookie: freshCookie! }),
     });
     expect(currentAlive?.user.id).toBe(userId);
-
-    await cleanup(userId);
   });
 
   test("unauthenticated call (no headers) rejects with status UNAUTHORIZED", async () => {

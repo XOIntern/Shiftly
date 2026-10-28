@@ -9,7 +9,8 @@
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed-admin": "bun scripts/seed-admin.ts"
+    "db:seed-admin": "bun scripts/seed-admin.ts",
+    "db:clean-test-fixtures": "bun scripts/clean-test-fixtures.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

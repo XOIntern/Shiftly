@@ -167,9 +167,8 @@ describe("position delete guard against work-area requirements", () => {
         rows.find((row) => row.id === id)?.deletedAt;
       expect(deletedAtOf(fx.positionId)).toBeNull();
       expect(deletedAtOf(freeId)).not.toBeNull();
-
-      await db.delete(position).where(eq(position.id, freeId));
     } finally {
+      await db.delete(position).where(eq(position.id, freeId));
       await fx.cleanup();
     }
   });

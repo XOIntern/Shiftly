@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { position, site, siteLocation } from "@/drizzle/schema";
@@ -156,17 +156,17 @@ describe("positions bulk actions", () => {
         .from(position)
         .where(eq(position.name, "T8 Pinned Position"));
       expect(row?.siteId).toBe(siteA);
-      if (row) {
-        await db.delete(position).where(eq(position.id, row.id));
-      }
     } finally {
-      await db.delete(site).where(eq(site.id, siteA));
-      await db.delete(site).where(eq(site.id, siteB));
+      // The action-created row is found by site, so it goes even when an
+      // assertion above failed before its id was read.
+      await db.delete(position).where(inArray(position.siteId, [siteA, siteB]));
+      await db.delete(site).where(inArray(site.id, [siteA, siteB]));
     }
   });
 
   test("superadmin create uses the picked site; duplicate live name refused with the mapped message", async () => {
     const siteA = randomUUID();
+    const siteB = randomUUID();
 
     try {
       await db.insert(site).values([{ id: siteA, name: `t8-sa-${siteA}` }]);
@@ -188,36 +188,17 @@ describe("positions bulk actions", () => {
       expect(second.message).toBe("Position name already exists");
 
       // Same name under a different site is allowed.
-      const siteB = randomUUID();
-      try {
-        await db.insert(site).values([{ id: siteB, name: `t8-sa-b-${siteB}` }]);
-        const cross = await createPosition({
-          siteId: siteB,
-          name: "T8 Duplicated",
-        });
-        expect(cross.ok).toBe(true);
-        const [crossRow] = await db
-          .select({ id: position.id })
-          .from(position)
-          .where(eq(position.siteId, siteB));
-        if (crossRow) {
-          await db
-            .delete(position)
-            .where(eq(position.id, crossRow.id));
-        }
-      } finally {
-        await db.delete(site).where(eq(site.id, siteB));
-      }
-
-      const [row] = await db
-        .select({ id: position.id })
-        .from(position)
-        .where(eq(position.siteId, siteA));
-      if (row) {
-        await db.delete(position).where(eq(position.id, row.id));
-      }
+      await db.insert(site).values([{ id: siteB, name: `t8-sa-b-${siteB}` }]);
+      const cross = await createPosition({
+        siteId: siteB,
+        name: "T8 Duplicated",
+      });
+      expect(cross.ok).toBe(true);
     } finally {
-      await db.delete(site).where(eq(site.id, siteA));
+      // The action-created rows are found by site, so they go even when an
+      // assertion above failed.
+      await db.delete(position).where(inArray(position.siteId, [siteA, siteB]));
+      await db.delete(site).where(inArray(site.id, [siteA, siteB]));
     }
   });
 

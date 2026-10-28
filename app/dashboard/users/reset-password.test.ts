@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
@@ -27,12 +27,27 @@ mock.module("@/lib/session", () => ({
 mock.module("next/cache", () => ({
   revalidatePath: () => {},
 }));
-mock.module("@/lib/credential-store", () => ({
-  deleteUserSessions: async (userId: string) => {
-    sessionWipes.push(userId);
-  },
-  setCredentialPassword: async () => 1,
-}));
+// mock.module is process-wide and patches the loaded module in place: the
+// real exports are snapshotted by spread at load, the stub goes in only while
+// this file runs (beforeAll), and the real ones are put back (afterAll) so
+// later files see the real module.
+const realCredentialStore = { ...(await import("@/lib/credential-store")) };
+beforeAll(() => {
+  mock.module("@/lib/credential-store", () => ({
+    deleteUserSessions: async (userId: string) => {
+      sessionWipes.push(userId);
+    },
+    setCredentialPassword: async () => 1,
+  }));
+});
+afterAll(() => {
+  mock.module("@/lib/credential-store", () => realCredentialStore);
+});
+// bun --randomize also shuffles the tests inside a file; the wipes recorded by
+// one test must not leak into the next one's exact-match assertion.
+beforeEach(() => {
+  sessionWipes.length = 0;
+});
 
 describe("resetPassword", () => {
   test("a successful reset evicts the target's sessions", async () => {

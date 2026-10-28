@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { SessionUser } from "@/types/session";
@@ -16,31 +16,48 @@ mock.module("@/lib/session", () => ({
   requireSuperadmin: async () => actor,
 }));
 
-// Task 2's counts module is mocked, not run against the DB — the counts
+// mock.module is process-wide and patches the loaded module in place: the
+// real exports are snapshotted by spread at load, the stub goes in only while
+// this file runs (beforeAll), and the real ones are put back (afterAll) so
+// later files see the real module (lib/dashboard-counts.test.ts among them).
+const realDashboardCounts = { ...(await import("@/lib/dashboard-counts")) };
+// The counts module is mocked, not run against the DB — the counts
 // themselves are pinned by lib/dashboard-counts.test.ts.
-mock.module("@/lib/dashboard-counts", () => ({
-  dashboardCounts: async () => ({
-    workers: 12,
-    positions: 8,
-    workAreas: 5,
-    locations: 3,
-  }),
-}));
+beforeAll(() => {
+  mock.module("@/lib/dashboard-counts", () => ({
+    dashboardCounts: async () => ({
+      workers: 12,
+      positions: 8,
+      workAreas: 5,
+      locations: 3,
+    }),
+  }));
+});
+afterAll(() => {
+  mock.module("@/lib/dashboard-counts", () => realDashboardCounts);
+});
 
-// Other suites resolve these navigations; nothing here needs them.
-mock.module("next/navigation", () => ({
-  redirect: () => {
-    throw new Error("redirect");
-  },
-  // Pages under test may call notFound(); every stub in the repo carries it
-  // because bun's module mocks are process-wide and the last registration
-  // wins across suites.
-  notFound: () => {
-    throw new Error("not-found");
-  },
-  useRouter: () => ({}),
-  useSearchParams: () => new URLSearchParams(),
-}));
+// Other suites resolve these navigations; nothing here needs them. The real
+// exports are kept (usePathname among them) and only the ones this page may
+// call are overridden — registered for this file only, like the counts stub.
+const realNavigation = { ...(await import("next/navigation")) };
+beforeAll(() => {
+  mock.module("next/navigation", () => ({
+    ...realNavigation,
+    redirect: () => {
+      throw new Error("redirect");
+    },
+    // Pages under test may call notFound().
+    notFound: () => {
+      throw new Error("not-found");
+    },
+    useRouter: () => ({}),
+    useSearchParams: () => new URLSearchParams(),
+  }));
+});
+afterAll(() => {
+  mock.module("next/navigation", () => realNavigation);
+});
 
 // The page is an async server component; awaiting it resolves its own
 // boundary, leaving a synchronous SectionCards tree renderToStaticMarkup
