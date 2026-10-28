@@ -9,7 +9,10 @@ import { purgeSite, restoreSite } from "@/app/dashboard/sites/actions";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { DeletedSitesToolbar } from "@/components/sites/deleted-sites-toolbar";
-import { purgeDescription } from "@/components/sites/purge-copy";
+import {
+  purgeDescription,
+  purgeSuccessMessage,
+} from "@/components/sites/purge-copy";
 import { SitesListFilter } from "@/components/sites/sites-list-filter";
 import { StatusFilter } from "@/components/status-filter";
 import {
@@ -99,6 +102,7 @@ function PurgeSiteDialog({
       const result = await purgeSite(site.id);
       if (result.ok) {
         onOpenChange(false);
+        toast.success(purgeSuccessMessage(site.name));
         return;
       }
       toast.error(result.message ?? GENERIC_ERROR);
