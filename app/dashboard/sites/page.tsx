@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CreateSiteButton } from "@/components/sites/site-form";
 import { DeletedSitesTable } from "@/components/sites/deleted-sites-table";
 import { SitesTable } from "@/components/sites/sites-table";
+import { SitesViewTabs } from "@/components/sites/sites-view-tabs";
 
 // Deliberate block: the page queries master data behind the superadmin session
 // check, so there is no static shell worth shipping first. See:
@@ -92,6 +93,7 @@ export default async function SitesPage({
         </div>
         <CreateSiteButton />
       </div>
+      <SitesViewTabs view={view} q={q} />
       <Card>
         <CardContent>
           {deletedView ? (
