@@ -1,4 +1,15 @@
-import { and, asc, count, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { site, siteLocation, user } from "@/drizzle/schema";
@@ -9,14 +20,20 @@ import {
   ilikePattern,
   parseTableSearchParams,
 } from "@/lib/table-params";
+import { parseListView } from "@/lib/list-view";
 import { requireHO } from "@/lib/session";
-import { canManageActorTarget, userScopeFilter } from "@/lib/scope";
+import {
+  canManageActorTarget,
+  deletedUserScopeFilter,
+  userScopeFilter,
+} from "@/lib/scope";
 import type { Role } from "@/types/domain";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateUserButton } from "@/components/users/user-form";
 import type { LocationOption } from "@/types/location";
 import type { SiteOption } from "@/types/site";
 import type { UserFormData, UserRow } from "@/types/user";
+import { DeletedUsersTable } from "@/components/users/deleted-users-table";
 import { UsersTable } from "@/components/users/users-table";
 
 // Deliberate block: the page queries master data behind the HO session check,
@@ -53,8 +70,12 @@ export default async function UsersPage({
 }: PageProps<"/dashboard/users">) {
   // Server-side HO guard; the actions repeat it for direct calls.
   const actor = await requireHO();
+  const rawParams = await searchParams;
+  // ?show=deleted picks the soft-deleted list; it is not part of the shared
+  // table params, so it is read off the raw search params.
+  const deletedView = parseListView(rawParams.show) === "deleted";
   const { q, status, role, page, sorts, pageSize } = parseTableSearchParams(
-    await searchParams,
+    rawParams,
     PAGE_SIZE_OPTIONS,
   );
 
@@ -69,6 +90,13 @@ export default async function UsersPage({
     binding: siteLocation.name,
   };
   const DEFAULT_ORDER = [asc(user.role), asc(user.name)];
+  // The deleted view sorts by the same columns plus when the user was
+  // deleted, newest deletion first by default. buildOrder trails every user
+  // sort with this default, so the id breaks ties for any sort: users deleted
+  // in the same instant (a bulk delete) keep one order and cannot swap
+  // between pages.
+  const SORTABLE_DELETED = { ...SORTABLE, deletedAt: user.deletedAt };
+  const DEFAULT_ORDER_DELETED = [desc(user.deletedAt), asc(user.id)];
 
   const pattern = ilikePattern(q);
   // Role text matches too — natural through the same OR (allowed per #22);
@@ -84,9 +112,14 @@ export default async function UsersPage({
   // The soft-delete guard sits here so both the count and the listing drop
   // deleted users — userScopeFilter covers the ho path, this covers the
   // superadmin path where the scope is undefined.
-  const scope = userScopeFilter(actor);
+  // The deleted view carries its own reach filter: exactly the soft-deleted
+  // users the actor could restore (an ho: the admins of its site's locations,
+  // deleted locations included), so the live list's filter stays untouched.
+  const scope = deletedView
+    ? deletedUserScopeFilter(actor)
+    : userScopeFilter(actor);
   const where = and(
-    isNull(user.deletedAt),
+    deletedView ? isNotNull(user.deletedAt) : isNull(user.deletedAt),
     ...(scope ? [scope] : []),
     ...(search ? [search] : []),
     ...(status ? [eq(user.isActive, status === "active")] : []),
@@ -95,7 +128,9 @@ export default async function UsersPage({
   // buildOrder own-property checks the whitelist: a plain truthiness guard
   // would admit prototype-chain `columnIds` (e.g. `?sort=__proto__`), which
   // drizzle rejects mid-render.
-  const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
+  const order = deletedView
+    ? buildOrder(sorts, SORTABLE_DELETED, DEFAULT_ORDER_DELETED)
+    : buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
   const [{ count: rowCount }] = await db
     .select({ count: count() })
@@ -123,6 +158,7 @@ export default async function UsersPage({
         locationName: siteLocation.name,
         locationSiteId: siteLocation.siteId,
         locationSiteName: locationSite.name,
+        deletedAt: user.deletedAt,
       })
       .from(user)
       .leftJoin(siteLocation, eq(user.siteLocationId, siteLocation.id))
@@ -201,14 +237,30 @@ export default async function UsersPage({
       </div>
       <Card>
         <CardContent>
-          <UsersTable
-            entries={entries}
-            actorRole={actor.role}
-            sites={sites}
-            locations={locations}
-            pageCount={pageCount}
-            total={rowCount}
-          />
+          {deletedView ? (
+            <DeletedUsersTable
+              users={rows.map((row) => ({
+                id: row.id,
+                name: row.name,
+                email: row.email,
+                role: row.role,
+                binding: bindingLabel(row),
+                deletedAt: (row.deletedAt as Date).toISOString(),
+              }))}
+              canPurge={actor.role === "superadmin"}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          ) : (
+            <UsersTable
+              entries={entries}
+              actorRole={actor.role}
+              sites={sites}
+              locations={locations}
+              pageCount={pageCount}
+              total={rowCount}
+            />
+          )}
         </CardContent>
       </Card>
     </div>

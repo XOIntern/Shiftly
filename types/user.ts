@@ -18,3 +18,15 @@ export type UserFormData = {
   siteId: string | null;
   siteLocationId: string | null;
 };
+
+// One row of the deleted-users table. binding is the same label the live
+// table shows; deletedAt travels as an ISO string so the server and the
+// client render the same text.
+export type DeletedUserRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  binding: string | null;
+  deletedAt: string;
+};
