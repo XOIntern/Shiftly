@@ -24,8 +24,12 @@ async function foreignKeys(): Promise<Fk[]> {
 }
 
 // One message per foreign-key child that references a purged or history table
-// and is listed in no group.
-export async function purgeCoverageOffenders(coverage: PurgeCoverage): Promise<string[]> {
+// and is listed in no group. purgeFn is the entity's purge function, named in
+// the message so the author knows where to add the delete step.
+export async function purgeCoverageOffenders(
+  coverage: PurgeCoverage,
+  purgeFn = "purgeSiteGuarded",
+): Promise<string[]> {
   const purged = new Set(coverage.purged);
   const history = new Set(coverage.history);
   const covered = new Set([...purged, ...history, ...coverage.cascade]);
@@ -34,11 +38,15 @@ export async function purgeCoverageOffenders(coverage: PurgeCoverage): Promise<s
     .filter((fk) => (purged.has(fk.parent) || history.has(fk.parent)) && !covered.has(fk.child))
     .map(
       (fk) =>
-        `${fk.child} -> ${fk.parent}: add a delete step or a history guard to purgeSiteGuarded and list the table in PURGE_COVERAGE`,
+        `${fk.child} -> ${fk.parent}: add a delete step or a history guard to ${purgeFn} and list the table in PURGE_COVERAGE`,
     );
 }
 
-export function describePurgeCoverage(label: string, coverage: PurgeCoverage): void {
+export function describePurgeCoverage(
+  label: string,
+  coverage: PurgeCoverage,
+  purgeFn?: string,
+): void {
   const purged = new Set(coverage.purged);
   const history = new Set(coverage.history);
   const cascade = new Set(coverage.cascade);
@@ -46,7 +54,7 @@ export function describePurgeCoverage(label: string, coverage: PurgeCoverage): v
 
   describe(label, () => {
     test("every table that references a purged or history table is covered", async () => {
-      expect(await purgeCoverageOffenders(coverage)).toEqual([]);
+      expect(await purgeCoverageOffenders(coverage, purgeFn)).toEqual([]);
     });
 
     test("every table listed as cascading really cascades from a covered table", async () => {
