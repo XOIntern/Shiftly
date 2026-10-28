@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, lte } from "drizzle-orm";
 
 import { db } from "./db";
+import type { DbExecutor } from "./db";
 import {
   mpRequest,
   mpRequestLine,
@@ -23,8 +24,11 @@ import type { RosterAssignment } from "@/types/engine";
 // worker×area pair) plus a unioned per-worker profile record.
 
 // Live + active shift ids of the location, by order_index ascending.
-export async function loadShiftOrder(siteLocationId: string): Promise<string[]> {
-  const rows = await db
+export async function loadShiftOrder(
+  siteLocationId: string,
+  executor: DbExecutor = db,
+): Promise<string[]> {
+  const rows = await executor
     .select({ id: shiftDefinition.id })
     .from(shiftDefinition)
     .where(
@@ -43,8 +47,9 @@ export async function loadShiftOrder(siteLocationId: string): Promise<string[]> 
 // that was deactivated after the plan was generated.
 export async function loadShiftLabels(
   siteLocationId: string,
+  executor: DbExecutor = db,
 ): Promise<Record<string, string>> {
-  const rows = await db
+  const rows = await executor
     .select({ id: shiftDefinition.id, label: shiftDefinition.label })
     .from(shiftDefinition)
     .where(
@@ -56,19 +61,33 @@ export async function loadShiftLabels(
   return Object.fromEntries(rows.map((r) => [r.id, r.label]));
 }
 
+// id -> name of every live work area of the location: the lookup behind the
+// C7 violation message, so it names the area instead of printing its id.
+export async function loadAreaNames(
+  siteLocationId: string,
+  executor: DbExecutor = db,
+): Promise<Record<string, string>> {
+  const rows = await executor
+    .select({ id: workArea.id, name: workArea.name })
+    .from(workArea)
+    .where(and(eq(workArea.siteLocationId, siteLocationId), isNull(workArea.deletedAt)));
+  return Object.fromEntries(rows.map((r) => [r.id, r.name]));
+}
+
 // Required positions per live work area of the location. Every live area is
 // present as a key (empty array = C7 no-op for that area); soft-deleted
 // areas hold nothing.
 export async function loadAreaRequirements(
   siteLocationId: string,
+  executor: DbExecutor = db,
 ): Promise<Record<string, string[]>> {
-  const areaRows = await db
+  const areaRows = await executor
     .select({ id: workArea.id })
     .from(workArea)
     .where(and(eq(workArea.siteLocationId, siteLocationId), isNull(workArea.deletedAt)))
     .orderBy(asc(workArea.id));
 
-  const posRows = await db
+  const posRows = await executor
     .select({ workAreaId: workAreaPosition.workAreaId, positionId: workAreaPosition.positionId })
     .from(workAreaPosition)
     .innerJoin(workArea, eq(workAreaPosition.workAreaId, workArea.id))
@@ -101,8 +120,9 @@ function eligibleFor(
 export async function loadWorkerProfiles(
   siteLocationId: string,
   workAreaId?: string,
+  executor: DbExecutor = db,
 ): Promise<GeneratorWorker[]> {
-  const workerRows = await db
+  const workerRows = await executor
     .select({ id: worker.id, employeeId: worker.employeeId })
     .from(worker)
     .where(
@@ -113,7 +133,7 @@ export async function loadWorkerProfiles(
       ),
     );
 
-  const posRows = await db
+  const posRows = await executor
     .select({ workerId: workerPosition.workerId, positionId: workerPosition.positionId })
     .from(workerPosition)
     .innerJoin(worker, eq(workerPosition.workerId, worker.id))
@@ -130,7 +150,7 @@ export async function loadWorkerProfiles(
   for (const row of workerRows) positionsByWorker.set(row.id, []);
   for (const row of posRows) positionsByWorker.get(row.workerId)?.push(row.positionId);
 
-  const areaRequirements = await loadAreaRequirements(siteLocationId);
+  const areaRequirements = await loadAreaRequirements(siteLocationId, executor);
   const areaIds = workAreaId
     ? areaRequirements[workAreaId] !== undefined
       ? [workAreaId]
@@ -261,8 +281,9 @@ export async function loadDailyAssignmentsInRange(
 export async function loadPriorAssignments(
   siteLocationId: string,
   beforeDate: string,
+  executor: DbExecutor = db,
 ): Promise<RosterAssignment[]> {
-  const rows = await db
+  const rows = await executor
     .select({
       workerId: rosterAssignment.workerId,
       date: rosterAssignment.date,

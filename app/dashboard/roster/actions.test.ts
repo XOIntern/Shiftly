@@ -117,14 +117,18 @@ async function createPosition(fx: BaseFixture, tag: string): Promise<string> {
   return id;
 }
 
-async function createWorkArea(fx: BaseFixture, tag: string): Promise<string> {
+async function createWorkArea(
+  fx: BaseFixture,
+  tag: string,
+  name?: string,
+): Promise<string> {
   const id = randomUUID();
   createdWorkAreaIds.push(id);
   await db.insert(workArea).values({
     id,
     siteId: fx.siteId,
     siteLocationId: fx.locationId,
-    name: `t-roster-area-${tag}-${id}`,
+    name: name ?? `t-roster-area-${tag}-${id}`,
   });
   return id;
 }
@@ -595,6 +599,46 @@ describe("roster actions: publishRoster", () => {
     }
   });
 
+  test("publish blocked by a C7 violation: refusal names the work area, not its id", async () => {
+    const fx = await createBase(`t6-p-${randomUUID()}`, "pub-c7");
+    const pos = await createPosition(fx, "req");
+    const otherPos = await createPosition(fx, "other");
+    const area = await createWorkArea(fx, "a", "Packing Line");
+    await requireAreaPosition(fx, area, pos);
+    // No requirement on this one: it keeps the worker's profile alive once
+    // the worker loses the required position.
+    await createWorkArea(fx, "open", "Open Floor");
+    const shift = await createShift(fx, 1);
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    try {
+      const { generateRoster, publishRoster } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+
+      const [plan] = await db
+        .select()
+        .from(rosterPlan)
+        .where(eq(rosterPlan.siteLocationId, fx.locationId));
+
+      // The worker loses the required position AFTER the draft was generated.
+      await db.delete(workerPosition).where(eq(workerPosition.workerId, w));
+      await giveWorkerPosition(fx, w, otherPos);
+
+      const result = await publishRoster(plan.id);
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("Assigned to Packing Line");
+      expect(result.message).not.toContain(area);
+    } finally {
+      void fx;
+    }
+  });
+
   test("publish blocked by a worker deactivated after generation: refusal, not a silent publish", async () => {
     const { fx, w } = await seedPublishFixture();
     actor = makeActor("admin", null, fx.locationId);
@@ -692,6 +736,94 @@ describe("planViolations", () => {
     const c3 = violations.find((v) => v.rule === "C3");
     expect(c3?.message).toContain("from Night to Morning");
     expect(c3?.message).not.toContain(shiftHigh);
+  });
+
+  test("a C7 violation names the work area, not its id", async () => {
+    const fx = await createBase(`t6-pv7-${randomUUID()}`, "pv7");
+    const pos = await createPosition(fx, "req");
+    const otherPos = await createPosition(fx, "other");
+    const area = await createWorkArea(fx, "a", "Packing Line");
+    await requireAreaPosition(fx, area, pos);
+    // An area with no requirement keeps the worker's profile alive (a profile
+    // exists only for an area the worker is eligible for), so C7 can bite on
+    // `area`.
+    await createWorkArea(fx, "open", "Open Floor");
+    const shift = await createShift(fx, 1);
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, otherPos);
+
+    const { planViolations } = await import("@/lib/roster-plan-mutations");
+    const violations = await planViolations(
+      fx.locationId,
+      await loadEffectiveRules(fx.locationId),
+      [{ workerId: w, date: MON, shiftDefId: shift, workAreaId: area }],
+    );
+
+    const c7 = violations.find((v) => v.rule === "C7");
+    expect(c7?.message).toContain("Assigned to Packing Line on");
+    expect(c7?.message).not.toContain(area);
+  });
+
+  // #180: setAssignment calls planViolations while holding a transaction's
+  // connection. Rows only that transaction can see (uncommitted) prove the
+  // loaders ran on its handle and not on a second pooled connection.
+  test("loaders read through the transaction handle they are given", async () => {
+    const fx = await createBase(`t6-pvtx-${randomUUID()}`, "pvtx");
+    const w = await createWorker(fx, "w");
+    const areaId = randomUUID();
+    const lowId = randomUUID();
+    const highId = randomUUID();
+    const ROLLBACK = new Error("rollback the uncommitted fixtures");
+
+    const { planViolations } = await import("@/lib/roster-plan-mutations");
+    const rules = await loadEffectiveRules(fx.locationId);
+    let violations: Awaited<ReturnType<typeof planViolations>> = [];
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(workArea).values({
+          id: areaId,
+          siteId: fx.siteId,
+          siteLocationId: fx.locationId,
+          name: "Tx Area",
+        });
+        await tx.insert(shiftDefinition).values([
+          {
+            id: lowId,
+            siteId: fx.siteId,
+            siteLocationId: fx.locationId,
+            label: "Tx Morning",
+            orderIndex: 1,
+            startTime: "07:00",
+            endTime: "15:00",
+          },
+          {
+            id: highId,
+            siteId: fx.siteId,
+            siteLocationId: fx.locationId,
+            label: "Tx Night",
+            orderIndex: 2,
+            startTime: "15:00",
+            endTime: "23:00",
+          },
+        ]);
+        violations = await planViolations(
+          fx.locationId,
+          rules,
+          [
+            { workerId: w, date: MON, shiftDefId: highId, workAreaId: areaId },
+            { workerId: w, date: TUE, shiftDefId: lowId, workAreaId: areaId },
+          ],
+          tx,
+        );
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+
+    const c3 = violations.find((v) => v.rule === "C3");
+    expect(c3?.message).toContain("from Tx Night to Tx Morning");
+    expect(violations.some((v) => v.message === "unknown shift")).toBe(false);
   });
 });
 
@@ -1206,6 +1338,148 @@ describe("roster actions: fillDailyRequest", () => {
     expect(result).toEqual({ ok: false, message: "Daily request not found." });
     expect(await dailyAssignmentCount(s.fx.locationId)).toBe(0);
     expect(await requestStatus(foreign)).toBe("open");
+  });
+});
+
+// #179: a daily fill is validated over the whole week's daily rows, not just
+// its own date's, so week rules see an earlier fill on a nearby day.
+describe("roster actions: fillDailyRequest week context", () => {
+  const WED = "2026-01-07";
+  const THU = "2026-01-08";
+  const FRI = "2026-01-09";
+
+  // A published week (one weekly row for `anchor` on `weeklyShift`) plus two
+  // open daily requests, so two fills can land on different days of it.
+  async function seedPublishedWeek(args: {
+    tag: string;
+    shiftCount: number;
+    weeklyShiftOrder: number;
+    anchorDate: string;
+    requestDates: string[];
+  }) {
+    const fx = await createBase(`t6-dw-${randomUUID()}`, args.tag);
+    const pos = await createPosition(fx, args.tag);
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shifts: string[] = [];
+    for (let i = 1; i <= args.shiftCount; i += 1) shifts.push(await createShift(fx, i));
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
+    const other = await createWorker(fx, "other");
+    await giveWorkerPosition(fx, other, pos);
+    // The weekly row belongs to `other`: the worker under test starts the
+    // week with no weekly shift, only the daily fills.
+    await seedWeeklyDemand(fx, [
+      {
+        workAreaId: area,
+        shiftDefinitionId: shifts[args.weeklyShiftOrder - 1],
+        date: args.anchorDate,
+        headcount: 1,
+        positionId: pos,
+      },
+    ]);
+    const requestIds: string[] = [];
+    for (const date of args.requestDates) {
+      requestIds.push(await createRequest(fx, { type: "daily", requestDate: date }));
+    }
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [weeklyPlan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
+
+    const fill = async (
+      i: number,
+      date: string,
+      shiftOrder: number,
+      workerId = w,
+    ) => {
+      const { fillDailyRequest } = await import("./actions");
+      return fillDailyRequest({
+        requestId: requestIds[i],
+        workAreaId: area,
+        shiftDefId: shifts[shiftOrder - 1],
+        date,
+        positionId: pos,
+        workerId,
+        siteLocationId: fx.locationId,
+      });
+    };
+    return { fx, w, other, fill };
+  }
+
+  test("C1: a fill that would be the worker's 2nd day (max 1) across two daily plans is refused", async () => {
+    const { fx, w, fill } = await seedPublishedWeek({
+      tag: "c1",
+      shiftCount: 2,
+      weeklyShiftOrder: 1,
+      anchorDate: WED,
+      requestDates: [MON, FRI],
+    });
+    // One day a week: the weekly row is `other`'s, so w's own days are the
+    // daily fills on MON and FRI.
+    await tightenRule(fx, "C1", 1);
+
+    expect((await fill(0, MON, 1)).ok).toBe(true);
+    const refused = await fill(1, FRI, 1);
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toContain("max is 1");
+
+    const dailyRows = await db
+      .select({ date: rosterAssignment.date })
+      .from(rosterAssignment)
+      .where(and(eq(rosterAssignment.workerId, w), eq(rosterAssignment.date, FRI)));
+    expect(dailyRows.length).toBe(0);
+  });
+
+  test("C1: a worker with no earlier daily fill is still accepted on the same day", async () => {
+    const { fx, other, fill } = await seedPublishedWeek({
+      tag: "c1-ok",
+      shiftCount: 2,
+      weeklyShiftOrder: 1,
+      anchorDate: WED,
+      requestDates: [MON, FRI],
+    });
+    await tightenRule(fx, "C1", 2);
+
+    // `other` works the weekly WED; MON is their 2nd day (max 2), accepted.
+    expect((await fill(0, MON, 1, other)).ok).toBe(true);
+  });
+
+  test("C3: a downshift against the previous day's daily fill is refused", async () => {
+    const { fill } = await seedPublishedWeek({
+      tag: "c3",
+      shiftCount: 3,
+      weeklyShiftOrder: 1,
+      anchorDate: MON,
+      requestDates: [TUE, WED],
+    });
+
+    expect((await fill(0, TUE, 2)).ok).toBe(true);
+    const refused = await fill(1, WED, 1);
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toContain("downshift");
+  });
+
+  test("C4: working the day after a last-shift daily fill is refused", async () => {
+    const { fill } = await seedPublishedWeek({
+      tag: "c4",
+      shiftCount: 2,
+      weeklyShiftOrder: 1,
+      anchorDate: MON,
+      requestDates: [THU, FRI],
+    });
+
+    // Shift 2 is the last in order: the day after it must be a rest day.
+    expect((await fill(0, THU, 2)).ok).toBe(true);
+    const refused = await fill(1, FRI, 2);
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toContain("day immediately after the last shift");
   });
 });
 
