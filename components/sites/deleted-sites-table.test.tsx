@@ -11,8 +11,7 @@ mock.module("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams("show=deleted"),
 }));
 
-const { DeletedSitesTable, purgeDescription } =
-  await import("./deleted-sites-table");
+const { DeletedSitesTable } = await import("./deleted-sites-table");
 
 import type { DeletedSiteRow } from "@/types/site";
 
@@ -60,30 +59,5 @@ describe("DeletedSitesTable", () => {
 
   test("an empty list says there are no deleted sites", () => {
     expect(render([])).toContain("No deleted sites.");
-  });
-});
-
-describe("purgeDescription", () => {
-  test("names the site and warns that it cannot be undone", () => {
-    const text = purgeDescription("Nestle Cikarang");
-
-    expect(text).toContain("Nestle Cikarang");
-    expect(text).toContain("cannot be undone");
-  });
-
-  test("lists what goes with the site and what blocks the delete", () => {
-    const text = purgeDescription("X");
-
-    for (const part of [
-      "locations",
-      "work areas",
-      "positions",
-      "shifts",
-      "workers",
-      "users",
-    ]) {
-      expect(text).toContain(part);
-    }
-    expect(text).toContain("roster, request or audit history");
   });
 });

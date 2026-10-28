@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import {
-  DeletedSitesToolbar,
-  bulkPurgeDescription,
-  summarizeBulk,
-} from "./deleted-sites-toolbar";
+import { DeletedSitesToolbar, summarizeBulk } from "./deleted-sites-toolbar";
 
 describe("summarizeBulk", () => {
   test("counts what went through, singular and plural", () => {
@@ -63,28 +59,6 @@ describe("summarizeBulk", () => {
 
     expect(summary.kind).toBe("error");
     expect(summary.title.length).toBeGreaterThan(0);
-  });
-});
-
-describe("bulkPurgeDescription", () => {
-  test("names the count and warns it cannot be undone", () => {
-    const text = bulkPurgeDescription(3);
-
-    expect(text).toContain("3 sites");
-    expect(text).toContain("cannot be undone");
-  });
-
-  test("a single site reads in the singular", () => {
-    expect(bulkPurgeDescription(1)).toContain("1 site ");
-  });
-
-  test("says what goes with the sites and what makes one be skipped", () => {
-    const text = bulkPurgeDescription(2);
-
-    for (const part of ["locations", "workers", "users"]) {
-      expect(text).toContain(part);
-    }
-    expect(text).toContain("roster, request or audit history");
   });
 });
 

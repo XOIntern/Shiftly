@@ -9,6 +9,7 @@ import { purgeSite, restoreSite } from "@/app/dashboard/sites/actions";
 import { DataTable } from "@/components/data-table";
 import { dataTableFeatures } from "@/components/data-table-features";
 import { DeletedSitesToolbar } from "@/components/sites/deleted-sites-toolbar";
+import { purgeDescription } from "@/components/sites/purge-copy";
 import { SitesListFilter } from "@/components/sites/sites-list-filter";
 import { StatusFilter } from "@/components/status-filter";
 import {
@@ -33,16 +34,6 @@ import { GENERIC_ERROR } from "@/lib/action-state";
 import type { DeletedSiteRow } from "@/types/site";
 
 const helper = createColumnHelper<typeof dataTableFeatures, DeletedSiteRow>();
-
-// What the confirm dialog tells the superadmin before the point of no return.
-export function purgeDescription(name: string): string {
-  return (
-    `“${name}” will be deleted permanently and this cannot be undone. Its ` +
-    "locations, work areas, positions, shifts, workers and users are " +
-    "removed with it. A site with roster, request or audit history cannot " +
-    "be deleted permanently."
-  );
-}
 
 function DeletedSiteRowActions({ site }: { site: DeletedSiteRow }) {
   const [open, setOpen] = useState(false);

@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { bulkPurgeDescription } from "@/components/sites/purge-copy";
 import { Button } from "@/components/ui/button";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import type { ActionState } from "@/types/action-state";
@@ -46,16 +47,6 @@ export function summarizeBulk(result: ActionState, verb: string): BulkSummary {
     };
   }
   return { kind: "success", title: `${applied} ${noun(applied)} ${verb}` };
-}
-
-// What the confirm dialog tells the superadmin before the point of no return.
-export function bulkPurgeDescription(count: number): string {
-  return (
-    `${count} ${noun(count)} will be deleted permanently and this cannot be ` +
-    "undone. Their locations, work areas, positions, shifts, workers and " +
-    "users are removed with them. A site with roster, request or audit " +
-    "history is skipped."
-  );
 }
 
 // The strip DataTable renders while deleted sites are selected. Restore runs
