@@ -14,6 +14,11 @@ import {
   workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The create page reads its actor through requireUser and refuses ho actors
 // with notFound() — swapped for stubs so the real server component can
@@ -32,7 +37,9 @@ mock.module("@/lib/session", () => ({
 // test, so next/navigation is stubbed (notFound throws the way the real
 // one surfaces a 404). The form module's "use server" imports pull
 // next/cache at module scope — stubbed the same way.
+const realNavigation = { ...(await import("next/navigation")) };
 mock.module("next/navigation", () => ({
+  ...realNavigation,
   redirect: () => {
     throw new Error("redirect");
   },
@@ -43,7 +50,12 @@ mock.module("next/navigation", () => ({
   usePathname: () => "/dashboard/requests/new",
   useSearchParams: () => new URLSearchParams(),
 }));
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 
@@ -144,72 +156,68 @@ describe("new request page SSR (requests #128)", () => {
   test("superadmin renders the full-page form over every location", async () => {
     const fx = await seedNewFixtures();
     actor = makeActor("superadmin", null, null);
-    try {
-      const html = await renderNew();
-      expect(html.includes("New request")).toBeTrue();
-      expect(html.includes('href="/dashboard/requests"')).toBeTrue();
-      expect(html.includes('id="request-week-start"')).toBeTrue();
-      // Not pinned: no read-only location input carrying a location name.
-      expect(html.includes(`value="${fx.locNames.a}"`)).toBeFalse();
-      expect(html.includes(`value="${fx.locNames.b}"`)).toBeFalse();
-      // Empty anchor → the form's existing guard paragraph.
-      expect(
-        html.includes("Pick a week to open the requirement grid."),
-      ).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    const html = await renderNew();
+    expect(html.includes("New request")).toBeTrue();
+    expect(html.includes('href="/dashboard/requests"')).toBeTrue();
+    expect(html.includes('id="request-week-start"')).toBeTrue();
+    // Not pinned: no read-only location input carrying a location name.
+    expect(html.includes(`value="${fx.locNames.a}"`)).toBeFalse();
+    expect(html.includes(`value="${fx.locNames.b}"`)).toBeFalse();
+    // Empty anchor → the form's existing guard paragraph.
+    expect(
+      html.includes("Pick a week to open the requirement grid."),
+    ).toBeTrue();
   });
 
   test("a pinned admin sees only their location, server-side", async () => {
     const fx = await seedNewFixtures();
     actor = makeActor("admin", null, fx.ids.locA);
-    try {
-      const html = await renderNew();
-      // Read-only pinned name instead of a picker; the other location's
-      // option never arrives from the server.
-      expect(html.includes(fx.locNames.a)).toBeTrue();
-      expect(html.includes("Select a location")).toBeFalse();
-      expect(html.includes(fx.locNames.b)).toBeFalse();
-      // Empty anchor → the form's existing guard paragraph; the copy step
-      // waits for a week, and the old Add bar is gone.
-      expect(
-        html.includes("Pick a week to open the requirement grid."),
-      ).toBeTrue();
-      expect(html.includes("Start blank")).toBeFalse();
-      expect(html.includes("Add rows")).toBeFalse();
-      expect(html.includes('id="request-add-work-area"')).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    const html = await renderNew();
+    // Read-only pinned name instead of a picker; the other location's
+    // option never arrives from the server.
+    expect(html.includes(fx.locNames.a)).toBeTrue();
+    expect(html.includes("Select a location")).toBeFalse();
+    expect(html.includes(fx.locNames.b)).toBeFalse();
+    // Empty anchor → the form's existing guard paragraph; the copy step
+    // waits for a week, and the old Add bar is gone.
+    expect(
+      html.includes("Pick a week to open the requirement grid."),
+    ).toBeTrue();
+    expect(html.includes("Start blank")).toBeFalse();
+    expect(html.includes("Add rows")).toBeFalse();
+    expect(html.includes('id="request-add-work-area"')).toBeFalse();
   });
 
   test("an unbound admin sees the empty-options form", async () => {
     const fx = await seedNewFixtures();
     actor = makeActor("admin", null, null);
-    try {
-      const html = await renderNew();
-      expect(html.includes("Select a location")).toBeTrue();
-      expect(html.includes(fx.locNames.a)).toBeFalse();
-      expect(html.includes(fx.locNames.b)).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    const html = await renderNew();
+    expect(html.includes("Select a location")).toBeTrue();
+    expect(html.includes(fx.locNames.a)).toBeFalse();
+    expect(html.includes(fx.locNames.b)).toBeFalse();
   });
 
   test("ho gets a 404", async () => {
     const fx = await seedNewFixtures();
     actor = makeActor("ho", fx.ids.siteId, null);
-    try {
-      let caught: unknown;
-      try {
-        await renderNew();
-      } catch (err) {
-        caught = err;
-      }
-      expect((caught as Error | undefined)?.message).toContain("not-found");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
+    });
+    let caught: unknown;
+    try {
+      await renderNew();
+    } catch (err) {
+      caught = err;
     }
+    expect((caught as Error | undefined)?.message).toContain("not-found");
   });
 });

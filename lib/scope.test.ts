@@ -12,6 +12,11 @@ import {
   userScopeFilter,
 } from "./scope";
 import type { Role, Scope } from "@/types/domain";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 const SITE_A = "6c1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b02";
 const SITE_B = "7d2c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b03";
@@ -250,79 +255,7 @@ describe("userScopeFilter (real DB)", () => {
     const superadminRow = randomUUID();
     const malformedAdmin = randomUUID();
 
-    try {
-      await db.insert(site).values([
-        { id: siteA, name: `scope-filter-site-a-${siteA}` },
-        { id: siteB, name: `scope-filter-site-b-${siteB}` },
-      ]);
-      await db.insert(siteLocation).values([
-        { id: locA, siteId: siteA, name: "Scope Filter L1" },
-        { id: locB, siteId: siteB, name: "Scope Filter L2" },
-      ]);
-      const mk = (id: string) => `scope-filter-${id}@shiftly.test`;
-      await db.insert(user).values([
-        {
-          id: ownSiteHo,
-          name: "Own Site HO",
-          email: mk(ownSiteHo),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteA,
-        },
-        {
-          id: foreignHo,
-          name: "Foreign HO",
-          email: mk(foreignHo),
-          emailVerified: true,
-          role: "ho",
-          siteId: siteB,
-        },
-        {
-          id: ownSiteLocAdmin,
-          name: "Own Site Location Admin",
-          email: mk(ownSiteLocAdmin),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locA,
-        },
-        {
-          id: foreignLocAdmin,
-          name: "Foreign Location Admin",
-          email: mk(foreignLocAdmin),
-          emailVerified: true,
-          role: "admin",
-          siteLocationId: locB,
-        },
-        {
-          id: superadminRow,
-          name: "Superadmin Row",
-          email: mk(superadminRow),
-          emailVerified: true,
-          role: "superadmin",
-        },
-        {
-          id: malformedAdmin,
-          name: "Malformed Admin",
-          email: mk(malformedAdmin),
-          emailVerified: true,
-          role: "admin",
-        },
-      ]);
-
-      const hoFilter = userScopeFilter({ role: "ho", siteId: siteA });
-      const hoVisible = await db
-        .select({ id: user.id })
-        .from(user)
-        .where(hoFilter);
-      expect(hoVisible.map((r) => r.id).sort()).toEqual(
-        [ownSiteHo, ownSiteLocAdmin].sort(),
-      );
-
-      const saFilter = userScopeFilter({ role: "superadmin", siteId: null });
-      expect(saFilter).toBeUndefined();
-      const everything = await db.select({ id: user.id }).from(user);
-      expect(everything.length).toBeGreaterThanOrEqual(6);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(user).where(eq(user.id, ownSiteHo));
       await db.delete(user).where(eq(user.id, foreignHo));
       await db.delete(user).where(eq(user.id, ownSiteLocAdmin));
@@ -333,6 +266,77 @@ describe("userScopeFilter (real DB)", () => {
       await db.delete(siteLocation).where(eq(siteLocation.id, locA));
       await db.delete(site).where(eq(site.id, siteB));
       await db.delete(site).where(eq(site.id, siteA));
-    }
+    });
+    await db.insert(site).values([
+      { id: siteA, name: `scope-filter-site-a-${siteA}` },
+      { id: siteB, name: `scope-filter-site-b-${siteB}` },
+    ]);
+    await db.insert(siteLocation).values([
+      { id: locA, siteId: siteA, name: "Scope Filter L1" },
+      { id: locB, siteId: siteB, name: "Scope Filter L2" },
+    ]);
+    const mk = (id: string) => `scope-filter-${id}@shiftly.test`;
+    await db.insert(user).values([
+      {
+        id: ownSiteHo,
+        name: "Own Site HO",
+        email: mk(ownSiteHo),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteA,
+      },
+      {
+        id: foreignHo,
+        name: "Foreign HO",
+        email: mk(foreignHo),
+        emailVerified: true,
+        role: "ho",
+        siteId: siteB,
+      },
+      {
+        id: ownSiteLocAdmin,
+        name: "Own Site Location Admin",
+        email: mk(ownSiteLocAdmin),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locA,
+      },
+      {
+        id: foreignLocAdmin,
+        name: "Foreign Location Admin",
+        email: mk(foreignLocAdmin),
+        emailVerified: true,
+        role: "admin",
+        siteLocationId: locB,
+      },
+      {
+        id: superadminRow,
+        name: "Superadmin Row",
+        email: mk(superadminRow),
+        emailVerified: true,
+        role: "superadmin",
+      },
+      {
+        id: malformedAdmin,
+        name: "Malformed Admin",
+        email: mk(malformedAdmin),
+        emailVerified: true,
+        role: "admin",
+      },
+    ]);
+
+    const hoFilter = userScopeFilter({ role: "ho", siteId: siteA });
+    const hoVisible = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(hoFilter);
+    expect(hoVisible.map((r) => r.id).sort()).toEqual(
+      [ownSiteHo, ownSiteLocAdmin].sort(),
+    );
+
+    const saFilter = userScopeFilter({ role: "superadmin", siteId: null });
+    expect(saFilter).toBeUndefined();
+    const everything = await db.select({ id: user.id }).from(user);
+    expect(everything.length).toBeGreaterThanOrEqual(6);
   });
 });

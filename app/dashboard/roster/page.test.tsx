@@ -22,6 +22,11 @@ import {
   workerPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The roster page reads its actor through requireUser (all three roles view
 // the page; scope + write surface differ per role) — swapped for a stub so
@@ -40,7 +45,9 @@ mock.module("@/lib/session", () => ({
 // triggers, DataTable) that read navigation hooks; no Next request context
 // exists under bun test, so next/navigation is stubbed. The view modules'
 // "use server" imports pull next/cache at module scope — stubbed too.
+const realNavigation = { ...(await import("next/navigation")) };
 mock.module("next/navigation", () => ({
+  ...realNavigation,
   redirect: () => {
     throw new Error("redirect");
   },
@@ -54,7 +61,12 @@ mock.module("next/navigation", () => ({
   usePathname: () => "/dashboard/roster",
   useSearchParams: () => new URLSearchParams(),
 }));
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 
@@ -516,370 +528,354 @@ function makeActor(
 describe("roster page SSR (roster-engine Task 7)", () => {
   test("an admin's draft renders grid headers, the sliced worker rows and the picker cells", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const html = await renderRoster({ week: fx.MONDAY });
-
-      // The title is where focus lands after a confirmed Discard removes
-      // the draft and its trigger.
-      const title = html.match(/<h1[^>]*>Roster<\/h1>/)?.[0] ?? "";
-      expect(title).toContain(" data-focus-fallback=");
-      expect(title).toContain('tabindex="-1"');
-
-      // Grid headers: the Monday-start week.
-      for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
-        expect(html.includes(day)).toBeTrue();
-      }
-      // The work-area card and the cell picker cells of an editable draft.
-      expect(html.includes(fx.labels.areaOne)).toBeTrue();
-      expect(html.includes("Open shift picker")).toBeTrue();
-      // The worker slice: exactly one 50-row page of 55, first worker in.
-      expect(html.includes(fx.employeeId(1))).toBeTrue();
-      expect(html.includes(fx.employeeId(51))).toBeFalse();
-      expect(html.includes("50 of 55")).toBeTrue();
-      // Plan list: the location's draft is auto-selected.
-      expect(html.includes("Draft")).toBeTrue();
-      // A draft's one primary button is Publish; Generate is not offered.
-      expect(html.includes("Publish roster")).toBeTrue();
-      expect(html.includes("Generate draft")).toBeFalse();
-      // The empty-week explanation must NOT appear on a covered week.
-      expect(
-        html.includes("No request approved by HO for this week"),
-      ).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const html = await renderRoster({ week: fx.MONDAY });
+
+    // The title is where focus lands after a confirmed Discard removes
+    // the draft and its trigger.
+    const title = html.match(/<h1[^>]*>Roster<\/h1>/)?.[0] ?? "";
+    expect(title).toContain(" data-focus-fallback=");
+    expect(title).toContain('tabindex="-1"');
+
+    // Grid headers: the Monday-start week.
+    for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+      expect(html.includes(day)).toBeTrue();
     }
+    // The work-area card and the cell picker cells of an editable draft.
+    expect(html.includes(fx.labels.areaOne)).toBeTrue();
+    expect(html.includes("Open shift picker")).toBeTrue();
+    // The worker slice: exactly one 50-row page of 55, first worker in.
+    expect(html.includes(fx.employeeId(1))).toBeTrue();
+    expect(html.includes(fx.employeeId(51))).toBeFalse();
+    expect(html.includes("50 of 55")).toBeTrue();
+    // Plan list: the location's draft is auto-selected.
+    expect(html.includes("Draft")).toBeTrue();
+    // A draft's one primary button is Publish; Generate is not offered.
+    expect(html.includes("Publish roster")).toBeTrue();
+    expect(html.includes("Generate draft")).toBeFalse();
+    // The empty-week explanation must NOT appear on a covered week.
+    expect(
+      html.includes("No request approved by HO for this week"),
+    ).toBeFalse();
   });
 
   test("the worker slice honors the rowPage URL param", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const html = await renderRoster({ week: fx.MONDAY, rowPage: "2" });
-
-      expect(html.includes(fx.employeeId(55))).toBeTrue();
-      expect(html.includes(fx.employeeId(1))).toBeFalse();
-      expect(html.includes("5 of 55")).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const html = await renderRoster({ week: fx.MONDAY, rowPage: "2" });
+
+    expect(html.includes(fx.employeeId(55))).toBeTrue();
+    expect(html.includes(fx.employeeId(1))).toBeFalse();
+    expect(html.includes("5 of 55")).toBeTrue();
   });
 
   test("generate is disabled with the HO reason when the week has only open requests", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const html = await renderRoster({ week: fx.OPEN_MONDAY });
-
-      expect(html.includes("Generate draft")).toBeTrue();
-      expect(
-        html.includes("No request approved by HO for this week"),
-      ).toBeTrue();
-      // The generate trigger is rendered disabled (the explanation rides
-      // the same gate).
-      const trigger = html.indexOf("Generate draft");
-      expect(html.slice(Math.max(0, trigger - 3000), trigger)).toContain(
-        'disabled=""',
-      );
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const html = await renderRoster({ week: fx.OPEN_MONDAY });
+
+    expect(html.includes("Generate draft")).toBeTrue();
+    expect(
+      html.includes("No request approved by HO for this week"),
+    ).toBeTrue();
+    // The generate trigger is rendered disabled (the explanation rides
+    // the same gate).
+    const trigger = html.indexOf("Generate draft");
+    expect(html.slice(Math.max(0, trigger - 3000), trigger)).toContain(
+      'disabled=""',
+    );
   });
 
   test('generate is enabled with "N slots from M requests" when an approved request exists', async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const html = await renderRoster({ week: fx.APPROVED_MONDAY });
-
-      expect(text(html)).toContain("3 slots from 1 request");
-      expect(html.includes("No request approved by HO")).toBeFalse();
-      const trigger = html.indexOf("Generate draft");
-      expect(trigger).toBeGreaterThan(-1);
-      expect(html.slice(Math.max(0, trigger - 3000), trigger)).not.toContain(
-        'disabled=""',
-      );
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const html = await renderRoster({ week: fx.APPROVED_MONDAY });
+
+    expect(text(html)).toContain("3 slots from 1 request");
+    expect(html.includes("No request approved by HO")).toBeFalse();
+    const trigger = html.indexOf("Generate draft");
+    expect(trigger).toBeGreaterThan(-1);
+    expect(html.slice(Math.max(0, trigger - 3000), trigger)).not.toContain(
+      'disabled=""',
+    );
   });
 
   test("the generate reason counts headcount, not request lines", async () => {
     const fx = await seedRosterFixtures();
     const requestId = randomUUID();
     const MULTI_MONDAY = "2026-02-02";
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-      const [creatorRow] = await db
-        .select({ id: user.id })
-        .from(mpRequest)
-        .innerJoin(user, eq(user.id, mpRequest.createdBy))
-        .where(eq(mpRequest.siteLocationId, fx.ids.locL1))
-        .limit(1);
-      await db.insert(mpRequest).values({
-        id: requestId,
-        siteId: fx.ids.siteS,
-        siteLocationId: fx.ids.locL1,
-        type: "weekly",
-        status: "approved",
-        weekStart: MULTI_MONDAY,
-        createdBy: creatorRow.id,
-      });
-      const [posRow] = await db
-        .select({ positionId: mpRequestLine.positionId })
-        .from(mpRequestLine)
-        .where(eq(mpRequestLine.siteLocationId, fx.ids.locL1))
-        .limit(1);
-      const line = (date: string, headcount: number) => ({
-        requestId,
-        siteId: fx.ids.siteS,
-        siteLocationId: fx.ids.locL1,
-        workAreaId: fx.ids.waOne,
-        shiftDefinitionId: fx.ids.shEarly,
-        positionId: posRow.positionId,
-        date,
-        headcount,
-      });
-      await db
-        .insert(mpRequestLine)
-        .values([line("2026-02-02", 3), line("2026-02-03", 2)]);
-
-      const page = text(await renderRoster({ week: MULTI_MONDAY }));
-
-      expect(page).toContain("5 slots from 1 request");
-      expect(page).not.toContain("2 slots from");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(mpRequestLine).where(eq(mpRequestLine.requestId, requestId));
       await db.delete(mpRequest).where(eq(mpRequest.id, requestId));
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+    const [creatorRow] = await db
+      .select({ id: user.id })
+      .from(mpRequest)
+      .innerJoin(user, eq(user.id, mpRequest.createdBy))
+      .where(eq(mpRequest.siteLocationId, fx.ids.locL1))
+      .limit(1);
+    await db.insert(mpRequest).values({
+      id: requestId,
+      siteId: fx.ids.siteS,
+      siteLocationId: fx.ids.locL1,
+      type: "weekly",
+      status: "approved",
+      weekStart: MULTI_MONDAY,
+      createdBy: creatorRow.id,
+    });
+    const [posRow] = await db
+      .select({ positionId: mpRequestLine.positionId })
+      .from(mpRequestLine)
+      .where(eq(mpRequestLine.siteLocationId, fx.ids.locL1))
+      .limit(1);
+    const line = (date: string, headcount: number) => ({
+      requestId,
+      siteId: fx.ids.siteS,
+      siteLocationId: fx.ids.locL1,
+      workAreaId: fx.ids.waOne,
+      shiftDefinitionId: fx.ids.shEarly,
+      positionId: posRow.positionId,
+      date,
+      headcount,
+    });
+    await db
+      .insert(mpRequestLine)
+      .values([line("2026-02-02", 3), line("2026-02-03", 2)]);
+
+    const page = text(await renderRoster({ week: MULTI_MONDAY }));
+
+    expect(page).toContain("5 slots from 1 request");
+    expect(page).not.toContain("2 slots from");
   });
 
   test("draft week shows the filled/required totals and the requirements rows", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const page = text(await renderRoster({ week: fx.MONDAY }));
-
-      // The plan's figure is weekly demand only (2+2, one assignment); the
-      // open daily slot is not something a weekly draft can fill.
-      expect(page).toContain("Draft v1 · 1/4 filled");
-      expect(page).toContain(`${fx.labels.areaOne} · ${fx.labels.shiftEarly}`);
-      expect(page).toContain("1/4");
-      expect(page).toContain("3 short");
-      expect(page).toContain(`${fx.labels.posOne} 4`);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const page = text(await renderRoster({ week: fx.MONDAY }));
+
+    // The plan's figure is weekly demand only (2+2, one assignment); the
+    // open daily slot is not something a weekly draft can fill.
+    expect(page).toContain("Draft v1 · 1/4 filled");
+    expect(page).toContain(`${fx.labels.areaOne} · ${fx.labels.shiftEarly}`);
+    expect(page).toContain("1/4");
+    expect(page).toContain("3 short");
+    expect(page).toContain(`${fx.labels.posOne} 4`);
   });
 
   test("daily open slot appears in the panel, fulfilled daily request does not", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const html = await renderRoster({ week: fx.MONDAY });
-      const page = text(html);
-
-      expect(page).toContain("daily · 2026-01-07");
-      expect(page).not.toContain("daily · 2026-01-08");
-      // The fulfilled sibling's two fills on the same slot do not cover the
-      // open request: its row stays 0/2 and short.
-      expect(page).toMatch(/0\/2\s*daily · 2026-01-07\s*2 short/);
-      expect(page).toContain("Suggest replacements");
-      // The old daily table is gone.
-      expect(page).not.toContain("Daily requests");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const html = await renderRoster({ week: fx.MONDAY });
+    const page = text(html);
+
+    expect(page).toContain("daily · 2026-01-07");
+    expect(page).not.toContain("daily · 2026-01-08");
+    // The fulfilled sibling's two fills on the same slot do not cover the
+    // open request: its row stays 0/2 and short.
+    expect(page).toMatch(/0\/2\s*daily · 2026-01-07\s*2 short/);
+    expect(page).toContain("Suggest replacements");
+    // The old daily table is gone.
+    expect(page).not.toContain("Daily requests");
   });
 
   test("a daily fill shows as a read-only Daily cell in the worker's row, for an admin and an ho", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      // The fixture's 2026-01-07 daily plan fills workers 2 and 3 of the
-      // selected area; worker 1 has only the weekly Monday cell.
-      for (const who of [
-        makeActor("admin", null, fx.ids.locL1),
-        makeActor("ho", fx.ids.siteS, null),
-      ]) {
-        actor = who;
-        const html = await renderRoster({ week: fx.MONDAY });
-
-        for (const n of [2, 3]) {
-          const row = rowOf(html, fx.employeeId(n));
-          expect(row).toContain("Daily");
-          expect(row).toContain(fx.labels.shiftEarly);
-          expect(row).not.toContain(
-            `Open shift picker for ${fx.employeeId(n)} on 2026-01-07`,
-          );
-        }
-        expect(text(rowOf(html, fx.employeeId(1)))).not.toContain("Daily");
-      }
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
+    });
+    // The fixture's 2026-01-07 daily plan fills workers 2 and 3 of the
+    // selected area; worker 1 has only the weekly Monday cell.
+    for (const who of [
+      makeActor("admin", null, fx.ids.locL1),
+      makeActor("ho", fx.ids.siteS, null),
+    ]) {
+      actor = who;
+      const html = await renderRoster({ week: fx.MONDAY });
+
+      for (const n of [2, 3]) {
+        const row = rowOf(html, fx.employeeId(n));
+        expect(row).toContain("Daily");
+        expect(row).toContain(fx.labels.shiftEarly);
+        expect(row).not.toContain(
+          `Open shift picker for ${fx.employeeId(n)} on 2026-01-07`,
+        );
+      }
+      expect(text(rowOf(html, fx.employeeId(1)))).not.toContain("Daily");
     }
   });
 
   test("a daily fill of another work area does not show in the selected card", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      await db.insert(rosterAssignment).values({
-        planId: fx.ids.dailyPlan,
-        siteId: fx.ids.siteS,
-        siteLocationId: fx.ids.locL1,
-        workerId: fx.workerIds[4],
-        workAreaId: fx.ids.waTwo,
-        shiftDefinitionId: fx.ids.shEarly,
-        date: "2026-01-07",
-      });
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const html = await renderRoster({ week: fx.MONDAY });
-
-      expect(html.includes(fx.employeeId(5))).toBeTrue();
-      expect(text(rowOf(html, fx.employeeId(5)))).not.toContain("Daily");
-      expect(rowOf(html, fx.employeeId(2))).toContain("Daily");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    await db.insert(rosterAssignment).values({
+      planId: fx.ids.dailyPlan,
+      siteId: fx.ids.siteS,
+      siteLocationId: fx.ids.locL1,
+      workerId: fx.workerIds[4],
+      workAreaId: fx.ids.waTwo,
+      shiftDefinitionId: fx.ids.shEarly,
+      date: "2026-01-07",
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const html = await renderRoster({ week: fx.MONDAY });
+
+    expect(html.includes(fx.employeeId(5))).toBeTrue();
+    expect(text(rowOf(html, fx.employeeId(5)))).not.toContain("Daily");
+    expect(rowOf(html, fx.employeeId(2))).toContain("Daily");
   });
 
   test("ho sees no primary button", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteS, null);
-
-      const page = text(await renderRoster({ week: fx.MONDAY }));
-
-      expect(page).toContain("Draft v1");
-      for (const label of [
-        "Generate draft",
-        "Publish roster",
-        "Revise plan",
-        "Suggest replacements",
-      ]) {
-        expect(page).not.toContain(label);
-      }
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
+    });
+    actor = makeActor("ho", fx.ids.siteS, null);
+
+    const page = text(await renderRoster({ week: fx.MONDAY }));
+
+    expect(page).toContain("Draft v1");
+    for (const label of [
+      "Generate draft",
+      "Publish roster",
+      "Revise plan",
+      "Suggest replacements",
+    ]) {
+      expect(page).not.toContain(label);
     }
   });
 
   test("late approved request after a published plan shows as unfilled demand and a Revise action", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      const page = text(await renderRoster({ week: fx.LATE_MONDAY }));
-
-      expect(page).toContain("Published v1 · 0/2 filled");
-      expect(page).toContain(`${fx.labels.areaOne} · ${fx.labels.shiftEarly}`);
-      expect(page).toContain("2 short");
-      expect(page).toContain("Revise plan");
-      expect(page).not.toContain("Publish roster");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const page = text(await renderRoster({ week: fx.LATE_MONDAY }));
+
+    expect(page).toContain("Published v1 · 0/2 filled");
+    expect(page).toContain(`${fx.labels.areaOne} · ${fx.labels.shiftEarly}`);
+    expect(page).toContain("2 short");
+    expect(page).toContain("Revise plan");
+    expect(page).not.toContain("Publish roster");
   });
 
   test("a superadmin's locationId param scopes the plan and requirements to that location", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const page = text(
-        await renderRoster({ week: fx.MONDAY, locationId: fx.ids.locL2 }),
-      );
-
-      // L2's draft is chosen and L1's demand does not leak into the panel.
-      expect(page).toContain(fx.labels.loc2);
-      expect(page).toContain("Draft v1");
-      expect(page).not.toContain(fx.labels.areaOne);
-      expect(page).toContain("No approved requests for this week");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const page = text(
+      await renderRoster({ week: fx.MONDAY, locationId: fx.ids.locL2 }),
+    );
+
+    // L2's draft is chosen and L1's demand does not leak into the panel.
+    expect(page).toContain(fx.labels.loc2);
+    expect(page).toContain("Draft v1");
+    expect(page).not.toContain(fx.labels.areaOne);
+    expect(page).toContain("No approved requests for this week");
   });
 
   test("an ho sees the read-only grid of their site's plans without write entries", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteS, null);
-
-      const html = await renderRoster({ week: fx.MONDAY });
-
-      // Read-only grid of the site's plans (both locations) renders.
-      expect(html.includes(fx.labels.areaOne)).toBeTrue();
-      expect(html.includes(fx.employeeId(1))).toBeTrue();
-      expect(html.includes("Read-only")).toBeTrue();
-      expect(html.includes("Open shift picker")).toBeFalse();
-      expect(html.includes("Generate draft")).toBeFalse();
-      expect(html.includes("Publish")).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteS, null);
+
+    const html = await renderRoster({ week: fx.MONDAY });
+
+    // Read-only grid of the site's plans (both locations) renders.
+    expect(html.includes(fx.labels.areaOne)).toBeTrue();
+    expect(html.includes(fx.employeeId(1))).toBeTrue();
+    expect(html.includes("Read-only")).toBeTrue();
+    expect(html.includes("Open shift picker")).toBeFalse();
+    expect(html.includes("Generate draft")).toBeFalse();
+    expect(html.includes("Publish")).toBeFalse();
   });
 
   test("a superadmin can open any location's plan of the week", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      // The plan picker renders closed, so assert each location's plan is
-      // reachable by deep-linking its id (the closed list shows the
-      // selected plan's name only).
-      const html = await renderRoster({
-        week: fx.MONDAY,
-        planId: fx.ids.draftL2,
-      });
-      expect(html.includes(fx.labels.loc2)).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    // The plan picker renders closed, so assert each location's plan is
+    // reachable by deep-linking its id (the closed list shows the
+    // selected plan's name only).
+    const html = await renderRoster({
+      week: fx.MONDAY,
+      planId: fx.ids.draftL2,
+    });
+    expect(html.includes(fx.labels.loc2)).toBeTrue();
   });
 
   test("a published plan offers Revise plan to an admin (copy-on-edit entry)", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-
-      // Deep-link the published plan: the page prefers drafts otherwise.
-      const html = await renderRoster({
-        week: fx.MONDAY,
-        planId: fx.ids.publishedL1,
-      });
-
-      expect(html.includes("Revise plan")).toBeTrue();
-      expect(
-        html.includes("Published — locked; revise to open the next draft."),
-      ).toBeTrue();
-      expect(html.includes("Open shift picker")).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    // Deep-link the published plan: the page prefers drafts otherwise.
+    const html = await renderRoster({
+      week: fx.MONDAY,
+      planId: fx.ids.publishedL1,
+    });
+
+    expect(html.includes("Revise plan")).toBeTrue();
+    expect(
+      html.includes("Published — locked; revise to open the next draft."),
+    ).toBeTrue();
+    expect(html.includes("Open shift picker")).toBeFalse();
   });
 
   test("an ho's published plan shows no Revise plan entry", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteS, null);
-
-      const html = await renderRoster({
-        week: fx.MONDAY,
-        planId: fx.ids.publishedL1,
-      });
-
-      expect(html.includes("Revise plan")).toBeFalse();
-      expect(html.includes("Read-only")).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteS, null);
+
+    const html = await renderRoster({
+      week: fx.MONDAY,
+      planId: fx.ids.publishedL1,
+    });
+
+    expect(html.includes("Revise plan")).toBeFalse();
+    expect(html.includes("Read-only")).toBeTrue();
   });
 });
 
@@ -933,110 +929,106 @@ async function insertDraft(
 describe("roster page: discarding a draft", () => {
   test("an admin on a draft week sees Discard draft; an ho does not", async () => {
     const fx = await seedRosterFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locL1);
-      expect(text(await renderRoster({ week: fx.MONDAY }))).toContain(
-        "Discard draft",
-      );
-
-      actor = makeActor("ho", fx.ids.siteS, null);
-      const page = text(await renderRoster({ week: fx.MONDAY }));
-      expect(page).toContain("Draft v1");
-      expect(page).not.toContain("Discard draft");
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+    expect(text(await renderRoster({ week: fx.MONDAY }))).toContain(
+      "Discard draft",
+    );
+
+    actor = makeActor("ho", fx.ids.siteS, null);
+    const page = text(await renderRoster({ week: fx.MONDAY }));
+    expect(page).toContain("Draft v1");
+    expect(page).not.toContain("Discard draft");
   });
 
   test("discarding a week's first draft brings Generate back and keeps the request approved", async () => {
     const fx = await seedRosterFixtures();
     const seeded = await seedAdmin(fx.ids.locL1);
     let draftId: string | null = null;
-    try {
-      actor = seeded.admin;
-      draftId = await insertDraft(fx, fx.APPROVED_MONDAY, 1, seeded.admin.id);
-      const before = text(await renderRoster({ week: fx.APPROVED_MONDAY }));
-      expect(before).toContain("Draft v1");
-      expect(before).toContain("Discard draft");
-
-      const { discardDraft } = await import("./actions");
-      expect((await discardDraft(draftId)).ok).toBe(true);
-
-      const html = await renderRoster({ week: fx.APPROVED_MONDAY });
-      const page = text(html);
-      expect(page).not.toContain("Draft v1");
-      expect(page).not.toContain("Discard draft");
-      expect(page).toContain("3 slots from 1 request");
-      const trigger = html.indexOf("Generate draft");
-      expect(trigger).toBeGreaterThan(-1);
-      expect(html.slice(Math.max(0, trigger - 3000), trigger)).not.toContain(
-        'disabled=""',
-      );
-
-      const requests = await db
-        .select({ status: mpRequest.status })
-        .from(mpRequest)
-        .where(
-          and(
-            eq(mpRequest.siteLocationId, fx.ids.locL1),
-            eq(mpRequest.weekStart, fx.APPROVED_MONDAY),
-          ),
-        );
-      expect(requests.map((r) => r.status)).toEqual(["approved"]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       if (draftId) await db.delete(rosterPlan).where(eq(rosterPlan.id, draftId));
       await seeded.cleanup();
       await fx.cleanup();
-    }
+    });
+    actor = seeded.admin;
+    draftId = await insertDraft(fx, fx.APPROVED_MONDAY, 1, seeded.admin.id);
+    const before = text(await renderRoster({ week: fx.APPROVED_MONDAY }));
+    expect(before).toContain("Draft v1");
+    expect(before).toContain("Discard draft");
+
+    const { discardDraft } = await import("./actions");
+    expect((await discardDraft(draftId)).ok).toBe(true);
+
+    const html = await renderRoster({ week: fx.APPROVED_MONDAY });
+    const page = text(html);
+    expect(page).not.toContain("Draft v1");
+    expect(page).not.toContain("Discard draft");
+    expect(page).toContain("3 slots from 1 request");
+    const trigger = html.indexOf("Generate draft");
+    expect(trigger).toBeGreaterThan(-1);
+    expect(html.slice(Math.max(0, trigger - 3000), trigger)).not.toContain(
+      'disabled=""',
+    );
+
+    const requests = await db
+      .select({ status: mpRequest.status })
+      .from(mpRequest)
+      .where(
+        and(
+          eq(mpRequest.siteLocationId, fx.ids.locL1),
+          eq(mpRequest.weekStart, fx.APPROVED_MONDAY),
+        ),
+      );
+    expect(requests.map((r) => r.status)).toEqual(["approved"]);
   });
 
   test("a planId of a discarded draft renders the empty week", async () => {
     const fx = await seedRosterFixtures();
     const seeded = await seedAdmin(fx.ids.locL1);
     let draftId: string | null = null;
-    try {
-      actor = seeded.admin;
-      draftId = await insertDraft(fx, fx.APPROVED_MONDAY, 1, seeded.admin.id);
-      const { discardDraft } = await import("./actions");
-      expect((await discardDraft(draftId)).ok).toBe(true);
-
-      const page = text(
-        await renderRoster({ week: fx.APPROVED_MONDAY, planId: draftId }),
-      );
-      expect(page).toContain("No plan for this week");
-      expect(page).toContain(
-        "No roster plan for this week yet. Generate a draft once a request is approved.",
-      );
-    } finally {
+    fixtureCleanup.defer(async () => {
       if (draftId) await db.delete(rosterPlan).where(eq(rosterPlan.id, draftId));
       await seeded.cleanup();
       await fx.cleanup();
-    }
+    });
+    actor = seeded.admin;
+    draftId = await insertDraft(fx, fx.APPROVED_MONDAY, 1, seeded.admin.id);
+    const { discardDraft } = await import("./actions");
+    expect((await discardDraft(draftId)).ok).toBe(true);
+
+    const page = text(
+      await renderRoster({ week: fx.APPROVED_MONDAY, planId: draftId }),
+    );
+    expect(page).toContain("No plan for this week");
+    expect(page).toContain(
+      "No roster plan for this week yet. Generate a draft once a request is approved.",
+    );
   });
 
   test("discarding a revision draft falls back to the published version", async () => {
     const fx = await seedRosterFixtures();
     const seeded = await seedAdmin(fx.ids.locL1);
     let draftId: string | null = null;
-    try {
-      actor = seeded.admin;
-      draftId = await insertDraft(fx, fx.LATE_MONDAY, 2, seeded.admin.id);
-      expect(text(await renderRoster({ week: fx.LATE_MONDAY }))).toContain(
-        "Draft v2",
-      );
-
-      const { discardDraft } = await import("./actions");
-      expect((await discardDraft(draftId)).ok).toBe(true);
-
-      const page = text(await renderRoster({ week: fx.LATE_MONDAY }));
-      expect(page).toContain("Published v1");
-      expect(page).toContain("Revise plan");
-      expect(page).not.toContain("Draft v2");
-      expect(page).not.toContain("Discard draft");
-    } finally {
+    fixtureCleanup.defer(async () => {
       if (draftId) await db.delete(rosterPlan).where(eq(rosterPlan.id, draftId));
       await seeded.cleanup();
       await fx.cleanup();
-    }
+    });
+    actor = seeded.admin;
+    draftId = await insertDraft(fx, fx.LATE_MONDAY, 2, seeded.admin.id);
+    expect(text(await renderRoster({ week: fx.LATE_MONDAY }))).toContain(
+      "Draft v2",
+    );
+
+    const { discardDraft } = await import("./actions");
+    expect((await discardDraft(draftId)).ok).toBe(true);
+
+    const page = text(await renderRoster({ week: fx.LATE_MONDAY }));
+    expect(page).toContain("Published v1");
+    expect(page).toContain("Revise plan");
+    expect(page).not.toContain("Draft v2");
+    expect(page).not.toContain("Discard draft");
   });
 });

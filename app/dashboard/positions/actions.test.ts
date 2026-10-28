@@ -12,6 +12,11 @@ import {
   workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The position actions resolve their actor through requireUser — swapped
 // for a stub so the real server actions read against the test database.
@@ -25,7 +30,12 @@ mock.module("@/lib/session", () => ({
   requireSuperadmin: async () => actor,
 }));
 // No Next request context under bun test — revalidation is a no-op stub.
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 
@@ -90,86 +100,83 @@ describe("position delete guard against work-area requirements", () => {
   test("deletePosition is refused while a work-area pivot row references it", async () => {
     const fx = await seedPositionWithWorkArea();
 
-    try {
-      await fx.seedAreaRequirement();
-      actor = superadmin;
-
-      const { deletePosition } = await import("./actions");
-      const result = await deletePosition(fx.positionId);
-
-      expect(result.ok).toBe(false);
-      expect(result.message).toBe("Position is still required by a work area");
-
-      // The refusal writes nothing: the position stays live.
-      const [row] = await db
-        .select({ deletedAt: position.deletedAt })
-        .from(position)
-        .where(eq(position.id, fx.positionId));
-      expect(row.deletedAt).toBeNull();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    await fx.seedAreaRequirement();
+    actor = superadmin;
+
+    const { deletePosition } = await import("./actions");
+    const result = await deletePosition(fx.positionId);
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe("Position is still required by a work area");
+
+    // The refusal writes nothing: the position stays live.
+    const [row] = await db
+      .select({ deletedAt: position.deletedAt })
+      .from(position)
+      .where(eq(position.id, fx.positionId));
+    expect(row.deletedAt).toBeNull();
   });
 
   test("deletePosition succeeds once the work-area pivot row is removed", async () => {
     const fx = await seedPositionWithWorkArea();
 
-    try {
-      await fx.seedAreaRequirement();
-      actor = superadmin;
-
-      // Remove the requirement for the area — the row was the only block.
-      await db
-        .delete(workAreaPosition)
-        .where(
-          eq(workAreaPosition.positionId, fx.positionId),
-        );
-
-      const { deletePosition } = await import("./actions");
-      const result = await deletePosition(fx.positionId);
-
-      expect(result.ok).toBe(true);
-      const [row] = await db
-        .select({ deletedAt: position.deletedAt })
-        .from(position)
-        .where(eq(position.id, fx.positionId));
-      expect(row.deletedAt).not.toBeNull();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    await fx.seedAreaRequirement();
+    actor = superadmin;
+
+    // Remove the requirement for the area — the row was the only block.
+    await db
+      .delete(workAreaPosition)
+      .where(
+        eq(workAreaPosition.positionId, fx.positionId),
+      );
+
+    const { deletePosition } = await import("./actions");
+    const result = await deletePosition(fx.positionId);
+
+    expect(result.ok).toBe(true);
+    const [row] = await db
+      .select({ deletedAt: position.deletedAt })
+      .from(position)
+      .where(eq(position.id, fx.positionId));
+    expect(row.deletedAt).not.toBeNull();
   });
 
   test("deleteBulk blocks the area-required position but frees the rest", async () => {
     // Extra worker-free position for the applied side of the split.
     const fx = await seedPositionWithWorkArea();
     const freeId = randomUUID();
-    try {
-      await db.insert(position).values({
-        id: freeId,
-        siteId: fx.siteA,
-        name: "t4-pos-free",
-      });
-      await fx.seedAreaRequirement();
-      actor = superadmin;
-
-      const { deleteBulk } = await import("./actions");
-      const result = await deleteBulk([fx.positionId, freeId]);
-
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(1);
-      expect(result.blocked).toBe(1);
-
-      const rows = await db
-        .select({ id: position.id, deletedAt: position.deletedAt })
-        .from(position)
-        .where(eq(position.siteId, fx.siteA));
-      const deletedAtOf = (id: string) =>
-        rows.find((row) => row.id === id)?.deletedAt;
-      expect(deletedAtOf(fx.positionId)).toBeNull();
-      expect(deletedAtOf(freeId)).not.toBeNull();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(position).where(eq(position.id, freeId));
       await fx.cleanup();
-    }
+    });
+    await db.insert(position).values({
+      id: freeId,
+      siteId: fx.siteA,
+      name: "t4-pos-free",
+    });
+    await fx.seedAreaRequirement();
+    actor = superadmin;
+
+    const { deleteBulk } = await import("./actions");
+    const result = await deleteBulk([fx.positionId, freeId]);
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(result.blocked).toBe(1);
+
+    const rows = await db
+      .select({ id: position.id, deletedAt: position.deletedAt })
+      .from(position)
+      .where(eq(position.siteId, fx.siteA));
+    const deletedAtOf = (id: string) =>
+      rows.find((row) => row.id === id)?.deletedAt;
+    expect(deletedAtOf(fx.positionId)).toBeNull();
+    expect(deletedAtOf(freeId)).not.toBeNull();
   });
 });

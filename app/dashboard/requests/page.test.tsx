@@ -17,6 +17,11 @@ import {
   workAreaPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The requests page reads its actor through requireUser (all three roles
 // see the page; scope differs per role) — swapped for a stub so the real
@@ -35,7 +40,9 @@ mock.module("@/lib/session", () => ({
 // that read navigation hooks; no Next request context exists under bun
 // test, so next/navigation is stubbed. The form module's "use server"
 // imports pull next/cache at module scope — stubbed the same way.
+const realNavigation = { ...(await import("next/navigation")) };
 mock.module("next/navigation", () => ({
+  ...realNavigation,
   redirect: () => {
     throw new Error("redirect");
   },
@@ -49,7 +56,12 @@ mock.module("next/navigation", () => ({
   usePathname: () => "/dashboard/requests",
   useSearchParams: () => new URLSearchParams(),
 }));
+// Real exports kept (revalidateTag, updateTag, … stay available to suites that
+// run after this one: module mocks are process-wide); only revalidatePath is
+// replaced, since there is no Next request context under bun test.
+const realNextCache = { ...(await import("next/cache")) };
 mock.module("next/cache", () => ({
+  ...realNextCache,
   revalidatePath: () => {},
 }));
 
@@ -285,55 +297,52 @@ function makeActor(
 describe("requests page SSR (mp-requests Task 8)", () => {
   test("renders the Requests heading and an ho's own-site rows without the create button", async () => {
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const html = await renderRequests();
-      expect(html.includes("Requests")).toBeTrue();
-      // The title is where focus lands after a confirmed Reject removes the
-      // row and its trigger.
-      const title = html.match(/<h1[^>]*>Requests<\/h1>/)?.[0] ?? "";
-      expect(title).toContain(" data-focus-fallback=");
-      expect(title).toContain('tabindex="-1"');
-      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
-      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
-      expect(html.includes(fx.anchors.rqB1)).toBeFalse();
-      expect(html.includes("New request")).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const html = await renderRequests();
+    expect(html.includes("Requests")).toBeTrue();
+    // The title is where focus lands after a confirmed Reject removes the
+    // row and its trigger.
+    const title = html.match(/<h1[^>]*>Requests<\/h1>/)?.[0] ?? "";
+    expect(title).toContain(" data-focus-fallback=");
+    expect(title).toContain('tabindex="-1"');
+    expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+    expect(html.includes(fx.anchors.rqA2)).toBeTrue();
+    expect(html.includes(fx.anchors.rqB1)).toBeFalse();
+    expect(html.includes("New request")).toBeFalse();
   });
 
   test("admin sees only their own location's rows plus the create button", async () => {
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locA1);
-
-      const html = await renderRequests();
-      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
-      expect(html.includes(fx.anchors.rqA2)).toBeFalse();
-      expect(html.includes(fx.anchors.rqB1)).toBeFalse();
-      expect(html.includes("New request")).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locA1);
+
+    const html = await renderRequests();
+    expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+    expect(html.includes(fx.anchors.rqA2)).toBeFalse();
+    expect(html.includes(fx.anchors.rqB1)).toBeFalse();
+    expect(html.includes("New request")).toBeTrue();
   });
 
   test("superadmin sees every site's requests and the create entry points", async () => {
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const html = await renderRequests();
-      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
-      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
-      expect(html.includes(fx.anchors.rqB1)).toBeTrue();
-      // The header button links to the full-page create form (#130).
-      expect(html.includes('href="/dashboard/requests/new"')).toBeTrue();
-      expect(html.includes("New request")).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const html = await renderRequests();
+    expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+    expect(html.includes(fx.anchors.rqA2)).toBeTrue();
+    expect(html.includes(fx.anchors.rqB1)).toBeTrue();
+    // The header button links to the full-page create form (#130).
+    expect(html.includes('href="/dashboard/requests/new"')).toBeTrue();
+    expect(html.includes("New request")).toBeTrue();
   });
 
   test("an unbound admin's empty scope shows the empty state", async () => {
@@ -345,77 +354,73 @@ describe("requests page SSR (mp-requests Task 8)", () => {
 
   test("the status URL filter narrows to matching statuses", async () => {
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const html = await renderRequests({ status: "approved" });
-      expect(html.includes(fx.anchors.rqA1)).toBeFalse();
-      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const html = await renderRequests({ status: "approved" });
+    expect(html.includes(fx.anchors.rqA1)).toBeFalse();
+    expect(html.includes(fx.anchors.rqA2)).toBeTrue();
   });
 
   test("?status=withdrawn shows only withdrawn rows and their badge reads Withdrawn", async () => {
     const fx = await seedRequestFixtures();
     const withdrawnId = randomUUID();
     const withdrawnMonday = "2026-02-02"; // a Monday no seeded row uses
-    try {
-      await db.insert(mpRequest).values({
-        id: withdrawnId,
-        siteId: fx.ids.siteA,
-        siteLocationId: fx.ids.locA1,
-        type: "weekly",
-        status: "withdrawn",
-        weekStart: withdrawnMonday,
-        createdBy: fx.creator,
-      });
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const html = await renderRequests({ status: "withdrawn" });
-      expect(html.includes(withdrawnMonday)).toBeTrue();
-      expect(html.includes(fx.anchors.rqA1)).toBeFalse();
-      expect(html.includes(fx.anchors.rqA2)).toBeFalse();
-
-      const { RequestStatusBadge } = await import("./request-status");
-      expect(
-        renderToStaticMarkup(<RequestStatusBadge status="withdrawn" />).includes(
-          "Withdrawn",
-        ),
-      ).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(mpRequest).where(eq(mpRequest.id, withdrawnId));
       await fx.cleanup();
-    }
+    });
+    await db.insert(mpRequest).values({
+      id: withdrawnId,
+      siteId: fx.ids.siteA,
+      siteLocationId: fx.ids.locA1,
+      type: "weekly",
+      status: "withdrawn",
+      weekStart: withdrawnMonday,
+      createdBy: fx.creator,
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const html = await renderRequests({ status: "withdrawn" });
+    expect(html.includes(withdrawnMonday)).toBeTrue();
+    expect(html.includes(fx.anchors.rqA1)).toBeFalse();
+    expect(html.includes(fx.anchors.rqA2)).toBeFalse();
+
+    const { RequestStatusBadge } = await import("./request-status");
+    expect(
+      renderToStaticMarkup(<RequestStatusBadge status="withdrawn" />).includes(
+        "Withdrawn",
+      ),
+    ).toBeTrue();
   });
 
   test("the type URL filter narrows to matching types", async () => {
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const html = await renderRequests({ type: "daily" });
-      expect(html.includes(fx.anchors.rqA1)).toBeFalse();
-      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const html = await renderRequests({ type: "daily" });
+    expect(html.includes(fx.anchors.rqA1)).toBeFalse();
+    expect(html.includes(fx.anchors.rqA2)).toBeTrue();
   });
 
   test("a ?q= deep link is ignored: rows still render (#133)", async () => {
     // The search lived on the (removed) notes column; with no searchable
     // column left the page must ignore the param entirely.
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const html = await renderRequests({ q: "zzz-no-such-row-zzz" });
-      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
-      expect(html.includes(fx.anchors.rqA2)).toBeTrue();
-      expect(html.includes(fx.anchors.rqB1)).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const html = await renderRequests({ q: "zzz-no-such-row-zzz" });
+    expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+    expect(html.includes(fx.anchors.rqA2)).toBeTrue();
+    expect(html.includes(fx.anchors.rqB1)).toBeFalse();
   });
 
   test("the line payload renders the position in the detail table", async () => {
@@ -586,66 +591,64 @@ describe("requests list: approval, roster link and filter", () => {
   test("ho sees Approve and Reject on an open weekly row and none on an approved row", async () => {
     const fx = await seedRequestFixtures();
     const dailyId = randomUUID();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-      // An OPEN daily request: the only thing keeping it from Approve and
-      // Reject is its type.
-      await db.insert(mpRequest).values({
-        id: dailyId,
-        siteId: fx.ids.siteA,
-        siteLocationId: fx.ids.locA2,
-        type: "daily",
-        status: "open",
-        requestDate: "2026-01-08",
-        createdBy: fx.creator,
-      });
-
-      const open = await renderRequests();
-      const nameA1 = `t-rq-site-a-${fx.ids.siteA} t-rq-loc-a1-${fx.ids.locA1}, week of 2026-01-05`;
-      expect(
-        open.includes(`aria-label="Approve request ${nameA1}"`),
-      ).toBeTrue();
-      expect(
-        open.includes(`aria-label="Reject request ${nameA1}"`),
-      ).toBeTrue();
-      // The open daily row renders, yet offers no approval buttons.
-      expect(open.includes("2026-01-08")).toBeTrue();
-      expect(/Approve request [^"]*, date /.test(open)).toBeFalse();
-      expect(/Reject request [^"]*, date /.test(open)).toBeFalse();
-
-      await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
-      await db
-        .update(mpRequest)
-        .set({ status: "approved" })
-        .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
-      const approved = await renderRequests();
-      expect(approved.includes("Approve request ")).toBeFalse();
-      expect(approved.includes("Reject request ")).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+    // An OPEN daily request: the only thing keeping it from Approve and
+    // Reject is its type.
+    await db.insert(mpRequest).values({
+      id: dailyId,
+      siteId: fx.ids.siteA,
+      siteLocationId: fx.ids.locA2,
+      type: "daily",
+      status: "open",
+      requestDate: "2026-01-08",
+      createdBy: fx.creator,
+    });
+
+    const open = await renderRequests();
+    const nameA1 = `t-rq-site-a-${fx.ids.siteA} t-rq-loc-a1-${fx.ids.locA1}, week of 2026-01-05`;
+    expect(
+      open.includes(`aria-label="Approve request ${nameA1}"`),
+    ).toBeTrue();
+    expect(
+      open.includes(`aria-label="Reject request ${nameA1}"`),
+    ).toBeTrue();
+    // The open daily row renders, yet offers no approval buttons.
+    expect(open.includes("2026-01-08")).toBeTrue();
+    expect(/Approve request [^"]*, date /.test(open)).toBeFalse();
+    expect(/Reject request [^"]*, date /.test(open)).toBeFalse();
+
+    await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
+    await db
+      .update(mpRequest)
+      .set({ status: "approved" })
+      .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
+    const approved = await renderRequests();
+    expect(approved.includes("Approve request ")).toBeFalse();
+    expect(approved.includes("Reject request ")).toBeFalse();
   });
 
   test("superadmin sees Approve and Reject on open weekly rows", async () => {
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const html = await renderRequests();
-      expect(
-        html.includes(
-          `Approve request t-rq-site-a-${fx.ids.siteA} t-rq-loc-a1-${fx.ids.locA1}, week of 2026-01-05`,
-        ),
-      ).toBeTrue();
-      expect(
-        html.includes(
-          `Reject request t-rq-site-b-${fx.ids.siteB} t-rq-loc-a1-b-${fx.ids.locB1}, week of 2026-01-12`,
-        ),
-      ).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const html = await renderRequests();
+    expect(
+      html.includes(
+        `Approve request t-rq-site-a-${fx.ids.siteA} t-rq-loc-a1-${fx.ids.locA1}, week of 2026-01-05`,
+      ),
+    ).toBeTrue();
+    expect(
+      html.includes(
+        `Reject request t-rq-site-b-${fx.ids.siteB} t-rq-loc-a1-b-${fx.ids.locB1}, week of 2026-01-12`,
+      ),
+    ).toBeTrue();
   });
 
   test("admin sees Edit on an open row and no Approve/Reject", async () => {
@@ -657,108 +660,104 @@ describe("requests list: approval, roster link and filter", () => {
     expect(canEditRequest(baseRow, false)).toBeFalse();
 
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locA1);
-
-      const html = await renderRequests();
-      expect(html.includes(fx.anchors.rqA1)).toBeTrue();
-      expect(html.includes("Approve request ")).toBeFalse();
-      expect(html.includes("Reject request ")).toBeFalse();
-      expect(html.includes("awaiting approval")).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locA1);
+
+    const html = await renderRequests();
+    expect(html.includes(fx.anchors.rqA1)).toBeTrue();
+    expect(html.includes("Approve request ")).toBeFalse();
+    expect(html.includes("Reject request ")).toBeFalse();
+    expect(html.includes("awaiting approval")).toBeFalse();
   });
 
   test("ho page shows \"N requests awaiting approval\" linking to ?status=open when N > 0 and nothing when 0", async () => {
     const fx = await seedRequestFixtures();
     const extra = randomUUID();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      // siteA holds one open weekly request (rqB1 is another site's).
-      const one = await renderRequests();
-      expect(one.includes("1 request awaiting approval")).toBeTrue();
-      expect(
-        one.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
-      ).toBeTrue();
-
-      await db.insert(mpRequest).values({
-        id: extra,
-        siteId: fx.ids.siteA,
-        siteLocationId: fx.ids.locA2,
-        type: "weekly",
-        status: "open",
-        weekStart: "2026-01-19",
-        createdBy: fx.creator,
-      });
-      const two = await renderRequests();
-      expect(two.includes("2 requests awaiting approval")).toBeTrue();
-
-      await db.delete(mpRequest).where(eq(mpRequest.id, extra));
-      await db
-        .update(mpRequest)
-        .set({ status: "approved" })
-        .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
-      const none = await renderRequests();
-      expect(none.includes("awaiting approval")).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(mpRequest).where(eq(mpRequest.id, extra));
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    // siteA holds one open weekly request (rqB1 is another site's).
+    const one = await renderRequests();
+    expect(one.includes("1 request awaiting approval")).toBeTrue();
+    expect(
+      one.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
+    ).toBeTrue();
+
+    await db.insert(mpRequest).values({
+      id: extra,
+      siteId: fx.ids.siteA,
+      siteLocationId: fx.ids.locA2,
+      type: "weekly",
+      status: "open",
+      weekStart: "2026-01-19",
+      createdBy: fx.creator,
+    });
+    const two = await renderRequests();
+    expect(two.includes("2 requests awaiting approval")).toBeTrue();
+
+    await db.delete(mpRequest).where(eq(mpRequest.id, extra));
+    await db
+      .update(mpRequest)
+      .set({ status: "approved" })
+      .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
+    const none = await renderRequests();
+    expect(none.includes("awaiting approval")).toBeFalse();
   });
 
   test("superadmin page counts open weekly requests across every site and shows nothing when 0", async () => {
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      // rqA1 (site A) and rqB1 (site B) are the open weekly requests.
-      const two = await renderRequests();
-      expect(two.includes("2 requests awaiting approval")).toBeTrue();
-      expect(
-        two.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
-      ).toBeTrue();
-
-      await db
-        .update(mpRequest)
-        .set({ status: "approved" })
-        .where(eq(mpRequest.siteLocationId, fx.ids.locB1));
-      const one = await renderRequests();
-      expect(one.includes("1 request awaiting approval")).toBeTrue();
-
-      await db
-        .update(mpRequest)
-        .set({ status: "approved" })
-        .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
-      const none = await renderRequests();
-      expect(none.includes("awaiting approval")).toBeFalse();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    // rqA1 (site A) and rqB1 (site B) are the open weekly requests.
+    const two = await renderRequests();
+    expect(two.includes("2 requests awaiting approval")).toBeTrue();
+    expect(
+      two.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
+    ).toBeTrue();
+
+    await db
+      .update(mpRequest)
+      .set({ status: "approved" })
+      .where(eq(mpRequest.siteLocationId, fx.ids.locB1));
+    const one = await renderRequests();
+    expect(one.includes("1 request awaiting approval")).toBeTrue();
+
+    await db
+      .update(mpRequest)
+      .set({ status: "approved" })
+      .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
+    const none = await renderRequests();
+    expect(none.includes("awaiting approval")).toBeFalse();
   });
 
   test("the Roster column renders \"View in roster\" with the right href", async () => {
     const fx = await seedRequestFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const before = await renderRequests();
-      expect(before.includes("View in roster")).toBeFalse();
-
-      await db
-        .update(mpRequest)
-        .set({ status: "fulfilled" })
-        .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
-      const after = await renderRequests();
-      expect(after.includes('View in roster <span aria-hidden="true">→</span>')).toBeTrue();
-      expect(
-        after.includes(
-          `href="/dashboard/roster?week=2026-01-05&amp;locationId=${fx.ids.locA1}"`,
-        ),
-      ).toBeTrue();
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const before = await renderRequests();
+    expect(before.includes("View in roster")).toBeFalse();
+
+    await db
+      .update(mpRequest)
+      .set({ status: "fulfilled" })
+      .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
+    const after = await renderRequests();
+    expect(after.includes('View in roster <span aria-hidden="true">→</span>')).toBeTrue();
+    expect(
+      after.includes(
+        `href="/dashboard/roster?week=2026-01-05&amp;locationId=${fx.ids.locA1}"`,
+      ),
+    ).toBeTrue();
   });
 });

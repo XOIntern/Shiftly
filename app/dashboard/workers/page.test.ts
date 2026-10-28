@@ -12,6 +12,11 @@ import {
   workerPosition,
 } from "@/drizzle/schema";
 import type { SessionUser } from "@/types/session";
+import { installCleanup } from "@/lib/test-cleanup";
+
+// Fixture teardown runs in afterEach / afterAll, so it still runs after a test
+// times out (a per-test finally would not).
+const fixtureCleanup = installCleanup();
 
 // The workers page reads its actor through requireUser (all three roles
 // manage their own scope) — swapped for a stub so the real server component
@@ -184,174 +189,165 @@ function makeActor(
 describe("workers page server queries", () => {
   test("admin sees only workers in their binding location", async () => {
     const fx = await seedWorkerFixtures();
-    try {
-      actor = makeActor("admin", null, fx.ids.locA1);
-
-      const page = await renderWorkers();
-      expect(page.workers.map((w) => w.id)).toEqual([fx.ids.wA]);
-      expect(page.total).toBe(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, fx.ids.locA1);
+
+    const page = await renderWorkers();
+    expect(page.workers.map((w) => w.id)).toEqual([fx.ids.wA]);
+    expect(page.total).toBe(1);
   });
 
   test("ho sees all workers under their site, not other sites'", async () => {
     const fx = await seedWorkerFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      // A crafted siteId param is ignored for a ho — scope is data-level.
-      const crafted = await renderWorkers({ siteId: fx.ids.siteB });
-      expect(crafted.workers.map((w) => w.id)).toEqual([fx.ids.wA]);
-      expect(crafted.total).toBe(1);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    // A crafted siteId param is ignored for a ho — scope is data-level.
+    const crafted = await renderWorkers({ siteId: fx.ids.siteB });
+    expect(crafted.workers.map((w) => w.id)).toEqual([fx.ids.wA]);
+    expect(crafted.total).toBe(1);
   });
 
   test("superadmin siteId filter keeps only that site's workers; junk shows all", async () => {
     const fx = await seedWorkerFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      // Shared dev DB: other suites' workers may exist, so the unfiltered
-      // and junk renders assert presence, while the filtered one is exact.
-      const filtered = await renderWorkers({ siteId: fx.ids.siteA });
-      expect(filtered.workers.map((w) => w.id)).toEqual([fx.ids.wA]);
-      expect(filtered.total).toBe(1);
-
-      const junk = await renderWorkers({ siteId: "junk" as never });
-      const junkIds = junk.workers.map((w) => w.id);
-      expect(junkIds).toContain(fx.ids.wA);
-      expect(junkIds).toContain(fx.ids.wB);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    // Shared dev DB: other suites' workers may exist, so the unfiltered
+    // and junk renders assert presence, while the filtered one is exact.
+    const filtered = await renderWorkers({ siteId: fx.ids.siteA });
+    expect(filtered.workers.map((w) => w.id)).toEqual([fx.ids.wA]);
+    expect(filtered.total).toBe(1);
+
+    const junk = await renderWorkers({ siteId: "junk" as never });
+    const junkIds = junk.workers.map((w) => w.id);
+    expect(junkIds).toContain(fx.ids.wA);
+    expect(junkIds).toContain(fx.ids.wB);
   });
 
   test("dialog receives the role-scoped site, location, and position options", async () => {
     const fx = await seedWorkerFixtures();
-    try {
-      actor = makeActor("ho", fx.ids.siteA, null);
-
-      const page = await renderWorkers();
-      // CreateWorkerButton and WorkersTable receive the same fixture
-      // props, asserted on the table node.
-      expect(page.sites?.map((s) => s.id)).toEqual([fx.ids.siteA]);
-      expect(
-        (page.siteLocations ?? []).every((l) => l.siteId === fx.ids.siteA),
-      ).toBe(true);
-      expect(page.siteLocations?.map((l) => l.id)).toEqual([fx.ids.locA1]);
-      // Options are live (inactive included, so an attached inactive
-      // position can be rendered and removed); site B's is scoped out.
-      const positionIds = (page.positions ?? []).map((p) => p.id);
-      expect(positionIds).toEqual([fx.ids.posA, fx.ids.posAOff]);
-      expect(
-        (page.positions ?? []).every((p) => p.siteId === fx.ids.siteA),
-      ).toBe(true);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("ho", fx.ids.siteA, null);
+
+    const page = await renderWorkers();
+    // CreateWorkerButton and WorkersTable receive the same fixture
+    // props, asserted on the table node.
+    expect(page.sites?.map((s) => s.id)).toEqual([fx.ids.siteA]);
+    expect(
+      (page.siteLocations ?? []).every((l) => l.siteId === fx.ids.siteA),
+    ).toBe(true);
+    expect(page.siteLocations?.map((l) => l.id)).toEqual([fx.ids.locA1]);
+    // Options are live (inactive included, so an attached inactive
+    // position can be rendered and removed); site B's is scoped out.
+    const positionIds = (page.positions ?? []).map((p) => p.id);
+    expect(positionIds).toEqual([fx.ids.posA, fx.ids.posAOff]);
+    expect(
+      (page.positions ?? []).every((p) => p.siteId === fx.ids.siteA),
+    ).toBe(true);
   });
 
   test("pickers exclude positions under a soft-deleted site", async () => {
     const fx = await seedWorkerFixtures();
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const page = await renderWorkers({ pageSize: "50" });
-      const positionIds = (page.positions ?? []).map((p) => p.id);
-      // Shared dev DB: other suites' live positions may exist, so assert
-      // presence rather than an exact array.
-      expect(positionIds).toContain(fx.ids.posA);
-      expect(positionIds).not.toContain(fx.ids.posC);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const page = await renderWorkers({ pageSize: "50" });
+    const positionIds = (page.positions ?? []).map((p) => p.id);
+    // Shared dev DB: other suites' live positions may exist, so assert
+    // presence rather than an exact array.
+    expect(positionIds).toContain(fx.ids.posA);
+    expect(positionIds).not.toContain(fx.ids.posC);
   });
 
   test("unbound admin sees nothing", async () => {
     const fx = await seedWorkerFixtures();
-    try {
-      actor = makeActor("admin", null, null);
-
-      const page = await renderWorkers();
-      expect(page.workers).toEqual([]);
-      expect(page.total).toBe(0);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("admin", null, null);
+
+    const page = await renderWorkers();
+    expect(page.workers).toEqual([]);
+    expect(page.total).toBe(0);
   });
   test("each row carries its positions sorted by name", async () => {
     const fx = await seedWorkerFixtures();
     const aaa = randomUUID();
 
-    try {
-      await db.insert(position).values({
-        id: aaa,
-        siteId: fx.ids.siteA,
-        name: "t13-wpage-aaa",
-      });
-      await db.insert(workerPosition).values({
-        workerId: fx.ids.wA,
-        positionId: aaa,
-        siteId: fx.ids.siteA,
-      });
-
-      actor = makeActor("superadmin", null, null);
-
-      const page = await renderWorkers({ siteId: fx.ids.siteA });
-      const row = page.workers.find((w) => w.id === fx.ids.wA);
-      expect(row?.positions?.map((p) => p.name)).toEqual([
-        "t13-wpage-aaa",
-        "t13-wpage-alpha",
-      ]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       // The local position (and its pivot row) go before the site dies.
       await db
         .delete(workerPosition)
         .where(eq(workerPosition.positionId, aaa));
       await db.delete(position).where(eq(position.id, aaa));
       await fx.cleanup();
-    }
+    });
+    await db.insert(position).values({
+      id: aaa,
+      siteId: fx.ids.siteA,
+      name: "t13-wpage-aaa",
+    });
+    await db.insert(workerPosition).values({
+      workerId: fx.ids.wA,
+      positionId: aaa,
+      siteId: fx.ids.siteA,
+    });
+
+    actor = makeActor("superadmin", null, null);
+
+    const page = await renderWorkers({ siteId: fx.ids.siteA });
+    const row = page.workers.find((w) => w.id === fx.ids.wA);
+    expect(row?.positions?.map((p) => p.name)).toEqual([
+      "t13-wpage-aaa",
+      "t13-wpage-alpha",
+    ]);
   });
 
   test("a worker with no pivot rows renders an empty positions list", async () => {
     const fx = await seedWorkerFixtures();
     const bare = randomUUID();
 
-    try {
-      await db.insert(worker).values({
-        id: bare,
-        siteId: fx.ids.siteA,
-        siteLocationId: fx.ids.locA1,
-        employeeId: `t13-wpage-emp-bare-${bare.slice(0, 8)}`,
-        name: "t13-wpage-worker-bare",
-      });
-
-      actor = makeActor("superadmin", null, null);
-
-      const page = await renderWorkers({ siteId: fx.ids.siteA });
-      const row = page.workers.find((w) => w.id === bare);
-      expect(row).toBeDefined();
-      expect(row?.positions).toEqual([]);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await db.delete(worker).where(eq(worker.id, bare));
       await fx.cleanup();
-    }
+    });
+    await db.insert(worker).values({
+      id: bare,
+      siteId: fx.ids.siteA,
+      siteLocationId: fx.ids.locA1,
+      employeeId: `t13-wpage-emp-bare-${bare.slice(0, 8)}`,
+      name: "t13-wpage-worker-bare",
+    });
+
+    actor = makeActor("superadmin", null, null);
+
+    const page = await renderWorkers({ siteId: fx.ids.siteA });
+    const row = page.workers.find((w) => w.id === bare);
+    expect(row).toBeDefined();
+    expect(row?.positions).toEqual([]);
   });
 
   test("position options include inactive positions", async () => {
     const fx = await seedWorkerFixtures();
 
-    try {
-      actor = makeActor("superadmin", null, null);
-
-      const page = await renderWorkers({ pageSize: "50" });
-      const positionIds = (page.positions ?? []).map((p) => p.id);
-      expect(positionIds).toContain(fx.ids.posAOff);
-    } finally {
+    fixtureCleanup.defer(async () => {
       await fx.cleanup();
-    }
+    });
+    actor = makeActor("superadmin", null, null);
+
+    const page = await renderWorkers({ pageSize: "50" });
+    const positionIds = (page.positions ?? []).map((p) => p.id);
+    expect(positionIds).toContain(fx.ids.posAOff);
   });
 });

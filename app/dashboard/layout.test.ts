@@ -5,8 +5,13 @@ import type { SessionUser } from "@/types/session";
 // The layout reads its actor through getUser — swapped for a stub so the
 // real server component builds its nav without a Next request context.
 let actor: SessionUser | null;
+// The whole module is swapped process-wide, so every export other suites may
+// resolve exists here, not only the one this layout reads.
 mock.module("@/lib/session", () => ({
   getUser: async () => actor,
+  requireUser: async () => actor,
+  requireHO: async () => actor,
+  requireSuperadmin: async () => actor,
 }));
 
 type NavItem = { title: string; url: string };
