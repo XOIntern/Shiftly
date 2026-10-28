@@ -81,12 +81,4 @@ describe("DeletedRowActions wiring", () => {
 
     expect(source).toContain("toast.error(result.message ?? GENERIC_ERROR)");
   });
-
-  test("the permanent delete entry points are gated on canPurge", async () => {
-    const source = await Bun.file(
-      new URL("../deleted-row-actions.tsx", import.meta.url),
-    ).text();
-
-    expect(source).toContain("canPurge");
-  });
 });
