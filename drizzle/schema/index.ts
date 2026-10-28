@@ -8,3 +8,4 @@ export * from "./worker-schema";
 export * from "./audit-schema";
 export * from "./mp-request-schema";
 export * from "./roster-schema";
+export * from "./attendance-schema";

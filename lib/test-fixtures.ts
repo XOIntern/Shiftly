@@ -4,7 +4,9 @@ import { eq } from "drizzle-orm";
 
 import { db } from "./db";
 import type { Cleanup } from "./test-cleanup";
+import type { AttendanceStatus } from "../types/attendance";
 import {
+  attendanceRecord,
   auditLog,
   mpRequest,
   mpRequestLine,
@@ -337,6 +339,45 @@ export async function seedAssignment(
     workAreaId: opts.workAreaId,
     shiftDefinitionId: opts.shiftId,
     date: MONDAY,
+  });
+  return { id };
+}
+
+// The rostered shift defaults to the worked shift, except for an unscheduled
+// row (withoutRoster), which has none.
+export async function seedAttendance(
+  cleanup: Cleanup,
+  opts: {
+    loc: Loc;
+    workerId: string;
+    workAreaId: string;
+    shiftId: string;
+    recordedBy: string;
+    date?: string;
+    status?: AttendanceStatus;
+    withoutRoster?: boolean;
+    rosteredShiftId?: string;
+  },
+): Promise<{ id: string }> {
+  const id = randomUUID();
+  const withoutRoster = opts.withoutRoster ?? false;
+  cleanup.defer(async () => {
+    await db.delete(attendanceRecord).where(eq(attendanceRecord.id, id));
+  });
+  await db.insert(attendanceRecord).values({
+    id,
+    siteLocationId: opts.loc.id,
+    siteId: opts.loc.siteId,
+    workerId: opts.workerId,
+    date: opts.date ?? MONDAY,
+    shiftDefinitionId: opts.shiftId,
+    workAreaId: opts.workAreaId,
+    status: opts.status ?? "present",
+    withoutRoster,
+    rosteredShiftDefinitionId: withoutRoster
+      ? null
+      : (opts.rosteredShiftId ?? opts.shiftId),
+    recordedBy: opts.recordedBy,
   });
   return { id };
 }
