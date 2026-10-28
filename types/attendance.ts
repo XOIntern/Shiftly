@@ -1,3 +1,5 @@
+import type { LocationTimezone } from "./timezone";
+
 // Must stay in sync with attendanceStatusEnum (drizzle/schema/attendance-schema.ts).
 export type AttendanceStatus = "present" | "leave" | "sick" | "absent";
 
@@ -34,4 +36,31 @@ export type DayRow = {
   record: RecordInput | null;
   state: DayRowState;
   shiftDiffers: boolean;
+};
+
+// A shift the day page can show or pick. `selectable` is false for a shift
+// that is inactive or soft-deleted: a recorded row still renders its label,
+// it just cannot be chosen for a new recording.
+export type ShiftOption = {
+  id: string;
+  label: string;
+  startTime: string;
+  endTime: string;
+  selectable: boolean;
+};
+
+export type AreaOption = { id: string; name: string; selectable: boolean };
+
+// A live, active worker of the location who can be added as unscheduled.
+export type CandidateWorker = { id: string; employeeId: string; name: string };
+
+// Everything the day page needs for one location and date, from one loader.
+export type DayData = {
+  roster: RosterRowInput[];
+  records: RecordInput[];
+  workers: Record<string, { employeeId: string; name: string }>;
+  shifts: ShiftOption[];
+  areas: AreaOption[];
+  candidates: CandidateWorker[];
+  timezone: LocationTimezone;
 };

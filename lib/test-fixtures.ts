@@ -260,21 +260,34 @@ export async function seedUser(
 // History rows. Seed them after the entities they reference so their
 // teardowns run before those entities are removed.
 
+// A weekly draft on the first Monday unless told otherwise. `requestDate`
+// makes it a daily plan; `weekStart` moves a weekly one.
 export async function seedRosterPlan(
   cleanup: Cleanup,
   loc: Loc,
-  opts: { generatedBy?: string; publishedBy?: string } = {},
+  opts: {
+    generatedBy?: string;
+    publishedBy?: string;
+    status?: "draft" | "published";
+    version?: number;
+    weekStart?: string;
+    requestDate?: string;
+  } = {},
 ): Promise<{ id: string }> {
   const id = randomUUID();
   cleanup.defer(async () => {
     await db.delete(rosterPlan).where(eq(rosterPlan.id, id));
   });
+  const anchor = opts.requestDate
+    ? { kind: "daily" as const, requestDate: opts.requestDate, weekStart: null }
+    : { kind: "weekly" as const, weekStart: opts.weekStart ?? MONDAY };
   await db.insert(rosterPlan).values({
     id,
     siteLocationId: loc.id,
     siteId: loc.siteId,
-    kind: "weekly",
-    weekStart: MONDAY,
+    ...anchor,
+    status: opts.status,
+    version: opts.version,
     rulesSnapshot: {},
     generatedBy: opts.generatedBy,
     publishedBy: opts.publishedBy,
@@ -329,6 +342,7 @@ export async function seedAssignment(
     workerId: string;
     workAreaId: string;
     shiftId: string;
+    date?: string;
   },
 ): Promise<{ id: string }> {
   const id = randomUUID();
@@ -343,7 +357,7 @@ export async function seedAssignment(
     workerId: opts.workerId,
     workAreaId: opts.workAreaId,
     shiftDefinitionId: opts.shiftId,
-    date: MONDAY,
+    date: opts.date ?? MONDAY,
   });
   return { id };
 }
