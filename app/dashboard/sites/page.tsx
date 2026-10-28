@@ -25,9 +25,11 @@ export const instant = false;
 const SORTABLE = { name: site.name, isActive: site.isActive };
 const DEFAULT_ORDER = [asc(site.name)];
 // The deleted view sorts by name or by when the site was deleted, newest
-// deletion first by default.
+// deletion first by default. buildOrder trails every user sort with this
+// default, so the id breaks ties for any sort: sites deleted in the same
+// instant (a bulk delete) keep one order and cannot swap between pages.
 const SORTABLE_DELETED = { name: site.name, deletedAt: site.deletedAt };
-const DEFAULT_ORDER_DELETED = [desc(site.deletedAt)];
+const DEFAULT_ORDER_DELETED = [desc(site.deletedAt), asc(site.id)];
 
 // The reference algorithm every master-data page follows (epic #24):
 // validate URL state, count first for pageCount, clamp the page, then fetch

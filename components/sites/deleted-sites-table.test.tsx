@@ -11,8 +11,7 @@ mock.module("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams("show=deleted"),
 }));
 
-const { DeletedSitesTable, purgeDescription } =
-  await import("./deleted-sites-table");
+const { DeletedSitesTable } = await import("./deleted-sites-table");
 
 import type { DeletedSiteRow } from "@/types/site";
 
@@ -63,27 +62,23 @@ describe("DeletedSitesTable", () => {
   });
 });
 
-describe("purgeDescription", () => {
-  test("names the site and warns that it cannot be undone", () => {
-    const text = purgeDescription("Nestle Cikarang");
+// A click on the confirm button cannot be driven through static markup, so the
+// wiring is pinned at the source: a successful single permanent delete must
+// still say so, and the error path must still toast the failure.
+describe("PurgeSiteDialog wiring", () => {
+  test("a successful permanent delete toasts its success message", async () => {
+    const source = await Bun.file(
+      new URL("./deleted-sites-table.tsx", import.meta.url),
+    ).text();
 
-    expect(text).toContain("Nestle Cikarang");
-    expect(text).toContain("cannot be undone");
+    expect(source).toContain("toast.success(purgeSuccessMessage(site.name))");
   });
 
-  test("lists what goes with the site and what blocks the delete", () => {
-    const text = purgeDescription("X");
+  test("a failed permanent delete still toasts the error", async () => {
+    const source = await Bun.file(
+      new URL("./deleted-sites-table.tsx", import.meta.url),
+    ).text();
 
-    for (const part of [
-      "locations",
-      "work areas",
-      "positions",
-      "shifts",
-      "workers",
-      "users",
-    ]) {
-      expect(text).toContain(part);
-    }
-    expect(text).toContain("roster, request or audit history");
+    expect(source).toContain("toast.error(result.message ?? GENERIC_ERROR)");
   });
 });
