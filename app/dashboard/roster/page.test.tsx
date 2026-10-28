@@ -428,7 +428,19 @@ async function seedRosterFixtures() {
   );
 
   return {
-    ids: { siteS, locL1, locL2, waOne, waTwo, shEarly, draftL1, draftL2, publishedL1 },
+    ids: {
+      siteS,
+      locL1,
+      locL2,
+      waOne,
+      waTwo,
+      shEarly,
+      draftL1,
+      draftL2,
+      publishedL1,
+      dailyPlan,
+    },
+    workerIds,
     labels: {
       areaOne: `t-roster-wa-one-${suffix}`,
       areaTwo: `t-roster-wa-two-${suffix}`,
@@ -479,6 +491,11 @@ async function seedRosterFixtures() {
     },
   };
 }
+
+// The <tr> of one worker (grid rows split on the opening tag, so a chunk
+// ends at its own </tr>).
+const rowOf = (html: string, employeeId: string): string =>
+  html.split("<tr").find((chunk) => chunk.includes(`>${employeeId}<`)) ?? "";
 
 function makeActor(
   role: SessionUser["role"],
@@ -677,6 +694,57 @@ describe("roster page SSR (roster-engine Task 7)", () => {
       expect(page).toContain("Suggest replacements");
       // The old daily table is gone.
       expect(page).not.toContain("Daily requests");
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("a daily fill shows as a read-only Daily cell in the worker's row, for an admin and an ho", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      // The fixture's 2026-01-07 daily plan fills workers 2 and 3 of the
+      // selected area; worker 1 has only the weekly Monday cell.
+      for (const who of [
+        makeActor("admin", null, fx.ids.locL1),
+        makeActor("ho", fx.ids.siteS, null),
+      ]) {
+        actor = who;
+        const html = await renderRoster({ week: fx.MONDAY });
+
+        for (const n of [2, 3]) {
+          const row = rowOf(html, fx.employeeId(n));
+          expect(row).toContain("Daily");
+          expect(row).toContain(fx.labels.shiftEarly);
+          expect(row).not.toContain(
+            `Open shift picker for ${fx.employeeId(n)} on 2026-01-07`,
+          );
+        }
+        expect(text(rowOf(html, fx.employeeId(1)))).not.toContain("Daily");
+      }
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test("a daily fill of another work area does not show in the selected card", async () => {
+    const fx = await seedRosterFixtures();
+    try {
+      await db.insert(rosterAssignment).values({
+        planId: fx.ids.dailyPlan,
+        siteId: fx.ids.siteS,
+        siteLocationId: fx.ids.locL1,
+        workerId: fx.workerIds[4],
+        workAreaId: fx.ids.waTwo,
+        shiftDefinitionId: fx.ids.shEarly,
+        date: "2026-01-07",
+      });
+      actor = makeActor("admin", null, fx.ids.locL1);
+
+      const html = await renderRoster({ week: fx.MONDAY });
+
+      expect(html.includes(fx.employeeId(5))).toBeTrue();
+      expect(text(rowOf(html, fx.employeeId(5)))).not.toContain("Daily");
+      expect(rowOf(html, fx.employeeId(2))).toContain("Daily");
     } finally {
       await fx.cleanup();
     }

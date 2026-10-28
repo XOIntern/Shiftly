@@ -42,30 +42,83 @@ const W2 = "aaaaaaaa-2222-4222-9222-222222222222";
 const SH1 = "dddddddd-1111-4111-8111-111111111111";
 const MON = "2026-01-05";
 
+const TUE = "2026-01-06";
+const EARLY = { id: SH1, label: "Early", startTime: "06:00", endTime: "14:00" };
+
+function renderGrid(
+  props: Partial<React.ComponentProps<typeof RosterGrid>> = {},
+): string {
+  return renderToStaticMarkup(
+    <RosterGrid
+      planId={PLAN}
+      canEdit={false}
+      readOnlyReason="Read-only"
+      workAreaId={AREA}
+      workAreaName="Kitchen"
+      shifts={[EARLY]}
+      workers={[{ id: W1, employeeId: "EMP-001" }]}
+      dates={[MON]}
+      cells={{}}
+      dailyCells={{}}
+      rowPage={1}
+      workerTotal={1}
+      onRowPageChange={() => {}}
+      {...props}
+    />,
+  );
+}
+
 describe("RosterGrid", () => {
   test("grid renders only the selected work area's workers", () => {
-    const html = renderToStaticMarkup(
-      <RosterGrid
-        planId={PLAN}
-        canEdit={false}
-        readOnlyReason="Read-only"
-        workAreaId={AREA}
-        workAreaName="Kitchen"
-        shifts={[{ id: SH1, label: "Early", startTime: "06:00", endTime: "14:00" }]}
-        workers={[{ id: W1, employeeId: "EMP-001" }]}
-        dates={[MON]}
-        cells={{ [`${W1}|${MON}`]: SH1 }}
-        rowPage={1}
-        workerTotal={1}
-        onRowPageChange={() => {}}
-      />,
-    );
+    const html = renderGrid({ cells: { [`${W1}|${MON}`]: SH1 } });
     // The selected area names the grid; no area switcher lives in the grid.
     expect(html).toContain("Kitchen");
     expect(html).not.toContain('aria-label="Work area"');
     expect(html).toContain("EMP-001");
     expect(html).not.toContain("EMP-002");
     expect(html).toContain("Early");
+    expect(html).not.toContain("Daily");
+  });
+
+  test("a daily fill shows its shift, times and a Daily tag", () => {
+    const html = renderGrid({ dailyCells: { [`${W1}|${MON}`]: SH1 } });
+    expect(html).toContain("Early");
+    expect(html).toContain("06:00–14:00");
+    expect(html).toContain("Daily");
+    expect(html).toContain('title="Daily fill, not editable here"');
+  });
+
+  test("a daily cell never opens the shift picker, even when editable", () => {
+    const html = renderGrid({
+      canEdit: true,
+      dates: [MON, TUE],
+      dailyCells: { [`${W1}|${MON}`]: SH1 },
+    });
+    expect(html).not.toContain(`Open shift picker for EMP-001 on ${MON}`);
+    expect(html).toContain(`Open shift picker for EMP-001 on ${TUE}`);
+  });
+
+  test("a weekly cell wins over a daily entry for the same worker-day", () => {
+    const html = renderGrid({
+      cells: { [`${W1}|${MON}`]: SH1 },
+      dailyCells: { [`${W1}|${MON}`]: SH1 },
+    });
+    expect(html).toContain("Early");
+    expect(html).not.toContain("Daily");
+  });
+
+  test("a daily fill of a shift outside the list shows the tag without a label", () => {
+    const html = renderGrid({
+      shifts: [],
+      dailyCells: { [`${W1}|${MON}`]: SH1 },
+    });
+    expect(html).toContain("Daily");
+    expect(html).not.toContain("undefined");
+    expect(html).not.toContain("06:00");
+  });
+
+  test("without daily entries no Daily text renders", () => {
+    expect(renderGrid({ dates: [MON, TUE] })).not.toContain("Daily");
   });
 });
 
