@@ -699,6 +699,36 @@ describe("requests list: approval, roster link and filter", () => {
     }
   });
 
+  test("superadmin page counts open weekly requests across every site and shows nothing when 0", async () => {
+    const fx = await seedRequestFixtures();
+    try {
+      actor = makeActor("superadmin", null, null);
+
+      // rqA1 (site A) and rqB1 (site B) are the open weekly requests.
+      const two = await renderRequests();
+      expect(two.includes("2 requests awaiting approval")).toBeTrue();
+      expect(
+        two.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
+      ).toBeTrue();
+
+      await db
+        .update(mpRequest)
+        .set({ status: "approved" })
+        .where(eq(mpRequest.siteLocationId, fx.ids.locB1));
+      const one = await renderRequests();
+      expect(one.includes("1 request awaiting approval")).toBeTrue();
+
+      await db
+        .update(mpRequest)
+        .set({ status: "approved" })
+        .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
+      const none = await renderRequests();
+      expect(none.includes("awaiting approval")).toBeFalse();
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   test("the Roster column renders \"View in roster →\" with the right href", async () => {
     const fx = await seedRequestFixtures();
     try {

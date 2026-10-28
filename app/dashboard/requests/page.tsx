@@ -105,10 +105,11 @@ export default async function RequestsPage({
     ...(scope ? [scope] : []),
   );
 
-  // HO's work queue: open weekly requests inside their scope. Same scope
-  // helper as the list, so nothing outside the actor's site is counted.
+  // The approvers' work queue (HO and superadmin): open weekly requests
+  // inside their scope. Same scope helper as the list, so an HO never counts
+  // beyond their site while the superadmin counts every site.
   let awaitingApproval = 0;
-  if (actor.role === "ho") {
+  if (canApprove) {
     const [{ count: awaiting }] = await db
       .select({ count: count() })
       .from(mpRequest)
