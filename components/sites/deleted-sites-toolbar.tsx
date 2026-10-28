@@ -16,38 +16,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { bulkPurgeDescription } from "@/components/sites/purge-copy";
 import { Button } from "@/components/ui/button";
-import { GENERIC_ERROR } from "@/lib/action-state";
+import { nounFor, summarizeBulk } from "@/lib/bulk-summary";
 import type { ActionState } from "@/types/action-state";
 
-const noun = (count: number) => `site${count === 1 ? "" : "s"}`;
-
-export type BulkSummary = {
-  kind: "success" | "error";
-  title: string;
-  description?: string;
-};
-
-// What the toast says about a finished bulk action: the count that went
-// through, and when some were skipped, why (the first refusal's message). A
-// run where nothing went through reads as an error.
-export function summarizeBulk(result: ActionState, verb: string): BulkSummary {
-  if (!result.ok) {
-    return { kind: "error", title: result.message ?? GENERIC_ERROR };
-  }
-  const applied = result.applied ?? 0;
-  const blocked = result.blocked ?? 0;
-  if (applied === 0 && blocked > 0) {
-    return { kind: "error", title: result.message ?? GENERIC_ERROR };
-  }
-  if (blocked > 0) {
-    return {
-      kind: "success",
-      title: `${applied} ${noun(applied)} ${verb}, ${blocked} skipped`,
-      description: result.message,
-    };
-  }
-  return { kind: "success", title: `${applied} ${noun(applied)} ${verb}` };
-}
+const siteNoun = nounFor("site");
 
 // The strip DataTable renders while deleted sites are selected. Restore runs
 // at once (it can be undone by deleting again); permanent delete confirms.
@@ -67,7 +39,7 @@ export function DeletedSitesToolbar({
 
   function run(operation: () => Promise<ActionState>, verb: string) {
     startTransition(async () => {
-      const summary = summarizeBulk(await operation(), verb);
+      const summary = summarizeBulk(await operation(), verb, siteNoun);
       if (summary.kind === "error") {
         toast.error(summary.title);
       } else {
@@ -80,7 +52,7 @@ export function DeletedSitesToolbar({
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-sm text-muted-foreground">
-        {count} {noun(count)} selected
+        {count} {siteNoun(count)} selected
       </span>
       <Button
         size="sm"
@@ -102,7 +74,7 @@ export function DeletedSitesToolbar({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {count} {noun(count)} permanently?
+              Delete {count} {siteNoun(count)} permanently?
             </AlertDialogTitle>
             <AlertDialogDescription>
               {bulkPurgeDescription(count)}
