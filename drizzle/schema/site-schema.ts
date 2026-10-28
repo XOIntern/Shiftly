@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   pgTable,
   text,
   timestamp,
@@ -8,6 +9,8 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+import type { LocationTimezone } from "../../types/timezone";
 
 export const site = pgTable(
   "site",
@@ -38,6 +41,13 @@ export const siteLocation = pgTable(
       .references(() => site.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
     isActive: boolean("is_active").notNull().default(true),
+    // The location owns its time zone (sites span WIB, WITA and WIT): "today"
+    // for attendance is decided from it on the server. Must stay in sync with
+    // LOCATION_TIMEZONES (types/timezone.ts) and the CHECK below.
+    timezone: text("timezone")
+      .$type<LocationTimezone>()
+      .notNull()
+      .default("Asia/Jakarta"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -46,6 +56,10 @@ export const siteLocation = pgTable(
     deletedAt: timestamp("deleted_at"),
   },
   (table) => [
+    check(
+      "site_location_timezone_check",
+      sql`${table.timezone} in ('Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura')`,
+    ),
     uniqueIndex("site_location_site_id_name_unique")
       .on(table.siteId, table.name)
       .where(sql`deleted_at is null`),

@@ -183,6 +183,13 @@
       "when": 1793213147928,
       "tag": "0025_long_human_cannonball",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793213593004,
+      "tag": "0026_serious_lionheart",
+      "breakpoints": true
     }
   ]
 }

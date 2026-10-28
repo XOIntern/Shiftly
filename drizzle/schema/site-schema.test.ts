@@ -134,6 +134,59 @@ describe("site_location", () => {
     expect(row.createdAt).toBeInstanceOf(Date);
   });
 
+  test("a location inserted without a time zone reads back as Asia/Jakarta", async () => {
+    const run = nextSeq();
+    const siteId = await createSite(run, "tz-default");
+    const locationId = await createLocation({ siteId });
+
+    const [row] = await db
+      .select()
+      .from(siteLocation)
+      .where(eq(siteLocation.id, locationId));
+    expect(row.timezone).toBe("Asia/Jakarta");
+  });
+
+  test("each of the three Indonesian zones is accepted", async () => {
+    const run = nextSeq();
+    const siteId = await createSite(run, "tz-ok");
+    for (const timezone of ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"] as const) {
+      const id = randomUUID();
+      createdLocationIds.push(id);
+      await db
+        .insert(siteLocation)
+        .values({ id, siteId, name: `t-site-${run}-${timezone}`, timezone });
+      const [row] = await db
+        .select()
+        .from(siteLocation)
+        .where(eq(siteLocation.id, id));
+      expect(row.timezone).toBe(timezone);
+    }
+  });
+
+  test("a time zone outside the three is rejected with 23514", async () => {
+    const run = nextSeq();
+    const siteId = await createSite(run, "tz-bad");
+    const locationId = randomUUID();
+    createdLocationIds.push(locationId);
+
+    let code: string | undefined;
+    try {
+      await db.insert(siteLocation).values({
+        id: locationId,
+        siteId,
+        name: `t-site-${run}-tz-bad`,
+        timezone: "Europe/London" as never,
+      });
+    } catch (err) {
+      code = pgErrorCode(err);
+    }
+    expect(code).toBe("23514");
+    expect(
+      (await db.select().from(siteLocation).where(eq(siteLocation.id, locationId)))
+        .length,
+    ).toBe(0);
+  });
+
   test("duplicate live name within a site: rejected with 23505", async () => {
     const run = nextSeq();
     const siteId = await createSite(run, "dup");

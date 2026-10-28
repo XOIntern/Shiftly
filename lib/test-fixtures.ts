@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "./db";
 import type { Cleanup } from "./test-cleanup";
 import type { AttendanceStatus } from "../types/attendance";
+import type { LocationTimezone } from "../types/timezone";
 import {
   attendanceRecord,
   auditLog,
@@ -63,16 +64,20 @@ export async function seedSite(
 export async function seedLocation(
   cleanup: Cleanup,
   siteId: string,
-  opts: { deleted?: boolean; name?: string } = {},
+  opts: { deleted?: boolean; name?: string; timezone?: LocationTimezone } = {},
 ): Promise<{ id: string; siteId: string; name: string }> {
   const id = randomUUID();
   const name = opts.name ?? unique("t-fx-loc");
   cleanup.defer(async () => {
     await db.delete(siteLocation).where(eq(siteLocation.id, id));
   });
-  await db
-    .insert(siteLocation)
-    .values({ id, siteId, name, deletedAt: deletedAt(opts.deleted) });
+  await db.insert(siteLocation).values({
+    id,
+    siteId,
+    name,
+    timezone: opts.timezone,
+    deletedAt: deletedAt(opts.deleted),
+  });
   return { id, siteId, name };
 }
 

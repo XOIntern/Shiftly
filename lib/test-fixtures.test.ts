@@ -92,6 +92,24 @@ describe("entity seeders", () => {
     expect(await deletedAtOf.location(gone.id)).toBeInstanceOf(Date);
   });
 
+  test("a location defaults to Asia/Jakarta and takes a time zone on request", async () => {
+    const s = await seedSite(fixtureCleanup);
+    const plain = await seedLocation(fixtureCleanup, s.id);
+    const east = await seedLocation(fixtureCleanup, s.id, {
+      timezone: "Asia/Jayapura",
+    });
+
+    const zoneOf = async (id: string) =>
+      (
+        await db
+          .select({ timezone: siteLocation.timezone })
+          .from(siteLocation)
+          .where(eq(siteLocation.id, id))
+      )[0].timezone;
+    expect(await zoneOf(plain.id)).toBe("Asia/Jakarta");
+    expect(await zoneOf(east.id)).toBe("Asia/Jayapura");
+  });
+
   test("a position is live by default and soft-deleted on request", async () => {
     const s = await seedSite(fixtureCleanup);
     const live = await seedPosition(fixtureCleanup, s.id);

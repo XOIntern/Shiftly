@@ -7,6 +7,8 @@ export type LocationOption = {
   siteName: string | null;
 };
 
+import type { LocationTimezone } from "./timezone";
+
 // One row of the locations table — server-selectable fields only.
 export type LocationRow = {
   id: string;
@@ -14,6 +16,7 @@ export type LocationRow = {
   isActive: boolean;
   siteId: string;
   siteName: string;
+  timezone: LocationTimezone;
 };
 
 // One row of the deleted-locations table. deletedAt travels as an ISO string

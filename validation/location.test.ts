@@ -50,6 +50,32 @@ describe("locationCreateSchema", () => {
     const result = locationCreateSchema.safeParse({ name: "x".repeat(101) });
     expect(result.success).toBe(false);
   });
+
+  test("defaults the time zone to Asia/Jakarta", () => {
+    const result = locationCreateSchema.safeParse({ name: "Warehouse A" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.timezone).toBe("Asia/Jakarta");
+    }
+  });
+
+  test("accepts each of the three Indonesian zones", () => {
+    for (const timezone of ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"]) {
+      const result = locationCreateSchema.safeParse({
+        name: "Warehouse A",
+        timezone,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  test("rejects a time zone outside the three", () => {
+    const result = locationCreateSchema.safeParse({
+      name: "Warehouse A",
+      timezone: "UTC",
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("locationUpdateSchema", () => {
@@ -83,6 +109,38 @@ describe("locationUpdateSchema", () => {
       id: "not-a-uuid",
       name: "Warehouse A",
       isActive: true,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("leaves the time zone undefined when it is not sent (keeps the stored zone)", () => {
+    const result = locationUpdateSchema.safeParse({
+      id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+      name: "Warehouse A",
+      isActive: true,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.timezone).toBeUndefined();
+    }
+  });
+
+  test("accepts a new time zone", () => {
+    const result = locationUpdateSchema.safeParse({
+      id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+      name: "Warehouse A",
+      isActive: true,
+      timezone: "Asia/Makassar",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a time zone outside the three", () => {
+    const result = locationUpdateSchema.safeParse({
+      id: "5b1c7f9c-20a8-4f4a-9c3f-1ac3ec4d5b01",
+      name: "Warehouse A",
+      isActive: true,
+      timezone: "UTC",
     });
     expect(result.success).toBe(false);
   });
