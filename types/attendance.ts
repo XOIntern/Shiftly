@@ -1,7 +1,9 @@
 import type { LocationTimezone } from "./timezone";
 
 // Must stay in sync with attendanceStatusEnum (drizzle/schema/attendance-schema.ts).
-export type AttendanceStatus = "present" | "leave" | "sick" | "absent";
+export const ATTENDANCE_STATUSES = ["present", "leave", "sick", "absent"] as const;
+
+export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 
 // One roster row of the day (latest published weekly plan plus the daily
 // plan), reduced to what the day list needs.
