@@ -37,10 +37,9 @@ export default async function SitesPage({
 }: PageProps<"/dashboard/sites">) {
   await requireSuperadmin();
   const params = await searchParams;
-  // "deleted" is a status option of the filter, not a parse-table status:
-  // it is read off the raw param, and parseTableSearchParams maps it to no
-  // status filter.
-  const view = parseSitesView(params.status);
+  // ?show=deleted picks the soft-deleted list; it is not part of the shared
+  // table params, so it is read off the raw search params.
+  const view = parseSitesView(params.show);
   const { q, status, page, sorts, pageSize } = parseTableSearchParams(
     params,
     PAGE_SIZE_OPTIONS,
