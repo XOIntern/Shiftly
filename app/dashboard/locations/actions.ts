@@ -7,7 +7,7 @@ import { z } from "zod";
 import { siteLocation, user } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { mapDbError } from "@/error/db-errors";
-import { requireHO } from "@/lib/session";
+import { requireHO, requireSuperadmin } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
@@ -20,6 +20,10 @@ import {
   locationOwnedByActor,
   locationBulkMutationWhere,
 } from "@/lib/location-scope";
+import { purgeLocationGuarded } from "@/lib/location-purge";
+import { restoreLocationGuarded } from "@/lib/location-restore";
+import { nounFor } from "@/lib/bulk-summary";
+import { runPerRow } from "@/lib/run-per-row";
 
 // Maps a driver error to the action result shape; mapDbError returns null for
 // anything unexpected, so fall back to a generic message.
@@ -275,4 +279,87 @@ export async function deleteBulk(ids: string[]): Promise<ActionState> {
   } catch (err) {
     return dbResult(err);
   }
+}
+
+// Brings a soft-deleted location back (lib/location-restore.ts), inside the
+// actor's scope: an HO only reaches their own site's rows, and anything else
+// answers the plain not-found message. Only the location row returns; a name
+// now taken by a live location refuses with the duplicate message, through
+// the guard or through the unique-index backstop.
+export async function restoreLocation(id: string): Promise<ActionState> {
+  const actor = await requireHO();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid location id." };
+  }
+
+  let result: Awaited<ReturnType<typeof restoreLocationGuarded>>;
+  try {
+    result = await db.transaction((tx) =>
+      restoreLocationGuarded(tx, actor, id),
+    );
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/locations");
+  return { ok: true };
+}
+
+// Permanent delete of a soft-deleted location (superadmin only). Guards and
+// writes share one transaction (lib/location-purge.ts); live children and
+// history refuse, and the FK backstop is mapped by dbResult.
+export async function purgeLocation(id: string): Promise<ActionState> {
+  await requireSuperadmin();
+
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, message: "Invalid location id." };
+  }
+
+  let result: Awaited<ReturnType<typeof purgeLocationGuarded>>;
+  try {
+    result = await db.transaction((tx) => purgeLocationGuarded(tx, id));
+  } catch (err) {
+    return dbResult(err);
+  }
+
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  revalidatePath("/dashboard/locations");
+  return { ok: true };
+}
+
+const perLocation = {
+  emptyMessage: "No locations selected.",
+  noun: nounFor("location"),
+  mapError: (err: unknown) => dbResult(err).message ?? GENERIC_ERROR,
+};
+
+// Bulk restore of soft-deleted locations, inside the actor's scope: rows of
+// another site are skipped like any other refusal.
+export async function restoreBulk(ids: string[]): Promise<ActionState> {
+  const actor = await requireHO();
+  const result = await runPerRow(
+    ids,
+    (tx, id) => restoreLocationGuarded(tx, actor, id),
+    perLocation,
+  );
+  if (result.ok) revalidatePath("/dashboard/locations");
+  return result;
+}
+
+// Bulk permanent delete of soft-deleted locations (superadmin only). Each
+// location runs the same guarded purge as purgeLocation; one with live
+// children or history is skipped.
+export async function purgeBulk(ids: string[]): Promise<ActionState> {
+  await requireSuperadmin();
+  const result = await runPerRow(ids, purgeLocationGuarded, perLocation);
+  if (result.ok) revalidatePath("/dashboard/locations");
+  return result;
 }
