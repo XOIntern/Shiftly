@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  advanceStatusSchema,
   mpRequestCreateSchema,
   mpRequestLineSchema,
   mpRequestUpdateSchema,
@@ -278,27 +277,6 @@ describe("mpRequestUpdateSchema", () => {
       expect("weekStart" in result.data).toBe(false);
       expect("requestDate" in result.data).toBe(false);
     }
-  });
-});
-
-describe("advanceStatusSchema", () => {
-  test("accepts approved/rejected and rejects received/processing/fulfilled", () => {
-    for (const status of ["approved", "rejected"] as const) {
-      expect(advanceStatusSchema.safeParse({ id: REQUEST_ID, status }).success).toBe(true);
-    }
-    for (const status of ["received", "processing", "fulfilled"]) {
-      expect(advanceStatusSchema.safeParse({ id: REQUEST_ID, status }).success).toBe(false);
-    }
-  });
-
-  test("rejects an unknown status", () => {
-    const result = advanceStatusSchema.safeParse({ id: REQUEST_ID, status: "cancelled" });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects a non-uuid id", () => {
-    const result = advanceStatusSchema.safeParse({ id: "not-a-uuid", status: "approved" });
-    expect(result.success).toBe(false);
   });
 });
 

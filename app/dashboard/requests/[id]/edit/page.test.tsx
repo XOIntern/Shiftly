@@ -9,6 +9,7 @@ import {
   mpRequest,
   mpRequestLine,
   position,
+  rosterPlan,
   shiftDefinition,
   site,
   siteLocation,
@@ -81,9 +82,10 @@ async function expectNotFound(id: string) {
 
 // Fixture: the editing actor's site S holds location LOC with two work
 // areas and two shifts — one active pair, one pair deactivated after the
-// request was filed. An open weekly request under LOC carries one line
-// for each pair. A second open request lives under another site's
-// location (foreign), and an approved one under LOC (non-open).
+// request was filed. An approved weekly request under LOC carries one line
+// for each pair. A second approved request lives under another site's
+// location (foreign), a fulfilled one under LOC (closed), an approved one
+// whose week has a weekly plan (rostered) and an open daily one.
 // Child-first cleanup.
 async function seedEditFixtures() {
   const siteId = randomUUID();
@@ -99,6 +101,9 @@ async function seedEditFixtures() {
   const rqSubmitted = randomUUID();
   const rqForeign = randomUUID();
   const rqReceived = randomUUID();
+  const rqRostered = randomUUID();
+  const rqDaily = randomUUID();
+  const planId = randomUUID();
   const creator = `t129-edit-creator-${randomUUID().slice(0, 8)}`;
   const suffix = randomUUID().slice(0, 8);
   const monday = "2026-01-05"; // a Monday
@@ -185,7 +190,7 @@ async function seedEditFixtures() {
       siteId,
       siteLocationId: locId,
       type: "weekly",
-      status: "open",
+      status: "approved",
       weekStart: monday,
       createdBy: creator,
     },
@@ -194,7 +199,7 @@ async function seedEditFixtures() {
       siteId: otherSiteId,
       siteLocationId: otherLocId,
       type: "weekly",
-      status: "open",
+      status: "approved",
       weekStart: monday,
       createdBy: creator,
     },
@@ -203,11 +208,37 @@ async function seedEditFixtures() {
       siteId,
       siteLocationId: locId,
       type: "weekly",
+      status: "fulfilled",
+      weekStart: "2026-01-12", // one live weekly request per location/week
+      createdBy: creator,
+    },
+    {
+      id: rqRostered,
+      siteId,
+      siteLocationId: locId,
+      type: "weekly",
       status: "approved",
-      weekStart: "2026-01-12", // one open weekly request per location/week
+      weekStart: "2026-01-19",
+      createdBy: creator,
+    },
+    {
+      id: rqDaily,
+      siteId,
+      siteLocationId: locId,
+      type: "daily",
+      status: "open",
+      requestDate: "2026-01-07",
       createdBy: creator,
     },
   ]);
+  await db.insert(rosterPlan).values({
+    id: planId,
+    siteId,
+    siteLocationId: locId,
+    kind: "weekly",
+    weekStart: "2026-01-19",
+    rulesSnapshot: {},
+  });
   await db.insert(mpRequestLine).values([
     {
       requestId: rqSubmitted,
@@ -229,13 +260,24 @@ async function seedEditFixtures() {
       date: "2026-01-06",
       headcount: 7,
     },
+    {
+      requestId: rqDaily,
+      siteId,
+      siteLocationId: locId,
+      workAreaId: waActive,
+      shiftDefinitionId: shActive,
+      positionId: posActive,
+      date: "2026-01-07",
+      headcount: 5,
+    },
   ]);
 
   return {
-    ids: { locId, rqSubmitted, rqForeign, rqReceived },
+    ids: { locId, rqSubmitted, rqForeign, rqReceived, rqRostered, rqDaily },
     names,
     async cleanup() {
-      for (const id of [rqSubmitted, rqForeign, rqReceived]) {
+      await db.delete(rosterPlan).where(eq(rosterPlan.id, planId));
+      for (const id of [rqSubmitted, rqForeign, rqReceived, rqRostered, rqDaily]) {
         await db.delete(mpRequestLine).where(eq(mpRequestLine.requestId, id));
         await db.delete(mpRequest).where(eq(mpRequest.id, id));
       }
@@ -316,13 +358,33 @@ describe("edit request page SSR (requests #129)", () => {
     expect(html.includes("Add rows")).toBeFalse();
   });
 
-  test("a non-open request 404s", async () => {
+  test("a fulfilled weekly request 404s", async () => {
     const fx = await seedEditFixtures();
     actor = makeActor("superadmin", null, null);
     fixtureCleanup.defer(async () => {
       await fx.cleanup();
     });
     await expectNotFound(fx.ids.rqReceived);
+  });
+
+  test("an approved weekly request whose week has a roster plan 404s", async () => {
+    const fx = await seedEditFixtures();
+    actor = makeActor("admin", null, fx.ids.locId);
+    fixtureCleanup.defer(async () => {
+      await fx.cleanup();
+    });
+    await expectNotFound(fx.ids.rqRostered);
+  });
+
+  test("an open daily request renders the edit form", async () => {
+    const fx = await seedEditFixtures();
+    actor = makeActor("admin", null, fx.ids.locId);
+    fixtureCleanup.defer(async () => {
+      await fx.cleanup();
+    });
+    const html = await renderEdit(fx.ids.rqDaily);
+    expect(html.includes("Edit request lines")).toBeTrue();
+    expect(html.includes('value="5"')).toBeTrue();
   });
 
   test("a foreign/out-of-scope request 404s", async () => {

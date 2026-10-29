@@ -7,7 +7,6 @@ import { z } from "zod";
 import {
   mpRequest,
   mpRequestLine,
-  mpRequestStatusEnum,
   position,
   shiftDefinition,
   siteLocation,
@@ -33,8 +32,8 @@ import {
   mpRequestMutationWhere,
 } from "@/lib/mp-request-scope";
 import { recordMpRequestAudit } from "@/lib/mp-request-audit";
+import { requestMutability } from "@/lib/mp-request-lock";
 import {
-  advanceStatusSchema,
   mpRequestCreateSchema,
   mpRequestLineSchema,
   withdrawRequestSchema,
@@ -51,20 +50,17 @@ class ActionAbort extends Error {
   }
 }
 
-type MpRequestStatus = (typeof mpRequestStatusEnum.enumValues)[number];
-
 // Messages the tests assert verbatim.
 const HO_CREATE_MESSAGE = "Only admins enter requests";
 const DUPLICATE_OPEN_SLOT =
   "An open request for this week/date already exists";
-const NOT_EDITABLE = "Only open requests can be edited";
+const NOT_EDITABLE = "This request can no longer be edited.";
+const WEEK_HAS_ROSTER =
+  "This week already has a roster. Discard the draft roster first.";
 const RACE_MESSAGE = "Request state changed, reload";
 const NOT_FOUND = "Request not found.";
-const ILLEGAL_TRANSITION = "That status change is not allowed";
-const APPROVER_ONLY_MESSAGE = "Only HO can approve or reject requests.";
-const WEEKLY_ONLY_MESSAGE = "Only weekly requests need approval.";
-const HO_WITHDRAW_MESSAGE = "HO rejects requests instead of withdrawing them.";
-const NOT_WITHDRAWABLE = "Only open requests can be withdrawn.";
+const HO_WITHDRAW_MESSAGE = "HO cannot withdraw requests.";
+const NOT_WITHDRAWABLE = "This request can no longer be withdrawn.";
 // The composite weld FKs on mp_request_line (work area / shift +
 // site_location + site) make a cross-location pairing impossible — this is
 // both the pre-check's message for a foreign reference and the catch's net
@@ -82,18 +78,6 @@ const POSITION_NOT_REQUIRED =
   "Position must be a required position of the work area";
 const INACTIVE_POSITION_KEEP_ONLY =
   "Inactive positions can only be kept unchanged, not re-added";
-
-// Manual status machine: a weekly request leaves "open" exactly once, for
-// approved or rejected; every other state is terminal here ("fulfilled" is
-// never set by hand). The guarded write below still re-checks the CURRENT
-// row status in its WHERE, so a concurrent move turns this into a 0-row no-op.
-const LEGAL_TRANSITIONS: Record<MpRequestStatus, readonly string[]> = {
-  open: ["approved", "rejected"],
-  approved: [],
-  fulfilled: [],
-  rejected: [],
-  withdrawn: [],
-};
 
 // Admin actors are pinned to their own site_location — anything the client
 // sent is ignored. A superadmin keeps the input value (the dialog's pick).
@@ -330,6 +314,9 @@ export async function createRequest(
           siteId: derivedSiteId,
           siteLocationId,
           type: parsed.data.type,
+          // No approval step: a weekly request is live from the start,
+          // a daily one waits as open until a fill consumes it.
+          status: parsed.data.type === "weekly" ? "approved" : "open",
           weekStart: parsed.data.weekStart ?? null,
           requestDate: parsed.data.requestDate ?? null,
           createdBy: actor.id,
@@ -349,6 +336,7 @@ export async function createRequest(
         details: {
           requestId: row.id,
           type: parsed.data.type,
+          status: parsed.data.type === "weekly" ? "approved" : "open",
           lineCount: parsed.data.lines.length,
         },
       });
@@ -395,8 +383,13 @@ export async function updateRequestLines(
         .limit(1)
         .for("update");
       if (!row) throw new ActionAbort({ ok: false, message: NOT_FOUND });
-      if (row.status !== "open") {
-        throw new ActionAbort({ ok: false, message: NOT_EDITABLE });
+      // Read under the row lock, so a plan generated a moment ago is seen.
+      const mutability = await requestMutability(tx, row);
+      if (mutability !== "mutable") {
+        throw new ActionAbort({
+          ok: false,
+          message: mutability === "rostered" ? WEEK_HAS_ROSTER : NOT_EDITABLE,
+        });
       }
 
       // Anchor/type are immutable after creation: the new line dates are
@@ -472,30 +465,29 @@ export async function updateRequestLines(
   }
 }
 
-export async function advanceStatus(
-  id: string,
-  nextStatus: "approved" | "rejected",
-): Promise<ActionState> {
+// Withdrawal is the requester's retraction of a request that is still
+// mutable: admins (pinned to their own location by the scope) and superadmin.
+// HO has no write surface here, so it is refused before any read. A weekly
+// request stops being withdrawable once its week has a roster plan.
+export async function withdrawRequest(id: string): Promise<ActionState> {
   const actor = await requireUser();
 
-  // Approval belongs to HO (and superadmin): an admin is refused before any
-  // read, even for their own location's request.
-  if (actor.role === "admin") {
-    return { ok: false, message: APPROVER_ONLY_MESSAGE };
+  if (actor.role === "ho") {
+    return { ok: false, message: HO_WITHDRAW_MESSAGE };
   }
 
-  const parsed = advanceStatusSchema.safeParse({ id, status: nextStatus });
+  const parsed = withdrawRequestSchema.safeParse({ id });
   if (!parsed.success) {
     return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
   try {
     const result = await db.transaction(async (tx) => {
-      // Same weld-in-WHERE read as updateRequestLines, row locked.
       const [row] = await tx
         .select({
           status: mpRequest.status,
           type: mpRequest.type,
+          weekStart: mpRequest.weekStart,
           siteId: mpRequest.siteId,
           siteLocationId: mpRequest.siteLocationId,
         })
@@ -505,21 +497,19 @@ export async function advanceStatus(
         .for("update");
       if (!row) throw new ActionAbort({ ok: false, message: NOT_FOUND });
 
-      // Daily requests skip approval; the type is only known after the read.
-      if (row.type === "daily") {
-        throw new ActionAbort({ ok: false, message: WEEKLY_ONLY_MESSAGE });
+      const mutability = await requestMutability(tx, row);
+      if (mutability !== "mutable") {
+        throw new ActionAbort({
+          ok: false,
+          message:
+            mutability === "rostered" ? WEEK_HAS_ROSTER : NOT_WITHDRAWABLE,
+        });
       }
 
-      if (!LEGAL_TRANSITIONS[row.status].includes(parsed.data.status)) {
-        throw new ActionAbort({ ok: false, message: ILLEGAL_TRANSITION });
-      }
-
-      // Guarded write: the expected-current status rides in the WHERE, so a
-      // concurrent move turns this write into a 0-row no-op instead of a
-      // double transition.
+      // Guarded write: a concurrent status move turns this into a 0-row no-op.
       const updated = await tx
         .update(mpRequest)
-        .set({ status: parsed.data.status })
+        .set({ status: "withdrawn" })
         .where(
           and(
             eq(mpRequest.id, parsed.data.id),
@@ -540,80 +530,6 @@ export async function advanceStatus(
           requestId: parsed.data.id,
           type: row.type,
           oldValue: row.status,
-          newValue: parsed.data.status,
-        },
-      });
-
-      return { ok: true } as ActionState;
-    });
-
-    revalidatePath("/dashboard/requests");
-    return result;
-  } catch (err) {
-    if (err instanceof ActionAbort) return err.state;
-    return { ok: false, message: GENERIC_ERROR };
-  }
-}
-
-// Withdrawal is the requester's retraction of a request that is still open:
-// admins (pinned to their own location by the scope) and superadmin. HO
-// decides requests through approve/reject instead, so it is refused before
-// any read. Only open -> withdrawn exists; a decided request stays as decided.
-export async function withdrawRequest(id: string): Promise<ActionState> {
-  const actor = await requireUser();
-
-  if (actor.role === "ho") {
-    return { ok: false, message: HO_WITHDRAW_MESSAGE };
-  }
-
-  const parsed = withdrawRequestSchema.safeParse({ id });
-  if (!parsed.success) {
-    return { ok: false, fieldErrors: fieldErrorsFrom(parsed.error) };
-  }
-
-  try {
-    const result = await db.transaction(async (tx) => {
-      const [row] = await tx
-        .select({
-          status: mpRequest.status,
-          type: mpRequest.type,
-          siteId: mpRequest.siteId,
-          siteLocationId: mpRequest.siteLocationId,
-        })
-        .from(mpRequest)
-        .where(mpRequestMutationWhere(actor, parsed.data.id))
-        .limit(1)
-        .for("update");
-      if (!row) throw new ActionAbort({ ok: false, message: NOT_FOUND });
-
-      if (row.status !== "open") {
-        throw new ActionAbort({ ok: false, message: NOT_WITHDRAWABLE });
-      }
-
-      // Guarded write: a concurrent decision turns this into a 0-row no-op.
-      const updated = await tx
-        .update(mpRequest)
-        .set({ status: "withdrawn" })
-        .where(
-          and(
-            eq(mpRequest.id, parsed.data.id),
-            eq(mpRequest.status, "open"),
-          ),
-        )
-        .returning({ id: mpRequest.id });
-      if (updated.length === 0) {
-        throw new ActionAbort({ ok: false, message: RACE_MESSAGE });
-      }
-
-      await recordMpRequestAudit(tx, {
-        actorId: actor.id,
-        action: "mp_request.status_change",
-        siteId: row.siteId,
-        siteLocationId: row.siteLocationId,
-        details: {
-          requestId: parsed.data.id,
-          type: row.type,
-          oldValue: "open",
           newValue: "withdrawn",
         },
       });
