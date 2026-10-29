@@ -98,7 +98,9 @@ export async function loadDayInputs(
   for (const { locationId, date, ...row } of dailyRows) {
     const key = dayKey(locationId, date);
     if (!inputs.has(key)) continue;
-    dailyByDay.set(key, [...(dailyByDay.get(key) ?? []), row]);
+    const rows = dailyByDay.get(key);
+    if (rows) rows.push(row);
+    else dailyByDay.set(key, [row]);
   }
 
   for (const [key, input] of inputs) {
@@ -159,10 +161,13 @@ async function loadWeeklyRows(
     ),
   );
   if (latest.size === 0) return byDay;
+  const planLocation = new Map(
+    plans.map((plan) => [plan.id, plan.siteLocationId]),
+  );
 
   const rows = await db
     .select({
-      locationId: rosterAssignment.siteLocationId,
+      planId: rosterAssignment.planId,
       date: rosterAssignment.date,
       workerId: rosterAssignment.workerId,
       workAreaId: rosterAssignment.workAreaId,
@@ -176,9 +181,14 @@ async function loadWeeklyRows(
       ),
     )
     .orderBy(asc(rosterAssignment.workerId));
-  for (const { locationId, date, ...row } of rows) {
+  for (const { planId, date, ...row } of rows) {
+    // The plan's location, as for the daily rows and the attendance page.
+    const locationId = planLocation.get(planId);
+    if (locationId === undefined) continue;
     const key = dayKey(locationId, date);
-    byDay.set(key, [...(byDay.get(key) ?? []), row]);
+    const grouped = byDay.get(key);
+    if (grouped) grouped.push(row);
+    else byDay.set(key, [row]);
   }
   return byDay;
 }
