@@ -29,6 +29,7 @@ import {
   STICKY_CELL,
 } from "@/app/dashboard/requests/request-grid-shell";
 import { TotalsRow, dayTotals } from "@/app/dashboard/requests/totals-row";
+import { WeekStartField } from "@/app/dashboard/requests/week-start-field";
 import type { MpRequestCreateInput } from "@/validation/request-line";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
@@ -920,14 +921,13 @@ export function RequestForm({
         {weekly ? (
           <Field data-invalid={fieldErrors.weekStart ? "true" : undefined}>
             <FieldLabel htmlFor="request-week-start">Week start</FieldLabel>
-            <Input
+            <WeekStartField
               id="request-week-start"
-              type="date"
               value={weekStart}
-              onChange={(event) => changeWeekStart(event.target.value)}
-              aria-invalid={fieldErrors.weekStart ? true : undefined}
+              onChange={changeWeekStart}
+              locationId={effectiveLocationId ?? null}
               disabled={isEdit}
-              required
+              invalid={!!fieldErrors.weekStart}
             />
             {fieldErrors.weekStart ? (
               <FieldError errors={[{ message: fieldErrors.weekStart }]} />
