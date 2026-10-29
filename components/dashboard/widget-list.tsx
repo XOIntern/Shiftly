@@ -1,10 +1,7 @@
 import { Suspense, type ComponentType } from "react";
 
-import {
-  WidgetEmpty,
-  WidgetFrame,
-  WidgetSkeleton,
-} from "@/components/dashboard/widget-frame";
+import { ActionsWidget } from "@/components/dashboard/actions-widget";
+import { WidgetSkeleton } from "@/components/dashboard/widget-frame";
 import {
   WIDGET_TITLES,
   widgetsFor,
@@ -12,19 +9,10 @@ import {
   type WidgetProps,
 } from "@/lib/dashboard/widgets";
 
-// Placeholder until the real widget lands; replace the registry entry.
-function ActionsStub() {
-  return (
-    <WidgetFrame title={WIDGET_TITLES.actions}>
-      <WidgetEmpty>Nothing needs action right now.</WidgetEmpty>
-    </WidgetFrame>
-  );
-}
-
 // One entry per WIDGET_KEYS member. A widget is an (async) server component
 // that renders its own WidgetFrame, or WidgetError when loadSafely fails.
 const REGISTRY: Record<WidgetKey, ComponentType<WidgetProps>> = {
-  actions: ActionsStub,
+  actions: ActionsWidget,
 };
 
 // Sync on purpose: each widget streams in behind its own Suspense boundary, so
