@@ -125,8 +125,12 @@ export function WeekStartField({
           <CalendarIcon aria-hidden />
           <span>{monday ? formatWeekStart(monday) : "Pick a week"}</span>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-auto">
+        <PopoverContent
+          align="start"
+          className="w-(--anchor-width) min-w-60"
+        >
           <Calendar
+            className="w-full [--cell-size:--spacing(9)]"
             mode="single"
             required
             weekStartsOn={1}
