@@ -241,6 +241,41 @@ export async function loadDailyRequirements(
   return rows;
 }
 
+export type FulfilledDailyLine = {
+  workAreaId: string;
+  shiftDefId: string;
+  date: string;
+  headcount: number;
+};
+
+// Lines of the location's fulfilled DAILY requests with a line date in
+// [fromDate, toDate]: their fills are discounted from the daily coverage (see
+// withoutFulfilledDailyFills).
+export async function loadFulfilledDailyLines(
+  siteLocationId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<FulfilledDailyLine[]> {
+  return db
+    .select({
+      workAreaId: mpRequestLine.workAreaId,
+      shiftDefId: mpRequestLine.shiftDefinitionId,
+      date: mpRequestLine.date,
+      headcount: mpRequestLine.headcount,
+    })
+    .from(mpRequestLine)
+    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
+    .where(
+      and(
+        eq(mpRequest.siteLocationId, siteLocationId),
+        eq(mpRequest.type, "daily"),
+        eq(mpRequest.status, "fulfilled"),
+        gte(mpRequestLine.date, fromDate),
+        lte(mpRequestLine.date, toDate),
+      ),
+    );
+}
+
 // Assignment rows of the location's DAILY plans with a date in
 // [fromDate, toDate], any plan status: the same scope fillDailyRequest reads
 // for its date. A daily fill is an exception on top of the published week, so

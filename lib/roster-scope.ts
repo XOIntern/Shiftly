@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 
 import { rosterPlan } from "../drizzle/schema";
 import { db } from "./db";
@@ -36,6 +37,20 @@ export async function rosterPlanOwnedByActor(
   return actor.role === "admin"
     ? row.siteLocationId === actor.siteLocationId
     : row.siteId === actor.siteId;
+}
+
+// The plans a list may read: superadmin unbounded (undefined, no filter), an
+// admin pinned to their own site_location, an ho reading their site's plans
+// (the read grant above). A missing binding matches nothing rather than
+// everything.
+export function rosterPlanListWhere(actor: ScopedActor): SQL | undefined {
+  if (actor.role === "superadmin") return undefined;
+  if (actor.role === "admin") {
+    return actor.siteLocationId
+      ? eq(rosterPlan.siteLocationId, actor.siteLocationId)
+      : sql`false`;
+  }
+  return actor.siteId ? eq(rosterPlan.siteId, actor.siteId) : sql`false`;
 }
 
 export function rosterPlanMutationWhere(actor: ScopedActor, id: string) {

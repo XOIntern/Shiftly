@@ -298,26 +298,48 @@ export async function seedRosterPlan(
 export async function seedMpRequest(
   cleanup: Cleanup,
   loc: Loc,
-  opts: { createdBy: string },
+  opts: {
+    createdBy: string;
+    status?: "open" | "approved" | "fulfilled" | "rejected" | "withdrawn";
+    type?: "weekly" | "daily";
+    weekStart?: string;
+    requestDate?: string;
+    createdAt?: Date;
+  },
 ): Promise<{ id: string }> {
   const id = randomUUID();
   cleanup.defer(async () => {
     await db.delete(mpRequest).where(eq(mpRequest.id, id));
   });
+  const anchor =
+    opts.type === "daily"
+      ? {
+          type: "daily" as const,
+          requestDate: opts.requestDate ?? MONDAY,
+          weekStart: null,
+        }
+      : { type: "weekly" as const, weekStart: opts.weekStart ?? MONDAY };
   await db.insert(mpRequest).values({
     id,
     siteLocationId: loc.id,
     siteId: loc.siteId,
-    type: "weekly",
-    weekStart: MONDAY,
+    ...anchor,
+    status: opts.status,
     createdBy: opts.createdBy,
+    createdAt: opts.createdAt,
   });
   return { id };
 }
 
 export async function seedAuditLog(
   cleanup: Cleanup,
-  opts: { actorId: string; siteId?: string; siteLocationId?: string },
+  opts: {
+    actorId: string;
+    siteId?: string;
+    siteLocationId?: string;
+    action?: string;
+    createdAt?: Date;
+  },
 ): Promise<{ id: string }> {
   const id = randomUUID();
   cleanup.defer(async () => {
@@ -326,10 +348,11 @@ export async function seedAuditLog(
   await db.insert(auditLog).values({
     id,
     actorId: opts.actorId,
-    action: "test.fixture",
+    action: opts.action ?? "test.fixture",
     siteId: opts.siteId,
     siteLocationId: opts.siteLocationId,
     details: {},
+    createdAt: opts.createdAt,
   });
   return { id };
 }
@@ -411,6 +434,8 @@ export async function seedRequestLine(
     workAreaId: string;
     shiftId: string;
     positionId: string;
+    date?: string;
+    headcount?: number;
   },
 ): Promise<{ id: string }> {
   const id = randomUUID();
@@ -425,8 +450,8 @@ export async function seedRequestLine(
     workAreaId: opts.workAreaId,
     shiftDefinitionId: opts.shiftId,
     positionId: opts.positionId,
-    date: MONDAY,
-    headcount: 1,
+    date: opts.date ?? MONDAY,
+    headcount: opts.headcount ?? 1,
   });
   return { id };
 }

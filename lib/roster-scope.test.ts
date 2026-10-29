@@ -4,9 +4,14 @@ import { describe, expect, test } from "bun:test";
 import { eq, inArray } from "drizzle-orm";
 
 import { db } from "./db";
-import { rosterPlanMutationWhere, rosterPlanOwnedByActor } from "./roster-scope";
+import {
+  rosterPlanListWhere,
+  rosterPlanMutationWhere,
+  rosterPlanOwnedByActor,
+} from "./roster-scope";
 import { rosterPlan, site, siteLocation, user } from "../drizzle/schema";
 import { installCleanup } from "@/lib/test-cleanup";
+import { seedLocation, seedRosterPlan, seedSite } from "@/lib/test-fixtures";
 
 // Fixture teardown runs in afterEach / afterAll, so it still runs after a test
 // times out (a per-test finally would not).
@@ -212,5 +217,92 @@ describe("roster-plan mutation weld", () => {
       .returning({ id: rosterPlan.id, version: rosterPlan.version });
     expect(bumped).toHaveLength(1);
     expect(bumped[0].version).toBe(3);
+  });
+});
+
+// The plans a roster list may read, run against real rows so the predicate
+// itself is what is tested, not its text.
+describe("rosterPlanListWhere", () => {
+  type Actor = Parameters<typeof rosterPlanListWhere>[0];
+
+  const actor = (overrides: Partial<Actor>): Actor => ({
+    role: "admin",
+    siteId: null,
+    siteLocationId: null,
+    ...overrides,
+  });
+
+  async function seedTwoSites() {
+    const siteA = await seedSite(fixtureCleanup);
+    const siteB = await seedSite(fixtureCleanup);
+    const a1 = await seedLocation(fixtureCleanup, siteA.id);
+    const a2 = await seedLocation(fixtureCleanup, siteA.id);
+    const b1 = await seedLocation(fixtureCleanup, siteB.id);
+    const planA1 = await seedRosterPlan(fixtureCleanup, a1);
+    const planA2 = await seedRosterPlan(fixtureCleanup, a2);
+    const planB1 = await seedRosterPlan(fixtureCleanup, b1);
+    return { siteA, siteB, a1, a2, b1, planA1, planA2, planB1 };
+  }
+
+  async function visibleAmong(
+    candidates: string[],
+    who: Actor,
+  ): Promise<string[]> {
+    const rows = await db
+      .select({ id: rosterPlan.id })
+      .from(rosterPlan)
+      .where(rosterPlanListWhere(who));
+    const visible = new Set(rows.map((row) => row.id));
+    return candidates.filter((id) => visible.has(id)).sort();
+  }
+
+  test("an admin sees only the plans of their own location", async () => {
+    const f = await seedTwoSites();
+    const all = [f.planA1.id, f.planA2.id, f.planB1.id];
+
+    expect(
+      await visibleAmong(
+        all,
+        actor({ role: "admin", siteId: f.siteA.id, siteLocationId: f.a1.id }),
+      ),
+    ).toEqual([f.planA1.id]);
+  });
+
+  test("an admin without a location binding sees nothing", async () => {
+    const f = await seedTwoSites();
+
+    expect(
+      await visibleAmong(
+        [f.planA1.id, f.planB1.id],
+        actor({ role: "admin", siteId: f.siteA.id }),
+      ),
+    ).toEqual([]);
+  });
+
+  test("an ho sees the plans of every location of their own site only", async () => {
+    const f = await seedTwoSites();
+    const all = [f.planA1.id, f.planA2.id, f.planB1.id];
+
+    expect(
+      await visibleAmong(all, actor({ role: "ho", siteId: f.siteA.id })),
+    ).toEqual([f.planA1.id, f.planA2.id].sort());
+  });
+
+  test("an ho without a site sees nothing", async () => {
+    const f = await seedTwoSites();
+
+    expect(
+      await visibleAmong([f.planA1.id, f.planB1.id], actor({ role: "ho" })),
+    ).toEqual([]);
+  });
+
+  test("a superadmin sees every plan, unfiltered", async () => {
+    const f = await seedTwoSites();
+    const all = [f.planA1.id, f.planA2.id, f.planB1.id];
+
+    expect(rosterPlanListWhere(actor({ role: "superadmin" }))).toBeUndefined();
+    expect(await visibleAmong(all, actor({ role: "superadmin" }))).toEqual(
+      [...all].sort(),
+    );
   });
 });

@@ -81,7 +81,7 @@ async function loadDailyRows(
 
 // Weekly rows first; a worker already present from the weekly plan is not
 // repeated from the daily plan.
-function mergeRosterRows(
+export function mergeRosterRows(
   weekly: RosterRowInput[],
   daily: RosterRowInput[],
 ): RosterRowInput[] {

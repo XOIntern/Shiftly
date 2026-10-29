@@ -14,7 +14,9 @@ import {
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
+import { attendanceLocationWhere } from "@/lib/attendance-scope";
 import { mpRequestListWhere } from "@/lib/mp-request-scope";
+import { rosterPlanListWhere } from "@/lib/roster-scope";
 import { mondayOf, weekDates } from "@/lib/week";
 import {
   computeCoverage,
@@ -25,6 +27,7 @@ import type { CoverageRequirement, CoverageRow } from "@/lib/engine/coverage";
 import type { EffectiveRules, RosterAssignment } from "@/types/engine";
 import {
   loadDailyRequirements,
+  loadFulfilledDailyLines,
   loadPlanWithRows,
   loadRequirementsForWeek,
   loadWorkerProfiles,
@@ -79,33 +82,6 @@ const isRowPage = (value: string): boolean => {
 
 type Actor = Awaited<ReturnType<typeof requireUser>>;
 
-// Roster-plan scoping: superadmin unbounded, an admin pinned to their own
-// site_location, an ho reading their site's plans (the roster scope's read
-// grant, lib/roster-scope).
-function planListWhere(actor: Actor) {
-  if (actor.role === "superadmin") return undefined;
-  if (actor.role === "admin") {
-    return actor.siteLocationId
-      ? eq(rosterPlan.siteLocationId, actor.siteLocationId)
-      : sql`false`;
-  }
-  return actor.siteId ? eq(rosterPlan.siteId, actor.siteId) : sql`false`;
-}
-
-// The locations the actor may view on this page, the same three-way shape.
-function locationListWhere(actor: Actor) {
-  const live = isNull(siteLocation.deletedAt);
-  if (actor.role === "superadmin") return live;
-  if (actor.role === "admin") {
-    return actor.siteLocationId
-      ? and(live, eq(siteLocation.id, actor.siteLocationId))
-      : sql`false`;
-  }
-  return actor.siteId
-    ? and(live, eq(siteLocation.siteId, actor.siteId))
-    : sql`false`;
-}
-
 export default async function RosterPage({
   searchParams,
 }: PageProps<"/dashboard/roster">) {
@@ -136,7 +112,7 @@ export default async function RosterPage({
           siteId: siteLocation.siteId,
         })
         .from(siteLocation)
-        .where(locationListWhere(actor))
+        .where(attendanceLocationWhere(actor))
         .orderBy(asc(siteLocation.name)),
       actor.role === "superadmin"
         ? db
@@ -164,7 +140,7 @@ export default async function RosterPage({
       and(
         eq(rosterPlan.kind, "weekly"),
         eq(rosterPlan.weekStart, week),
-        planListWhere(actor),
+        rosterPlanListWhere(actor),
       ),
     )
     .orderBy(desc(rosterPlan.version), asc(siteLocation.name));
@@ -195,7 +171,7 @@ export default async function RosterPage({
         loadRequirementsForWeek(locationId, week),
         loadDailyRequirements(locationId, dates[0], dates[dates.length - 1]),
         loadDailyAssignments(actor, locationId, dates),
-        loadFulfilledDailyLines(actor, locationId, dates),
+        loadFulfilledDailyLines(locationId, dates[0], dates[dates.length - 1]),
         countApproved(actor, locationId, week),
         db
           .select({ id: workArea.id, name: workArea.name })
@@ -468,39 +444,8 @@ async function loadDailyAssignments(
         eq(rosterPlan.siteLocationId, locationId),
         gte(rosterPlan.requestDate, dates[0]),
         lte(rosterPlan.requestDate, dates[dates.length - 1]),
-        planListWhere(actor),
+        rosterPlanListWhere(actor),
       ),
     );
   return rows;
-}
-
-// Lines of the location's fulfilled daily requests dated inside the week:
-// their fills are discounted from the daily coverage (see
-// withoutFulfilledDailyFills).
-async function loadFulfilledDailyLines(
-  actor: Actor,
-  locationId: string,
-  dates: string[],
-): Promise<
-  { workAreaId: string; shiftDefId: string; date: string; headcount: number }[]
-> {
-  return db
-    .select({
-      workAreaId: mpRequestLine.workAreaId,
-      shiftDefId: mpRequestLine.shiftDefinitionId,
-      date: mpRequestLine.date,
-      headcount: mpRequestLine.headcount,
-    })
-    .from(mpRequestLine)
-    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
-    .where(
-      and(
-        eq(mpRequest.type, "daily"),
-        eq(mpRequest.status, "fulfilled"),
-        eq(mpRequest.siteLocationId, locationId),
-        gte(mpRequestLine.date, dates[0]),
-        lte(mpRequestLine.date, dates[dates.length - 1]),
-        mpRequestListWhere(actor),
-      ),
-    );
 }
