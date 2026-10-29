@@ -298,19 +298,35 @@ export async function seedRosterPlan(
 export async function seedMpRequest(
   cleanup: Cleanup,
   loc: Loc,
-  opts: { createdBy: string },
+  opts: {
+    createdBy: string;
+    status?: "open" | "approved" | "fulfilled" | "rejected" | "withdrawn";
+    type?: "weekly" | "daily";
+    weekStart?: string;
+    requestDate?: string;
+    createdAt?: Date;
+  },
 ): Promise<{ id: string }> {
   const id = randomUUID();
   cleanup.defer(async () => {
     await db.delete(mpRequest).where(eq(mpRequest.id, id));
   });
+  const anchor =
+    opts.type === "daily"
+      ? {
+          type: "daily" as const,
+          requestDate: opts.requestDate ?? MONDAY,
+          weekStart: null,
+        }
+      : { type: "weekly" as const, weekStart: opts.weekStart ?? MONDAY };
   await db.insert(mpRequest).values({
     id,
     siteLocationId: loc.id,
     siteId: loc.siteId,
-    type: "weekly",
-    weekStart: MONDAY,
+    ...anchor,
+    status: opts.status,
     createdBy: opts.createdBy,
+    createdAt: opts.createdAt,
   });
   return { id };
 }
