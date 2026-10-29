@@ -21,15 +21,25 @@ describe("widgetsFor", () => {
     expect(widgetsFor("ho")).toContain("location_overview");
   });
 
-  test("superadmin gets only the locations overview", () => {
-    expect(widgetsFor("superadmin")).toEqual(["location_overview"]);
+  test("superadmin gets the locations overview, then recent activity", () => {
+    expect(widgetsFor("superadmin")).toEqual([
+      "location_overview",
+      "audit_feed",
+    ]);
   });
 
-  test("the HO sees needs action, roster coverage, then locations", () => {
+  test("ho and superadmin get recent activity, admin does not", () => {
+    expect(widgetsFor("ho")).toContain("audit_feed");
+    expect(widgetsFor("superadmin")).toContain("audit_feed");
+    expect(widgetsFor("admin")).not.toContain("audit_feed");
+  });
+
+  test("the HO sees needs action, roster coverage, locations, then recent activity", () => {
     expect(widgetsFor("ho")).toEqual([
       "actions",
       "roster_coverage",
       "location_overview",
+      "audit_feed",
     ]);
   });
 
@@ -63,5 +73,6 @@ describe("widgetsFor", () => {
     expect(WIDGET_TITLES.quick_actions).toBe("Quick actions");
     expect(WIDGET_TITLES.roster_coverage).toBe("Roster coverage this week");
     expect(WIDGET_TITLES.location_overview).toBe("Locations");
+    expect(WIDGET_TITLES.audit_feed).toBe("Recent activity");
   });
 });

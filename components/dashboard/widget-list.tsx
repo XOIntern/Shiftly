@@ -2,6 +2,7 @@ import { Suspense, type ComponentType } from "react";
 
 import { ActionsWidget } from "@/components/dashboard/actions-widget";
 import { AttendanceTodayWidget } from "@/components/dashboard/attendance-today-widget";
+import { AuditFeedWidget } from "@/components/dashboard/audit-feed-widget";
 import { LocationOverviewWidget } from "@/components/dashboard/location-overview-widget";
 import { QuickActionsWidget } from "@/components/dashboard/quick-actions-widget";
 import { RosterCoverageWidget } from "@/components/dashboard/roster-coverage-widget";
@@ -21,6 +22,7 @@ const REGISTRY: Record<WidgetKey, ComponentType<WidgetProps>> = {
   quick_actions: QuickActionsWidget,
   roster_coverage: RosterCoverageWidget,
   location_overview: LocationOverviewWidget,
+  audit_feed: AuditFeedWidget,
 };
 
 // Sync on purpose: each widget streams in behind its own Suspense boundary, so
