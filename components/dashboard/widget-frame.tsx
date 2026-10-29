@@ -35,7 +35,7 @@ export function WidgetFrame({
 export function WidgetError({ title }: { title: string }) {
   return (
     <WidgetFrame title={title}>
-      <p role="alert" className="text-sm text-muted-foreground">
+      <p role="status" className="text-sm text-muted-foreground">
         Couldn&apos;t load this section.
       </p>
     </WidgetFrame>

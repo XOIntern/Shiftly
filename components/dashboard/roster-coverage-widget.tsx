@@ -1,4 +1,8 @@
-import { CircleAlertIcon, CircleCheckIcon } from "lucide-react";
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  CircleMinusIcon,
+} from "lucide-react";
 import Link from "next/link";
 
 import {
@@ -13,11 +17,16 @@ import {
 } from "@/lib/dashboard/roster-coverage";
 import { WIDGET_TITLES, type WidgetProps } from "@/lib/dashboard/widgets";
 
-// Covered and short differ in icon and wording as well as weight, so the state
-// never rests on colour.
+// Covered, short and no requirement differ in icon and wording as well as
+// weight, so the state never rests on colour.
 function CoverageRow({ entry }: { entry: LocationCoverage }) {
-  const covered = entry.deficit === 0;
-  const Icon = covered ? CircleCheckIcon : CircleAlertIcon;
+  const noRequirement = entry.required === 0;
+  const covered = entry.deficit <= 0;
+  const Icon = noRequirement
+    ? CircleMinusIcon
+    : covered
+      ? CircleCheckIcon
+      : CircleAlertIcon;
 
   return (
     <li>
@@ -27,19 +36,25 @@ function CoverageRow({ entry }: { entry: LocationCoverage }) {
       >
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate font-medium">{entry.locationName}</span>
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {entry.filled} of {entry.required} filled
-          </span>
+          {noRequirement ? null : (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {entry.filled} of {entry.required} filled
+            </span>
+          )}
         </span>
         <span
           className={
-            covered
+            covered || noRequirement
               ? "flex shrink-0 items-center gap-1.5 text-muted-foreground"
               : "flex shrink-0 items-center gap-1.5 font-medium"
           }
         >
           <Icon aria-hidden="true" className="size-4" />
-          {covered ? "Covered" : `Short by ${entry.deficit}`}
+          {noRequirement
+            ? "No requirement"
+            : covered
+              ? "Covered"
+              : `Short by ${entry.deficit}`}
         </span>
       </Link>
     </li>

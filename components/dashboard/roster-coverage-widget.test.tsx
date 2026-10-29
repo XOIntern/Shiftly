@@ -57,6 +57,17 @@ describe("RosterCoverageWidget", () => {
     expect(gap.includes("Covered")).toBeFalse();
   });
 
+  test("a location with no requirement is neutral, not covered", async () => {
+    const html = await render([
+      { ...covered, required: 0, filled: 0, deficit: 0 },
+    ]);
+    expect(html.includes("No requirement")).toBeTrue();
+    expect(html.includes("Covered")).toBeFalse();
+    expect(html.includes("Short by")).toBeFalse();
+    expect(html.includes("0 of 0")).toBeFalse();
+    expect(html.includes("NaN")).toBeFalse();
+  });
+
   test("each location links to its roster for the week", async () => {
     const html = await render([short]);
     expect(

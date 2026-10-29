@@ -29,6 +29,11 @@ export type CoverageInput = {
   fulfilledDailyLines: FulfilledDailyLine[];
 };
 
+// required/filled/deficit cover weekly plus daily demand. Only the latest
+// published weekly plan counts for weekly fills; daily fills come from daily
+// plans of any status, picked by assignment date. This intentionally differs
+// from the roster page's headline figure, which counts the weekly rows of the
+// selected plan only.
 export type LocationCoverage = {
   locationId: string;
   locationName: string;

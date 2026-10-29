@@ -24,6 +24,8 @@ describe("widget frame", () => {
     expect(html.includes("Locations")).toBeTrue();
     expect(html.includes("Couldn&#x27;t load this section.")).toBeTrue();
     expect(html.includes("db down")).toBeFalse();
+    expect(html.includes('role="status"')).toBeTrue();
+    expect(html.includes('role="alert"')).toBeFalse();
   });
 
   test("every widget state exposes its title as a level-2 heading", () => {
