@@ -9,6 +9,7 @@ import type { SiteLocationOption, SiteOption } from "@/types/site";
 import { dayFromNumber, dayNumber } from "@/lib/dates";
 import { mondayOf } from "@/lib/week";
 import type { RosterGate } from "@/app/dashboard/roster/roster-gate";
+import { RosterWeekPicker } from "@/app/dashboard/roster/roster-week-picker";
 import {
   DiscardDraftButton,
   GenerateDraftDialog,
@@ -16,7 +17,6 @@ import {
   RevisePlanButton,
 } from "@/app/dashboard/roster/roster-plan-actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -208,12 +208,10 @@ export function RosterStatusBar({
           >
             <ChevronLeftIcon />
           </Button>
-          <Input
-            type="date"
-            aria-label="Week start"
-            className="w-40 max-sm:h-10"
-            value={week}
-            onChange={(event) => changeWeek(event.target.value)}
+          <RosterWeekPicker
+            week={week}
+            locationId={selectedLocationId}
+            onChange={changeWeek}
           />
           <Button
             type="button"

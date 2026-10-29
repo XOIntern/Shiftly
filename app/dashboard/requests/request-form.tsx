@@ -29,6 +29,7 @@ import {
   STICKY_CELL,
 } from "@/app/dashboard/requests/request-grid-shell";
 import { TotalsRow, dayTotals } from "@/app/dashboard/requests/totals-row";
+import { RequestDateField } from "@/app/dashboard/requests/request-date-field";
 import { WeekStartField } from "@/app/dashboard/requests/week-start-field";
 import type { MpRequestCreateInput } from "@/validation/request-line";
 import { Button } from "@/components/ui/button";
@@ -936,14 +937,13 @@ export function RequestForm({
         ) : (
           <Field data-invalid={fieldErrors.requestDate ? "true" : undefined}>
             <FieldLabel htmlFor="request-request-date">Request date</FieldLabel>
-            <Input
+            <RequestDateField
               id="request-request-date"
-              type="date"
               value={requestDate}
-              onChange={(event) => setRequestDate(event.target.value)}
-              aria-invalid={fieldErrors.requestDate ? true : undefined}
+              onChange={setRequestDate}
+              locationId={effectiveLocationId ?? null}
               disabled={isEdit}
-              required
+              invalid={!!fieldErrors.requestDate}
             />
             {fieldErrors.requestDate ? (
               <FieldError errors={[{ message: fieldErrors.requestDate }]} />

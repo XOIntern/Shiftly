@@ -25,6 +25,8 @@ export type MpRequestRow = {
   locationName: string;
   lines: MpRequestLineView[];
   updatedAt: string;
+  // True only for a weekly request whose week already has a roster plan.
+  rosterLocked: boolean;
 };
 
 // A week that already holds a live weekly request at one location, for the

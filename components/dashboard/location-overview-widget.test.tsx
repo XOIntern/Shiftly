@@ -123,6 +123,11 @@ describe("LocationOverviewWidget", () => {
     expect(html.includes('scope="row"')).toBeTrue();
   });
 
+  test("the open-requests column is headed Open daily requests", async () => {
+    const html = await render([row]);
+    expect(html.includes("Open daily requests")).toBeTrue();
+  });
+
   test("no locations shows the empty state", async () => {
     const html = await render([]);
     expect(html.includes("No location to show.")).toBeTrue();

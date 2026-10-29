@@ -59,7 +59,7 @@ function SiteTable({ group }: { group: SiteGroup }) {
             </TableHead>
             <TableHead scope="col">Roster</TableHead>
             <TableHead scope="col" className="text-right">
-              Open requests
+              Open daily requests
             </TableHead>
           </TableRow>
         </TableHeader>

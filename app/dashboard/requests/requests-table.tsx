@@ -154,7 +154,6 @@ const formatStamp = (iso: string) =>
 export function RequestsTable({
   requests,
   canWrite,
-  canApprove,
   showSite,
   showLocation,
   pageCount,
@@ -163,10 +162,8 @@ export function RequestsTable({
 }: {
   requests: MpRequestRow[];
   // May the actor write lines (admin + superadmin)? Only the row actions'
-  // edit entry switches on this.
+  // edit and withdraw entries switch on this.
   canWrite: boolean;
-  // May the actor approve or reject open weekly requests (ho + superadmin)?
-  canApprove: boolean;
   // Site/location columns only carry information where the actor's scope
   // spans more than one of them: location for ho/superadmin, site for
   // superadmin alone.
@@ -262,12 +259,11 @@ export function RequestsTable({
             <MpRequestRowActions
               request={info.row.original}
               canWrite={canWrite}
-              canApprove={canApprove}
             />
           ),
         }),
       ]),
-    [canWrite, canApprove, showSite, showLocation],
+    [canWrite, showSite, showLocation],
   );
 
   return (

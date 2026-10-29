@@ -5,7 +5,7 @@ import { weekDates } from "@/lib/week";
 import type { RequestedWeek } from "@/types/mp-request";
 
 import {
-  dayAriaLabel,
+  calendarDayAriaLabel,
   daysOfWeeks,
   markedWeeks,
   toIso,
@@ -102,35 +102,6 @@ describe("toLocalDate / toIso", () => {
   });
 });
 
-describe("dayAriaLabel", () => {
-  const monday = toLocalDate("2026-02-02");
-
-  test("a free day is just its date", () => {
-    const label = dayAriaLabel(monday, undefined);
-
-    expect(label.includes("Monday")).toBe(true);
-    expect(label.includes("2 February 2026")).toBe(true);
-    expect(label.includes("request")).toBe(false);
-  });
-
-  test("a taken week says it already has a request and cannot be picked", () => {
-    const label = dayAriaLabel(monday, "taken");
-
-    expect(label.includes("2 February 2026")).toBe(true);
-    expect(label.includes("week already has a request")).toBe(true);
-    expect(label.includes("unavailable")).toBe(true);
-  });
-
-  test("a fulfilled week says a new request would be an addition", () => {
-    const label = dayAriaLabel(monday, "fulfilled");
-
-    expect(label.includes("2 February 2026")).toBe(true);
-    expect(label.includes("week has a fulfilled request")).toBe(true);
-    expect(label.includes("addition")).toBe(true);
-    expect(label.includes("unavailable")).toBe(false);
-  });
-});
-
 describe("daysOfWeeks", () => {
   test("expands each Monday to its seven local days, in order", () => {
     const days = daysOfWeeks(["2026-02-02", "2026-02-16"]);
@@ -150,5 +121,55 @@ describe("daysOfWeeks", () => {
 
   test("no weeks, no days", () => {
     expect(daysOfWeeks([])).toEqual([]);
+  });
+});
+
+describe("calendarDayAriaLabel", () => {
+  const day = toLocalDate("2026-10-14");
+  const date = "Wednesday, 14 October 2026";
+
+  test("a day with nothing around it is just its date", () => {
+    expect(calendarDayAriaLabel(day, { hasDaily: false, blocks: null })).toBe(date);
+  });
+
+  test("informational marks name what the week and the day hold, and nothing is unavailable", () => {
+    expect(
+      calendarDayAriaLabel(day, { weekMark: "taken", hasDaily: false, blocks: null }),
+    ).toBe(`${date}, week has an open or approved request`);
+    expect(
+      calendarDayAriaLabel(day, { weekMark: "fulfilled", hasDaily: false, blocks: null }),
+    ).toBe(`${date}, week has a fulfilled request`);
+    expect(calendarDayAriaLabel(day, { hasDaily: true, blocks: null })).toBe(
+      `${date}, daily request open`,
+    );
+  });
+
+  test("a daily request inside a marked week reports both, week first", () => {
+    expect(
+      calendarDayAriaLabel(day, { weekMark: "fulfilled", hasDaily: true, blocks: null }),
+    ).toBe(`${date}, week has a fulfilled request, daily request open`);
+  });
+
+  test("where weeks block (the weekly form) a taken week is unavailable and a fulfilled one is an addition", () => {
+    expect(
+      calendarDayAriaLabel(day, { weekMark: "taken", hasDaily: false, blocks: "week" }),
+    ).toBe(`${date}, week already has a request, unavailable`);
+    expect(
+      calendarDayAriaLabel(day, { weekMark: "fulfilled", hasDaily: false, blocks: "week" }),
+    ).toBe(`${date}, week has a fulfilled request, a new request is an addition`);
+  });
+
+  test("where days block (the daily form) a day with a daily request is unavailable while its week stays informational", () => {
+    expect(
+      calendarDayAriaLabel(day, { weekMark: "taken", hasDaily: true, blocks: "day" }),
+    ).toBe(
+      `${date}, week has an open or approved request, day already has a request, unavailable`,
+    );
+  });
+
+  test("a daily request is only called unavailable where days block", () => {
+    expect(
+      calendarDayAriaLabel(day, { hasDaily: true, blocks: "week" }).includes("unavailable"),
+    ).toBe(false);
   });
 });

@@ -112,11 +112,6 @@ export const mpRequestUpdateSchema = mpRequestBaseSchema
   .omit({ type: true, weekStart: true, requestDate: true })
   .extend({ id: z.uuid() });
 
-export const advanceStatusSchema = z.object({
-  id: z.uuid(),
-  status: z.enum(["approved", "rejected"]),
-});
-
 export const withdrawRequestSchema = z.object({ id: z.uuid() });
 
 export type MpRequestLineInput = z.infer<typeof mpRequestLineSchema>;

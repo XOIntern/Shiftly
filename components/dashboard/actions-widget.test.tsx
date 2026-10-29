@@ -25,17 +25,18 @@ function location(
     attendance: null,
     weeklyDrafts: [],
     readyToGenerate: [],
-    openRequests: { weekly: 0, daily: 0, oldestAgeDays: null },
+    openRequests: { daily: 0, oldestAgeDays: null },
     ...overrides,
   };
 }
 
-// One todo (attendance today) and one info (open requests, admin view).
+// One todo (a weekly draft) and one info (open requests, HO view).
 const busy = location({
   locationId: "loc-1",
   locationName: "Cikarang",
   attendance: { today: 3, incomplete: { count: 0, oldest: null } },
-  openRequests: { weekly: 1, daily: 0, oldestAgeDays: 2 },
+  weeklyDrafts: ["2026-07-06"],
+  openRequests: { daily: 1, oldestAgeDays: 2 },
 });
 
 const quiet = location({ locationId: "loc-2", locationName: "Karawang" });
@@ -56,16 +57,16 @@ describe("ActionsWidget", () => {
       ),
     ).toBeTrue();
     expect(
-      html.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
+      html.includes('href="/dashboard/requests?status=open&amp;type=daily"'),
     ).toBeTrue();
     expect(html.includes("3 workers not recorded today")).toBeTrue();
   });
 
   test("todo and info are distinguishable by text, not colour alone", async () => {
-    const html = await render(admin, [busy]);
+    const html = await render(ho, [busy]);
     const items = html.split("<li").slice(1);
-    const todo = items.find((li) => li.includes("not recorded today"))!;
-    const info = items.find((li) => li.includes("waiting for HO"))!;
+    const todo = items.find((li) => li.includes("is not published"))!;
+    const info = items.find((li) => li.includes("waiting to be filled"))!;
     expect(todo.includes("To do:")).toBeTrue();
     expect(todo.includes("For information:")).toBeFalse();
     expect(info.includes("For information:")).toBeTrue();
@@ -74,15 +75,15 @@ describe("ActionsWidget", () => {
     expect(info.includes("font-medium")).toBeFalse();
   });
 
-  test("an HO's open requests are todo", async () => {
+  test("an HO's open requests are info", async () => {
     const html = await render(ho, [
       location({
         locationId: "loc-1",
-        openRequests: { weekly: 2, daily: 0, oldestAgeDays: 0 },
+        openRequests: { daily: 2, oldestAgeDays: 0 },
       }),
     ]);
-    expect(html.includes("To do:")).toBeTrue();
-    expect(html.includes("For information:")).toBeFalse();
+    expect(html.includes("For information:")).toBeTrue();
+    expect(html.includes("To do:")).toBeFalse();
   });
 
   test("no locations shows the empty state", async () => {

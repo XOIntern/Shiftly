@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
+import { isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { eq } from "drizzle-orm";
 
@@ -16,8 +17,10 @@ import {
   workArea,
   workAreaPosition,
 } from "@/drizzle/schema";
+import type { MpRequestRow } from "@/types/mp-request";
 import type { SessionUser } from "@/types/session";
 import { installCleanup } from "@/lib/test-cleanup";
+import { seedRosterPlan } from "@/lib/test-fixtures";
 
 // Fixture teardown runs in afterEach / afterAll, so it still runs after a test
 // times out (a per-test finally would not).
@@ -73,6 +76,29 @@ async function renderRequests(
     searchParams: Promise.resolve(searchParams),
   } as never);
   return renderToStaticMarkup(tree);
+}
+
+// The rows the page hands to RequestsTable. The row menu (Edit lines,
+// Withdraw) only mounts when opened, so the offered controls are read off the
+// props the page computed rather than off the closed menu's markup.
+async function pageRows(
+  searchParams: Record<string, string | string[] | undefined> = {},
+): Promise<MpRequestRow[]> {
+  const { default: RequestsPage } = await import("./page");
+  const tree = await RequestsPage({
+    searchParams: Promise.resolve(searchParams),
+  } as never);
+  const seen: unknown[] = [tree];
+  while (seen.length) {
+    const node = seen.pop();
+    if (Array.isArray(node)) seen.push(...node);
+    else if (isValidElement(node)) {
+      const props = node.props as { requests?: MpRequestRow[]; children?: unknown };
+      if (props.requests) return props.requests;
+      seen.push(props.children);
+    }
+  }
+  throw new Error("RequestsTable not found in the page tree");
 }
 
 // Shared fixture: site A holds locations LA1/LA2 and site B holds LB1. Each
@@ -454,7 +480,7 @@ describe("requests page SSR (mp-requests Task 8)", () => {
 const baseRow = {
   id: "rq-1",
   type: "weekly" as const,
-  status: "open" as const,
+  status: "approved" as const,
   weekStart: "2026-11-02",
   requestDate: null,
   siteLocationId: "loc-1",
@@ -462,9 +488,10 @@ const baseRow = {
   locationName: "Loc",
   lines: [],
   updatedAt: "2026-10-27T00:00:00.000Z",
+  rosterLocked: false,
 };
 
-describe("requests list: approval, roster link and filter", () => {
+describe("requests list: roster link, filter and controls by roster state", () => {
   test("rosterHrefFor returns the roster link for approved and fulfilled weekly requests and null for open, rejected, withdrawn and daily", async () => {
     const { rosterHrefFor } = await import("./requests-table");
     const expected = "/dashboard/roster?week=2026-11-02&locationId=loc-1";
@@ -520,33 +547,25 @@ describe("requests list: approval, roster link and filter", () => {
     ).toEqual(["open", "approved", "fulfilled", "rejected", "withdrawn"]);
   });
 
-  test("canApproveRequest offers approval only for open weekly requests to an approver", async () => {
-    const { canApproveRequest } = await import("./status-actions");
-    const openDaily = {
+  test("canEditRequest and canWithdrawRequest follow the roster state and canWrite", async () => {
+    const { canEditRequest, canWithdrawRequest } = await import(
+      "./status-actions"
+    );
+    const dailyOpen = {
       ...baseRow,
       type: "daily" as const,
+      status: "open" as const,
       weekStart: null,
       requestDate: "2026-11-03",
     };
-    expect(canApproveRequest(baseRow, true)).toBeTrue();
-    expect(canApproveRequest(baseRow, false)).toBeFalse();
-    expect(canApproveRequest(openDaily, true)).toBeFalse();
-    expect(
-      canApproveRequest({ ...baseRow, status: "approved" }, true),
-    ).toBeFalse();
-  });
-
-  test("canWithdrawRequest is true only for an open request when canWrite", async () => {
-    const { canWithdrawRequest } = await import("./status-actions");
-    expect(canWithdrawRequest(baseRow, true)).toBeTrue();
-    expect(canWithdrawRequest(baseRow, false)).toBeFalse();
-    for (const status of [
-      "approved",
-      "fulfilled",
-      "rejected",
-      "withdrawn",
-    ] as const) {
-      expect(canWithdrawRequest({ ...baseRow, status }, true)).toBeFalse();
+    for (const can of [canEditRequest, canWithdrawRequest]) {
+      expect(can(baseRow, true)).toBeTrue();
+      expect(can(baseRow, false)).toBeFalse();
+      expect(can({ ...baseRow, rosterLocked: true }, true)).toBeFalse();
+      expect(can(dailyOpen, true)).toBeTrue();
+      for (const status of ["open", "fulfilled", "rejected", "withdrawn"] as const) {
+        expect(can({ ...baseRow, status }, true)).toBeFalse();
+      }
     }
   });
 
@@ -572,170 +591,186 @@ describe("requests list: approval, roster link and filter", () => {
     });
   });
 
-  test("rejectDialogCopy asks for confirmation and warns the admin must re-enter the request", async () => {
-    const { rejectDialogCopy } = await import("./status-actions");
-    expect(rejectDialogCopy()).toEqual({
-      title: "Reject this request?",
-      body: "This cannot be undone. The admin will need to enter a new request.",
-    });
-  });
-
-  test("approveDialogCopy asks for confirmation and says the request feeds the roster", async () => {
-    const { approveDialogCopy } = await import("./status-actions");
-    expect(approveDialogCopy()).toEqual({
-      title: "Approve this request?",
-      body: "This request becomes the basis for the week's roster.",
-    });
-  });
-
-  test("ho sees Approve and Reject on an open weekly row and none on an approved row", async () => {
+  test("the page subtitle states weekly requests are approved on entry", async () => {
     const fx = await seedRequestFixtures();
-    const dailyId = randomUUID();
     fixtureCleanup.defer(async () => {
-      await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
       await fx.cleanup();
     });
     actor = makeActor("ho", fx.ids.siteA, null);
-    // An OPEN daily request: the only thing keeping it from Approve and
-    // Reject is its type.
-    await db.insert(mpRequest).values({
-      id: dailyId,
-      siteId: fx.ids.siteA,
-      siteLocationId: fx.ids.locA2,
-      type: "daily",
-      status: "open",
-      requestDate: "2026-01-08",
-      createdBy: fx.creator,
+
+    const html = await renderRequests();
+    expect(html).toContain(
+      "Weekly requests are approved on entry and become fulfilled when the week&#x27;s roster is published. Daily requests stay open until their slot is filled.",
+    );
+  });
+
+  test("no role sees Approve, Reject or an awaiting-approval banner", async () => {
+    const fx = await seedRequestFixtures();
+    fixtureCleanup.defer(async () => {
+      await fx.cleanup();
     });
+    for (const next of [
+      makeActor("ho", fx.ids.siteA, null),
+      makeActor("admin", null, fx.ids.locA1),
+      makeActor("superadmin", null, null),
+    ]) {
+      actor = next;
+      const html = await renderRequests();
+      expect(html.includes("Approve request ")).toBeFalse();
+      expect(html.includes("Reject request ")).toBeFalse();
+      expect(html.includes(">Approve<")).toBeFalse();
+      expect(html.includes(">Reject<")).toBeFalse();
+      expect(html.includes("awaiting approval")).toBeFalse();
+    }
+  });
 
-    const open = await renderRequests();
-    const nameA1 = `t-rq-site-a-${fx.ids.siteA} t-rq-loc-a1-${fx.ids.locA1}, week of 2026-01-05`;
-    expect(
-      open.includes(`aria-label="Approve request ${nameA1}"`),
-    ).toBeTrue();
-    expect(
-      open.includes(`aria-label="Reject request ${nameA1}"`),
-    ).toBeTrue();
-    // The open daily row renders, yet offers no approval buttons.
-    expect(open.includes("2026-01-08")).toBeTrue();
-    expect(/Approve request [^"]*, date /.test(open)).toBeFalse();
-    expect(/Reject request [^"]*, date /.test(open)).toBeFalse();
-
-    await db.delete(mpRequest).where(eq(mpRequest.id, dailyId));
+  test("an admin is offered Edit and Withdraw on an approved weekly row until its week has a roster plan", async () => {
+    const { canEditRequest, canWithdrawRequest } = await import(
+      "./status-actions"
+    );
+    const fx = await seedRequestFixtures();
+    fixtureCleanup.defer(async () => {
+      await fx.cleanup();
+    });
     await db
       .update(mpRequest)
       .set({ status: "approved" })
       .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
-    const approved = await renderRequests();
-    expect(approved.includes("Approve request ")).toBeFalse();
-    expect(approved.includes("Reject request ")).toBeFalse();
-  });
-
-  test("superadmin sees Approve and Reject on open weekly rows", async () => {
-    const fx = await seedRequestFixtures();
-    fixtureCleanup.defer(async () => {
-      await fx.cleanup();
-    });
-    actor = makeActor("superadmin", null, null);
-
-    const html = await renderRequests();
-    expect(
-      html.includes(
-        `Approve request t-rq-site-a-${fx.ids.siteA} t-rq-loc-a1-${fx.ids.locA1}, week of 2026-01-05`,
-      ),
-    ).toBeTrue();
-    expect(
-      html.includes(
-        `Reject request t-rq-site-b-${fx.ids.siteB} t-rq-loc-a1-b-${fx.ids.locB1}, week of 2026-01-12`,
-      ),
-    ).toBeTrue();
-  });
-
-  test("admin sees Edit on an open row and no Approve/Reject", async () => {
-    const { canEditRequest } = await import("./status-actions");
-    expect(canEditRequest(baseRow, true)).toBeTrue();
-    expect(canEditRequest({ ...baseRow, status: "approved" }, true)).toBeFalse();
-    expect(canEditRequest({ ...baseRow, status: "fulfilled" }, true)).toBeFalse();
-    expect(canEditRequest({ ...baseRow, status: "rejected" }, true)).toBeFalse();
-    expect(canEditRequest(baseRow, false)).toBeFalse();
-
-    const fx = await seedRequestFixtures();
-    fixtureCleanup.defer(async () => {
-      await fx.cleanup();
-    });
     actor = makeActor("admin", null, fx.ids.locA1);
+
+    const [free] = await pageRows();
+    expect(free.rosterLocked).toBeFalse();
+    expect(canEditRequest(free, true)).toBeTrue();
+    expect(canWithdrawRequest(free, true)).toBeTrue();
+
+    await seedRosterPlan(
+      fixtureCleanup,
+      { id: fx.ids.locA1, siteId: fx.ids.siteA },
+      { weekStart: fx.anchors.rqA1, status: "draft" },
+    );
+    const [locked] = await pageRows();
+    expect(locked.rosterLocked).toBeTrue();
+    expect(canEditRequest(locked, true)).toBeFalse();
+    expect(canWithdrawRequest(locked, true)).toBeFalse();
+  });
+
+  test("a plan for another location's same week does not lock the row", async () => {
+    const fx = await seedRequestFixtures();
+    fixtureCleanup.defer(async () => {
+      await fx.cleanup();
+    });
+    await db
+      .update(mpRequest)
+      .set({ status: "approved" })
+      .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
+    await seedRosterPlan(
+      fixtureCleanup,
+      { id: fx.ids.locA2, siteId: fx.ids.siteA },
+      { weekStart: fx.anchors.rqA1, status: "published" },
+    );
+    actor = makeActor("admin", null, fx.ids.locA1);
+
+    const [row] = await pageRows();
+    expect(row.rosterLocked).toBeFalse();
+  });
+
+  test("an ho sees the row but no write controls", async () => {
+    const { canEditRequest, canWithdrawRequest } = await import(
+      "./status-actions"
+    );
+    const fx = await seedRequestFixtures();
+    fixtureCleanup.defer(async () => {
+      await fx.cleanup();
+    });
+    await db
+      .update(mpRequest)
+      .set({ status: "approved" })
+      .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
+    actor = makeActor("ho", fx.ids.siteA, null);
 
     const html = await renderRequests();
     expect(html.includes(fx.anchors.rqA1)).toBeTrue();
-    expect(html.includes("Approve request ")).toBeFalse();
-    expect(html.includes("Reject request ")).toBeFalse();
-    expect(html.includes("awaiting approval")).toBeFalse();
+    expect(html.includes("New request")).toBeFalse();
+    const rows = await pageRows();
+    const weekly = rows.find((r) => r.weekStart === fx.anchors.rqA1)!;
+    expect(canEditRequest(weekly, false)).toBeFalse();
+    expect(canWithdrawRequest(weekly, false)).toBeFalse();
   });
 
-  test("ho page shows \"N requests awaiting approval\" linking to ?status=open when N > 0 and nothing when 0", async () => {
+  test("a superadmin is offered Edit and Withdraw on an unrostered approved weekly row", async () => {
+    const { canEditRequest, canWithdrawRequest } = await import(
+      "./status-actions"
+    );
     const fx = await seedRequestFixtures();
-    const extra = randomUUID();
     fixtureCleanup.defer(async () => {
-      await db.delete(mpRequest).where(eq(mpRequest.id, extra));
       await fx.cleanup();
     });
-    actor = makeActor("ho", fx.ids.siteA, null);
-
-    // siteA holds one open weekly request (rqB1 is another site's).
-    const one = await renderRequests();
-    expect(one.includes("1 request awaiting approval")).toBeTrue();
-    expect(
-      one.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
-    ).toBeTrue();
-
-    await db.insert(mpRequest).values({
-      id: extra,
-      siteId: fx.ids.siteA,
-      siteLocationId: fx.ids.locA2,
-      type: "weekly",
-      status: "open",
-      weekStart: "2026-01-19",
-      createdBy: fx.creator,
-    });
-    const two = await renderRequests();
-    expect(two.includes("2 requests awaiting approval")).toBeTrue();
-
-    await db.delete(mpRequest).where(eq(mpRequest.id, extra));
     await db
       .update(mpRequest)
       .set({ status: "approved" })
       .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
-    const none = await renderRequests();
-    expect(none.includes("awaiting approval")).toBeFalse();
-  });
-
-  test("superadmin page counts open weekly requests across every site and shows nothing when 0", async () => {
-    const fx = await seedRequestFixtures();
-    fixtureCleanup.defer(async () => {
-      await fx.cleanup();
-    });
     actor = makeActor("superadmin", null, null);
 
-    // rqA1 (site A) and rqB1 (site B) are the open weekly requests.
-    const two = await renderRequests();
-    expect(two.includes("2 requests awaiting approval")).toBeTrue();
-    expect(
-      two.includes('href="/dashboard/requests?status=open&amp;type=weekly"'),
-    ).toBeTrue();
+    // Narrowed and widened so leftover rows in a shared database cannot push
+    // the seeded one off the first page.
+    const rows = await pageRows({
+      status: "approved",
+      type: "weekly",
+      pageSize: "50",
+    });
+    const weekly = rows.find((r) => r.weekStart === fx.anchors.rqA1)!;
+    expect(weekly.rosterLocked).toBeFalse();
+    expect(canEditRequest(weekly, true)).toBeTrue();
+    expect(canWithdrawRequest(weekly, true)).toBeTrue();
+  });
 
-    await db
-      .update(mpRequest)
-      .set({ status: "approved" })
-      .where(eq(mpRequest.siteLocationId, fx.ids.locB1));
-    const one = await renderRequests();
-    expect(one.includes("1 request awaiting approval")).toBeTrue();
+  test("rejected and withdrawn weekly rows still list with their badges and filter", async () => {
+    const fx = await seedRequestFixtures();
+    const rejectedId = randomUUID();
+    const withdrawnId = randomUUID();
+    const rejectedMonday = "2026-02-09";
+    const withdrawnMonday = "2026-02-16";
+    fixtureCleanup.defer(async () => {
+      await db
+        .delete(mpRequest)
+        .where(eq(mpRequest.id, rejectedId));
+      await db
+        .delete(mpRequest)
+        .where(eq(mpRequest.id, withdrawnId));
+      await fx.cleanup();
+    });
+    await db.insert(mpRequest).values([
+      {
+        id: rejectedId,
+        siteId: fx.ids.siteA,
+        siteLocationId: fx.ids.locA1,
+        type: "weekly",
+        status: "rejected",
+        weekStart: rejectedMonday,
+        createdBy: fx.creator,
+      },
+      {
+        id: withdrawnId,
+        siteId: fx.ids.siteA,
+        siteLocationId: fx.ids.locA1,
+        type: "weekly",
+        status: "withdrawn",
+        weekStart: withdrawnMonday,
+        createdBy: fx.creator,
+      },
+    ]);
+    actor = makeActor("ho", fx.ids.siteA, null);
 
-    await db
-      .update(mpRequest)
-      .set({ status: "approved" })
-      .where(eq(mpRequest.siteLocationId, fx.ids.locA1));
-    const none = await renderRequests();
-    expect(none.includes("awaiting approval")).toBeFalse();
+    const all = await renderRequests();
+    expect(all.includes(rejectedMonday)).toBeTrue();
+    expect(all.includes(withdrawnMonday)).toBeTrue();
+    expect(all.includes("Rejected")).toBeTrue();
+    expect(all.includes("Withdrawn")).toBeTrue();
+
+    const rejectedOnly = await renderRequests({ status: "rejected" });
+    expect(rejectedOnly.includes(rejectedMonday)).toBeTrue();
+    expect(rejectedOnly.includes(withdrawnMonday)).toBeFalse();
+    expect(rejectedOnly.includes(fx.anchors.rqA1)).toBeFalse();
   });
 
   test("the Roster column renders \"View in roster\" with the right href", async () => {

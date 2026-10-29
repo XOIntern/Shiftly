@@ -14,6 +14,7 @@ import {
 } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
+import { requestMutability } from "@/lib/mp-request-lock";
 import { mpRequestMutationWhere } from "@/lib/mp-request-scope";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -53,13 +54,11 @@ export default async function EditRequestPage({
       siteLocationId: mpRequest.siteLocationId,
     })
     .from(mpRequest)
-    // Only editable requests resolve to a page; anything else is 404 —
-    // the actor must also be in scope for this row.
-    .where(
-      and(mpRequestMutationWhere(actor, id), eq(mpRequest.status, "open")),
-    )
+    // The actor must be in scope for this row.
+    .where(mpRequestMutationWhere(actor, id))
     .limit(1);
-  if (!row) notFound();
+  // Only still-mutable requests resolve to a page; anything else is 404.
+  if (!row || (await requestMutability(db, row)) !== "mutable") notFound();
 
   const [lineRows, activeWorkAreaRows, activeShifts, areaPositionRows] =
     await Promise.all([
