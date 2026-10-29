@@ -694,6 +694,24 @@ export async function loadCopySource(
 // whole table.
 const MAX_REQUESTED_WEEKS_SPAN_DAYS = 62;
 
+// The shared gate of the calendar lookups: a uuid location and an ordered
+// pair of ISO dates no wider than the cap.
+function isCalendarWindow(
+  siteLocationId: string,
+  from: string,
+  to: string,
+): boolean {
+  if (
+    !z.uuid().safeParse(siteLocationId).success ||
+    !z.iso.date().safeParse(from).success ||
+    !z.iso.date().safeParse(to).success
+  ) {
+    return false;
+  }
+  const span = dayNumber(to) - dayNumber(from);
+  return span >= 0 && span <= MAX_REQUESTED_WEEKS_SPAN_DAYS;
+}
+
 // Read-only lookup behind the week-start calendar's markers: the Mondays in
 // [from, to] (inclusive) on which the location holds a live (open, approved or
 // fulfilled) weekly request, ascending. A week holding a fulfilled request and
@@ -708,15 +726,7 @@ export async function loadRequestedWeeks(
 ): Promise<RequestedWeek[]> {
   const actor = await requireUser();
 
-  if (
-    !z.uuid().safeParse(siteLocationId).success ||
-    !z.iso.date().safeParse(from).success ||
-    !z.iso.date().safeParse(to).success
-  ) {
-    return [];
-  }
-  const span = dayNumber(to) - dayNumber(from);
-  if (span < 0 || span > MAX_REQUESTED_WEEKS_SPAN_DAYS) return [];
+  if (!isCalendarWindow(siteLocationId, from, to)) return [];
 
   const rows = await db
     .select({ weekStart: mpRequest.weekStart, status: mpRequest.status })
@@ -741,4 +751,36 @@ export async function loadRequestedWeeks(
     byWeek.set(row.weekStart, status);
   }
   return [...byWeek].map(([weekStart, status]) => ({ weekStart, status }));
+}
+
+// Read-only lookup behind the daily calendars' markers: the dates in
+// [from, to] (inclusive) on which the location holds an open daily request,
+// ascending — the statuses that hold the one-per-date DB slot. Fulfilled,
+// rejected, withdrawn and weekly requests never mark a day. Scoped and guarded
+// exactly like loadRequestedWeeks.
+export async function loadRequestedDays(
+  siteLocationId: string,
+  from: string,
+  to: string,
+): Promise<string[]> {
+  const actor = await requireUser();
+
+  if (!isCalendarWindow(siteLocationId, from, to)) return [];
+
+  const rows = await db
+    .select({ requestDate: mpRequest.requestDate })
+    .from(mpRequest)
+    .where(
+      and(
+        mpRequestListWhere(actor),
+        eq(mpRequest.siteLocationId, siteLocationId),
+        eq(mpRequest.type, "daily"),
+        inArray(mpRequest.status, ["open", "approved"]),
+        gte(mpRequest.requestDate, from),
+        lte(mpRequest.requestDate, to),
+      ),
+    )
+    .orderBy(asc(mpRequest.requestDate));
+
+  return rows.flatMap((row) => (row.requestDate ? [row.requestDate] : []));
 }

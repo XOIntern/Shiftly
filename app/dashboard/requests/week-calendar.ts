@@ -62,20 +62,51 @@ const SHORT_DAY = new Intl.DateTimeFormat("en-GB", {
   year: "numeric",
 });
 
-// A day button's accessible name: the date plus what its week already holds,
-// so the marker is never colour or shape alone.
-export function dayAriaLabel(date: Date, mark: WeekMark | undefined): string {
-  const label = LONG_DAY.format(date);
-  if (mark === "taken") return `${label}, week already has a request, unavailable`;
-  if (mark === "fulfilled") {
-    return `${label}, week has a fulfilled request, a new request is an addition`;
+// What a calendar refuses to let the user pick: `week` (the weekly form: a week
+// already holding an open/approved request), `day` (the daily form: a day
+// already holding an open daily request), or nothing (the roster, where the
+// marks only inform).
+export type CalendarBlocks = "week" | "day" | null;
+
+// A day button's accessible name: the date, what its week holds, then what the
+// day itself holds, so no mark is colour or shape alone. Only the thing the
+// calendar blocks is called unavailable.
+export function calendarDayAriaLabel(
+  date: Date,
+  {
+    weekMark,
+    hasDaily,
+    blocks,
+  }: { weekMark?: WeekMark; hasDaily: boolean; blocks: CalendarBlocks },
+): string {
+  const parts = [LONG_DAY.format(date)];
+  if (weekMark === "taken") {
+    parts.push(
+      blocks === "week"
+        ? "week already has a request, unavailable"
+        : "week has an open or approved request",
+    );
   }
-  return label;
+  if (weekMark === "fulfilled") {
+    parts.push(
+      blocks === "week"
+        ? "week has a fulfilled request, a new request is an addition"
+        : "week has a fulfilled request",
+    );
+  }
+  if (hasDaily) {
+    parts.push(
+      blocks === "day"
+        ? "day already has a request, unavailable"
+        : "daily request open",
+    );
+  }
+  return parts.join(", ");
 }
 
-// The trigger's text for a chosen week, e.g. "Mon 5 Jan 2026".
-export function formatWeekStart(monday: string): string {
-  return SHORT_DAY.format(toLocalDate(monday));
+// The trigger's text for a chosen day, e.g. "Mon 5 Jan 2026".
+export function formatDay(day: string): string {
+  return SHORT_DAY.format(toLocalDate(day));
 }
 
 // Every day of the given weeks, for the calendar's per-day modifiers.

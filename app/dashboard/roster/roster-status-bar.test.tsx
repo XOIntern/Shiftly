@@ -267,8 +267,9 @@ describe("RosterStatusBar", () => {
     const html = render();
     expect(html).toContain('aria-label="Previous week"');
     expect(html).toContain('aria-label="Next week"');
-    expect(html).toContain('aria-label="Week start"');
-    expect(html).toContain('value="2026-01-05"');
+    // A calendar trigger showing the week's Monday, not a native date input.
+    expect(html).toMatch(/aria-label="Week start, [^"]*5 Jan 2026"/);
+    expect(html).not.toContain('type="date"');
   });
 
   test("a discardable draft offers Discard draft next to the primary button", () => {

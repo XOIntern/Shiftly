@@ -993,12 +993,24 @@ describe("RequestForm markup", () => {
     expect(html.includes("5 Jan 2026")).toBeTrue();
   });
 
-  test("daily create keeps the native date input", () => {
+  test("daily create picks the date through a calendar trigger, not a native date input", () => {
     const html = renderForm({ type: "daily", siteLocationId: LOC_A1 });
-    const input = tagWithId(html, "request-request-date");
+    const trigger = tagWithId(html, "request-request-date");
 
-    expect(input.includes('type="date"')).toBeTrue();
+    expect(trigger).not.toBe("");
+    expect(trigger.includes('type="date"')).toBeFalse();
+    expect(trigger.includes(' disabled=""')).toBeFalse();
+    expect(html.includes(">Pick a date<")).toBeTrue();
     expect(html.includes('id="request-week-start"')).toBeFalse();
+  });
+
+  test("daily edit keeps the date field disabled and shows the stored date", () => {
+    const html = renderEdit("daily", storedLines);
+    const trigger = tagWithId(html, "request-request-date");
+
+    expect(trigger.includes(' disabled=""')).toBeTrue();
+    expect(trigger.includes('type="date"')).toBeFalse();
+    expect(html.includes("5 Jan 2026")).toBeTrue();
   });
 });
 
