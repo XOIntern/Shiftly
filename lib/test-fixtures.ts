@@ -427,6 +427,8 @@ export async function seedRequestLine(
     workAreaId: string;
     shiftId: string;
     positionId: string;
+    date?: string;
+    headcount?: number;
   },
 ): Promise<{ id: string }> {
   const id = randomUUID();
@@ -441,8 +443,8 @@ export async function seedRequestLine(
     workAreaId: opts.workAreaId,
     shiftDefinitionId: opts.shiftId,
     positionId: opts.positionId,
-    date: MONDAY,
-    headcount: 1,
+    date: opts.date ?? MONDAY,
+    headcount: opts.headcount ?? 1,
   });
   return { id };
 }
