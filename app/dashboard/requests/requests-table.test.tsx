@@ -19,7 +19,7 @@ import type { MpRequestRow } from "@/types/mp-request";
 const row = (overrides: Partial<MpRequestRow>): MpRequestRow => ({
   id: "11111111-1111-4111-8111-111111111111",
   type: "weekly",
-  status: "open",
+  status: "approved",
   weekStart: "2026-01-05",
   requestDate: null,
   siteLocationId: "22222222-2222-4222-8222-222222222222",
@@ -27,6 +27,7 @@ const row = (overrides: Partial<MpRequestRow>): MpRequestRow => ({
   locationName: "Cikarang",
   lines: [],
   updatedAt: "2026-01-02T08:00:00.000Z",
+  rosterLocked: false,
   ...overrides,
 });
 
@@ -35,7 +36,6 @@ function renderRows(requests: MpRequestRow[]) {
     <RequestsTable
       requests={requests}
       canWrite
-      canApprove
       showSite
       showLocation
       pageCount={1}
@@ -50,7 +50,6 @@ function renderEmpty(filtered: boolean) {
     <RequestsTable
       requests={[]}
       canWrite
-      canApprove
       showSite
       showLocation
       pageCount={1}
@@ -112,19 +111,23 @@ describe("RequestsTable accessible names", () => {
     ).toBeTrue();
   });
 
-  test("Approve and Reject names carry site, location and period", () => {
-    const html = renderRows([first]);
+  test("no row offers Approve or Reject, whatever its status", () => {
+    const html = renderRows(
+      (["open", "approved", "fulfilled", "rejected", "withdrawn"] as const).map(
+        (status, index) =>
+          row({
+            id: `55555555-5555-4555-8555-55555555555${index}`,
+            status,
+            weekStart: `2026-02-0${index + 2}`,
+          }),
+      ),
+    );
 
-    expect(
-      html.includes(
-        'aria-label="Approve request Nestle Cikarang, week of 2026-01-05"',
-      ),
-    ).toBeTrue();
-    expect(
-      html.includes(
-        'aria-label="Reject request Nestle Cikarang, week of 2026-01-05"',
-      ),
-    ).toBeTrue();
+    // The Approved / Rejected badges still render; only the buttons are gone.
+    expect(html.includes("Approve request")).toBeFalse();
+    expect(html.includes("Reject request")).toBeFalse();
+    expect(html.includes(">Approve<")).toBeFalse();
+    expect(html.includes(">Reject<")).toBeFalse();
   });
 
   test("a missing site name leaves no double space", () => {
@@ -136,18 +139,6 @@ describe("RequestsTable accessible names", () => {
       ),
     ).toBeTrue();
     expect(html.includes("request  ")).toBeFalse();
-  });
-
-  test("inline Approve and Reject reach 44px on phones, desktop size unchanged", () => {
-    const html = renderRows([first]);
-    const buttonOf = (label: string) =>
-      new RegExp(`<button[^>]*aria-label="${label}[^"]*"[^>]*>`).exec(html)![0];
-
-    for (const label of ["Approve request", "Reject request"]) {
-      const tag = buttonOf(label);
-      expect(tag.includes("max-sm:h-11")).toBeTrue();
-      expect(tag.includes("h-7")).toBeTrue();
-    }
   });
 
   test("the arrow of View in roster is hidden from assistive tech", () => {

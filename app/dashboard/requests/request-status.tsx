@@ -25,3 +25,12 @@ export const rosterHrefFor = (request: MpRequestRow): string | null =>
   (request.status === "approved" || request.status === "fulfilled")
     ? `/dashboard/roster?week=${request.weekStart}&locationId=${request.siteLocationId}`
     : null;
+
+// Client mirror of requestMutability (lib/mp-request-lock): the server action
+// stays the authority, this only decides what to offer. A daily request is
+// editable while open; a weekly one from entry (approved) until its week has a
+// roster plan.
+export const isRequestMutable = (request: MpRequestRow): boolean =>
+  request.type === "daily"
+    ? request.status === "open"
+    : request.status === "approved" && !request.rosterLocked;

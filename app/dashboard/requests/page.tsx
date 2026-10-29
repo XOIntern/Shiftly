@@ -18,6 +18,7 @@ import {
   parseTableSearchParams,
 } from "@/lib/table-params";
 import { requireUser } from "@/lib/session";
+import { rosterLockedWeeks, weekKey } from "@/lib/mp-request-lock";
 import { mpRequestListWhere } from "@/lib/mp-request-scope";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -69,7 +70,7 @@ export default async function RequestsPage({
 }: PageProps<"/dashboard/requests">) {
   // requireUser, not a stricter guard: all three roles view the page —
   // they differ by the scope of rows shown and the write surface (spec
-  // §3.3: ho views + advances, admin/superadmin write lines).
+  // §3.3: ho views, admin/superadmin write lines).
   const actor = await requireUser();
   const raw = await searchParams;
   // `q` is deliberately not read #133: the search lived on the (dropped)
@@ -89,8 +90,6 @@ export default async function RequestsPage({
   const isSuperadmin = actor.role === "superadmin";
   // An ho views only: the create/edit writes never extend to them.
   const canWrite = actor.role !== "ho";
-  // Approving or rejecting an open weekly request is HO and superadmin work.
-  const canApprove = actor.role === "ho" || actor.role === "superadmin";
 
   // Scope comes straight from the shared scope module (superadmin
   // unbounded, ho by their site, admin by their site_location; a null
@@ -104,24 +103,6 @@ export default async function RequestsPage({
     ...(type ? [eq(mpRequest.type, type)] : []),
     ...(scope ? [scope] : []),
   );
-
-  // The approvers' work queue (HO and superadmin): open weekly requests
-  // inside their scope. Same scope helper as the list, so an HO never counts
-  // beyond their site while the superadmin counts every site.
-  let awaitingApproval = 0;
-  if (canApprove) {
-    const [{ count: awaiting }] = await db
-      .select({ count: count() })
-      .from(mpRequest)
-      .where(
-        and(
-          eq(mpRequest.status, "open"),
-          eq(mpRequest.type, "weekly"),
-          ...(scope ? [scope] : []),
-        ),
-      );
-    awaitingApproval = awaiting;
-  }
 
   const order = buildOrder(sorts, SORTABLE, DEFAULT_ORDER);
 
@@ -187,10 +168,24 @@ export default async function RequestsPage({
     linesByRequest.set(line.requestId, list);
   }
 
+  // A weekly request is locked once its week has a roster plan; one query
+  // covers the whole page.
+  const locked = await rosterLockedWeeks(
+    requestRows.flatMap((row) =>
+      row.type === "weekly" && row.weekStart
+        ? [{ siteLocationId: row.siteLocationId, weekStart: row.weekStart }]
+        : [],
+    ),
+  );
+
   const requests: MpRequestRow[] = requestRows.map((row) => ({
     ...row,
     updatedAt: row.updatedAt.toISOString(),
     lines: linesByRequest.get(row.id) ?? [],
+    rosterLocked:
+      row.type === "weekly" &&
+      row.weekStart !== null &&
+      locked.has(weekKey(row.siteLocationId, row.weekStart)),
   }));
 
   return (
@@ -201,19 +196,10 @@ export default async function RequestsPage({
             Requests
           </h1>
           <p className="text-sm text-muted-foreground">
-            Open requests wait for HO approval; approved requests become
-            fulfilled when the week&apos;s roster is published.
+            Weekly requests are approved on entry and become fulfilled when the
+            week&apos;s roster is published. Daily requests stay open until
+            their slot is filled.
           </p>
-          {awaitingApproval > 0 ? (
-            <Link
-              href="/dashboard/requests?status=open&type=weekly"
-              className="w-fit text-sm font-medium underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            >
-              {awaitingApproval === 1
-                ? "1 request awaiting approval"
-                : `${awaitingApproval} requests awaiting approval`}
-            </Link>
-          ) : null}
         </div>
         {canWrite ? (
           <Button
@@ -230,7 +216,6 @@ export default async function RequestsPage({
           <RequestsTable
             requests={requests}
             canWrite={canWrite}
-            canApprove={canApprove}
             showSite={isSuperadmin}
             showLocation={actor.role !== "admin"}
             pageCount={pageCount}

@@ -3,28 +3,16 @@
 import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  CheckIcon,
-  EllipsisIcon,
-  ListIcon,
-  Loader2Icon,
-  PencilIcon,
-  Undo2Icon,
-  XIcon,
-} from "lucide-react";
+import { EllipsisIcon, ListIcon, PencilIcon, Undo2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { MpRequestLineView, MpRequestRow } from "@/types/mp-request";
 import { GENERIC_ERROR } from "@/lib/action-state";
-import { focusFallbackTarget } from "@/lib/final-focus";
-import { shouldRefreshAfter } from "@/lib/refresh-after";
 import { runExclusive } from "@/lib/run-exclusive";
 import { useFocusRestore } from "@/hooks/use-focus-restore";
+import { withdrawRequest } from "@/app/dashboard/requests/actions";
 import {
-  advanceStatus,
-  withdrawRequest,
-} from "@/app/dashboard/requests/actions";
-import {
+  isRequestMutable,
   RequestStatusBadge,
   rosterHrefFor,
 } from "@/app/dashboard/requests/request-status";
@@ -54,26 +42,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// Approval is HO/superadmin work on weekly requests that are still open;
-// the server action enforces the same rule, this only decides what to offer.
-export const canApproveRequest = (
-  request: MpRequestRow,
-  canApprove: boolean,
-): boolean =>
-  canApprove && request.type === "weekly" && request.status === "open";
-
-// Only an open request can be edited, and only by roles that write lines.
+// Edit and Withdraw follow the request's own state (see isRequestMutable);
+// only roles that write requests are offered them.
 export const canEditRequest = (
   request: MpRequestRow,
   canWrite: boolean,
-): boolean => canWrite && request.status === "open";
+): boolean => canWrite && isRequestMutable(request);
 
-// Withdrawing retracts a request the admin entered, so it is offered to the
-// roles that write requests and only while the request is still open.
 export const canWithdrawRequest = (
   request: MpRequestRow,
   canWrite: boolean,
-): boolean => canWrite && request.status === "open";
+): boolean => canWrite && isRequestMutable(request);
 
 type DialogCopy = { title: string; body: string };
 
@@ -91,17 +70,6 @@ export const withdrawDialogCopy = (request: MpRequestRow): DialogCopy => ({
       : WITHDRAW_BODY,
 });
 
-export const rejectDialogCopy = (): DialogCopy => ({
-  title: "Reject this request?",
-  body: "This cannot be undone. The admin will need to enter a new request.",
-});
-
-// Approving cannot be undone either; the dialog says what it commits to.
-export const approveDialogCopy = (): DialogCopy => ({
-  title: "Approve this request?",
-  body: "This request becomes the basis for the week's roster.",
-});
-
 const periodLabel = (request: MpRequestRow): string =>
   request.type === "weekly"
     ? `week of ${request.weekStart}`
@@ -112,144 +80,14 @@ const periodLabel = (request: MpRequestRow): string =>
 const requestLabel = (request: MpRequestRow): string =>
   [request.siteName, request.locationName].filter(Boolean).join(" ");
 
-export function RowApproval({ request }: { request: MpRequestRow }) {
-  const [pending, startTransition] = useTransition();
-  const [choice, setChoice] = useState<"approved" | "rejected" | null>(null);
-  const [confirming, setConfirming] = useState<
-    "approved" | "rejected" | null
-  >(null);
-  // The ref lock and the pending flag live here, not in the dialog: the
-  // dialog content unmounts when it closes, this component stays mounted.
-  const lock = useRef(false);
-  // True only when a dialog closes on a successful approve or reject: the
-  // row stays (as Approved or Rejected) but its inline buttons are removed,
-  // so focus goes to the page title.
-  const succeeded = useRef(false);
-  // After a failure the dialog closes while the refresh still disables the
-  // buttons; focus goes back to the button that opened it once that ends.
-  const {
-    openerRef,
-    arm: armFocusRestore,
-    onDialogClosed,
-  } = useFocusRestore(pending);
-  const router = useRouter();
-  const label = `${requestLabel(request)}, ${periodLabel(request)}`;
-  const approveCopy = approveDialogCopy();
-  const rejectCopy = rejectDialogCopy();
-  const focusAfterClose = () => focusFallbackTarget(succeeded.current);
-
-  function confirm(
-    nextStatus: "approved" | "rejected",
-    opener: HTMLButtonElement,
-  ) {
-    succeeded.current = false;
-    openerRef.current = opener;
-    setConfirming(nextStatus);
-  }
-
-  function decide(nextStatus: "approved" | "rejected") {
-    setChoice(nextStatus);
-    startTransition(async () => {
-      await runExclusive(lock, async () => {
-        try {
-          const result = await advanceStatus(request.id, nextStatus);
-          if (result.ok) {
-            succeeded.current = true;
-            toast.success(
-              nextStatus === "approved"
-                ? "Request approved."
-                : "Request rejected.",
-            );
-            return;
-          }
-          toast.error(result.message ?? GENERIC_ERROR);
-          armFocusRestore();
-          // The request may have been decided elsewhere: re-read the list so
-          // the row shows its current status.
-          if (shouldRefreshAfter(result)) router.refresh();
-        } catch {
-          toast.error(GENERIC_ERROR);
-          armFocusRestore();
-        } finally {
-          setConfirming(null);
-        }
-      });
-    });
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <Button
-        size="sm"
-        className="max-sm:h-11"
-        disabled={pending}
-        aria-busy={pending && choice === "approved"}
-        aria-label={`Approve request ${label}`}
-        onClick={(event) => confirm("approved", event.currentTarget)}
-      >
-        {pending && choice === "approved" ? (
-          <Loader2Icon data-icon="inline-start" className="animate-spin" />
-        ) : (
-          <CheckIcon data-icon="inline-start" />
-        )}
-        Approve
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={pending}
-        aria-busy={pending && choice === "rejected"}
-        aria-label={`Reject request ${label}`}
-        className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive max-sm:h-11"
-        onClick={(event) => confirm("rejected", event.currentTarget)}
-      >
-        {pending && choice === "rejected" ? (
-          <Loader2Icon data-icon="inline-start" className="animate-spin" />
-        ) : (
-          <XIcon data-icon="inline-start" />
-        )}
-        Reject
-      </Button>
-      <ConfirmDialog
-        open={confirming === "approved"}
-        onOpenChange={(open) => setConfirming(open ? "approved" : null)}
-        pending={pending}
-        title={approveCopy.title}
-        body={approveCopy.body}
-        cancelLabel="Cancel"
-        confirmLabel="Approve"
-        confirmVariant="default"
-        onConfirm={() => decide("approved")}
-        finalFocus={focusAfterClose}
-        onCloseComplete={onDialogClosed}
-      />
-      <ConfirmDialog
-        open={confirming === "rejected"}
-        onOpenChange={(open) => setConfirming(open ? "rejected" : null)}
-        pending={pending}
-        title={rejectCopy.title}
-        body={rejectCopy.body}
-        cancelLabel="Cancel"
-        confirmLabel="Reject"
-        onConfirm={() => decide("rejected")}
-        finalFocus={focusAfterClose}
-        onCloseComplete={onDialogClosed}
-      />
-    </div>
-  );
-}
-
 export function MpRequestRowActions({
   request,
   canWrite,
-  canApprove,
 }: {
   request: MpRequestRow;
   // May the actor write request lines? Admin (own location) and superadmin
-  // only: an ho carries approval and the view entry alone.
+  // only: an ho carries the view entry alone.
   canWrite: boolean;
-  // May the actor approve or reject? HO and superadmin.
-  canApprove: boolean;
 }) {
   const [dialog, setDialog] = useState<"lines" | "withdraw" | null>(null);
   const [withdrawing, startWithdraw] = useTransition();
@@ -289,9 +127,6 @@ export function MpRequestRowActions({
 
   return (
     <div className="flex items-center justify-end gap-2">
-      {canApproveRequest(request, canApprove) ? (
-        <RowApproval request={request} />
-      ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
