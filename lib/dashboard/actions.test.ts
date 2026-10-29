@@ -148,21 +148,17 @@ describe("deriveLocationActions", () => {
     expect(actions.readyToGenerate).toEqual([]);
   });
 
-  test("oldestAgeDays is 3 for an open request created 3 days before now", () => {
+  test("oldestAgeDays is 3 for an open daily request created 3 days before now", () => {
     const actions = deriveLocationActions(
       input({
         requests: [
-          { ...weekly("open", THIS_WEEK), createdAt: daysBefore(3) },
-          { ...weekly("open", NEXT_WEEK), createdAt: daysBefore(1) },
+          { ...daily("open"), createdAt: daysBefore(3) },
+          { ...daily("open"), createdAt: daysBefore(1) },
         ],
       }),
     );
 
-    expect(actions.openRequests).toEqual({
-      weekly: 2,
-      daily: 0,
-      oldestAgeDays: 3,
-    });
+    expect(actions.openRequests).toEqual({ daily: 2, oldestAgeDays: 3 });
   });
 
   test("oldestAgeDays is null with no open requests", () => {
@@ -170,22 +166,20 @@ describe("deriveLocationActions", () => {
       input({ requests: [weekly("approved", THIS_WEEK)] }),
     );
 
-    expect(actions.openRequests).toEqual({
-      weekly: 0,
-      daily: 0,
-      oldestAgeDays: null,
-    });
+    expect(actions.openRequests).toEqual({ daily: 0, oldestAgeDays: null });
   });
 
-  test("weekly and daily open requests are counted apart", () => {
+  test("a legacy open weekly request is not counted and does not set the age", () => {
     const actions = deriveLocationActions(
       input({
-        requests: [weekly("open", THIS_WEEK), daily("open"), daily("open")],
+        requests: [
+          { ...weekly("open", THIS_WEEK), createdAt: daysBefore(9) },
+          { ...daily("open"), createdAt: daysBefore(2) },
+        ],
       }),
     );
 
-    expect(actions.openRequests.weekly).toBe(1);
-    expect(actions.openRequests.daily).toBe(2);
+    expect(actions.openRequests).toEqual({ daily: 1, oldestAgeDays: 2 });
   });
 
   test("attendance is today's unrecorded plus the past days that still have unrecorded workers", () => {
@@ -238,7 +232,7 @@ const base = (overrides: Partial<LocationActions> = {}): LocationActions => ({
   attendance: null,
   weeklyDrafts: [],
   readyToGenerate: [],
-  openRequests: { weekly: 0, daily: 0, oldestAgeDays: null },
+  openRequests: { daily: 0, oldestAgeDays: null },
   ...overrides,
 });
 
@@ -247,22 +241,22 @@ const full = (): LocationActions =>
     attendance: { today: 12, incomplete: { count: 2, oldest: "2026-01-05" } },
     weeklyDrafts: [NEXT_WEEK],
     readyToGenerate: [THIS_WEEK],
-    openRequests: { weekly: 2, daily: 1, oldestAgeDays: 3 },
+    openRequests: { daily: 2, oldestAgeDays: 3 },
   });
 
 describe("actionItemsFor", () => {
-  test("an ho gets drafts and open requests only, all as todo", () => {
+  test("an ho gets drafts and open requests only, the requests as info", () => {
     const items = actionItemsFor([full()], "ho");
 
-    expect(items.map((item) => item.kind)).toEqual(["todo", "todo"]);
+    expect(items.map((item) => item.kind)).toEqual(["todo", "info"]);
     expect(items.map((item) => item.href)).toEqual([
       `/dashboard/roster?week=${NEXT_WEEK}&locationId=L1`,
-      "/dashboard/requests?status=open&type=weekly",
+      "/dashboard/requests?status=open&type=daily",
     ]);
     expect(items.every((item) => item.locationName === "Plant")).toBe(true);
   });
 
-  test("an admin gets all four items and the open requests are info", () => {
+  test("an admin gets all five items and the open requests are todo", () => {
     const items = actionItemsFor([full()], "admin");
 
     expect(items.map((item) => item.href)).toEqual([
@@ -270,14 +264,14 @@ describe("actionItemsFor", () => {
       "/dashboard/attendance?location=L1&date=2026-01-05",
       `/dashboard/roster?week=${NEXT_WEEK}&locationId=L1`,
       `/dashboard/roster?week=${THIS_WEEK}&locationId=L1`,
-      "/dashboard/requests?status=open&type=weekly",
+      "/dashboard/requests?status=open&type=daily",
     ]);
     expect(items.map((item) => item.kind)).toEqual([
       "todo",
       "todo",
       "todo",
       "todo",
-      "info",
+      "todo",
     ]);
   });
 
@@ -288,8 +282,8 @@ describe("actionItemsFor", () => {
       "12 workers not recorded today",
       "2 earlier days not fully recorded",
       `Roster draft for week of ${NEXT_WEEK} is not published`,
-      `Approved request for week of ${THIS_WEEK} is ready to generate`,
-      "3 requests waiting for HO, oldest 3 days",
+      `Request for week of ${THIS_WEEK} is ready to generate`,
+      "2 daily requests waiting to be filled, oldest 3 days",
     ]);
   });
 
@@ -301,7 +295,7 @@ describe("actionItemsFor", () => {
             today: 1,
             incomplete: { count: 1, oldest: "2026-01-06" },
           },
-          openRequests: { weekly: 0, daily: 1, oldestAgeDays: 1 },
+          openRequests: { daily: 1, oldestAgeDays: 0 },
         }),
       ],
       "admin",
@@ -310,33 +304,48 @@ describe("actionItemsFor", () => {
     expect(labels).toEqual([
       "1 worker not recorded today",
       "1 earlier day not fully recorded",
-      "1 request waiting for HO, oldest 1 day",
+      "1 daily request waiting to be filled, oldest today",
     ]);
   });
 
-  test("an ho's request label asks for approval", () => {
+  test("the age suffix reads oldest 1 day for a day-old request", () => {
     const [item] = actionItemsFor(
-      [base({ openRequests: { weekly: 2, daily: 0, oldestAgeDays: 0 } })],
+      [base({ openRequests: { daily: 1, oldestAgeDays: 1 } })],
       "ho",
     );
 
-    expect(item.label).toBe("2 requests waiting for approval, oldest today");
+    expect(item.label).toBe(
+      "1 daily request waiting to be filled, oldest 1 day",
+    );
   });
 
-  test("the request link asks for daily only when only daily requests are open", () => {
-    const onlyDaily = actionItemsFor(
-      [base({ openRequests: { weekly: 0, daily: 2, oldestAgeDays: 0 } })],
-      "ho",
+  test("an ho and an admin read the same request wording with different severity", () => {
+    const data = [base({ openRequests: { daily: 2, oldestAgeDays: 0 } })];
+    const [forHo] = actionItemsFor(data, "ho");
+    const [forAdmin] = actionItemsFor(data, "admin");
+
+    expect(forHo.label).toBe(
+      "2 daily requests waiting to be filled, oldest today",
     );
-    const both = actionItemsFor(
-      [base({ openRequests: { weekly: 1, daily: 2, oldestAgeDays: 0 } })],
-      "ho",
+    expect(forAdmin.label).toBe(forHo.label);
+    expect(forHo.kind).toBe("info");
+    expect(forAdmin.kind).toBe("todo");
+    expect(forHo.href).toBe("/dashboard/requests?status=open&type=daily");
+  });
+
+  test("the open-requests item is keyed open-requests and absent with none", () => {
+    const [item] = actionItemsFor(
+      [base({ openRequests: { daily: 1, oldestAgeDays: 0 } })],
+      "admin",
     );
 
-    expect(onlyDaily[0].href).toBe(
-      "/dashboard/requests?status=open&type=daily",
-    );
-    expect(both[0].href).toBe("/dashboard/requests?status=open&type=weekly");
+    expect(item.key).toBe("L1:open-requests");
+    expect(
+      actionItemsFor(
+        [base({ openRequests: { daily: 0, oldestAgeDays: null } })],
+        "admin",
+      ),
+    ).toEqual([]);
   });
 
   test("nothing to do yields no items", () => {
@@ -542,24 +551,21 @@ describe("loadActions", () => {
       createdBy: w.admin.id,
       status: "open",
       weekStart: NEXT_WEEK,
-      createdAt: daysBefore(3),
+      createdAt: daysBefore(9),
     });
     await seedMpRequest(cleanup, w.loc, {
       createdBy: w.admin.id,
       status: "open",
       type: "daily",
       requestDate: "2026-01-08",
+      createdAt: daysBefore(3),
     });
 
     const [row] = await loadActions(asActor(w.admin), NOW);
 
     expect(row.weeklyDrafts).toEqual([NEXT_WEEK]);
     expect(row.readyToGenerate).toEqual([THIS_WEEK]);
-    expect(row.openRequests).toEqual({
-      weekly: 1,
-      daily: 1,
-      oldestAgeDays: 3,
-    });
+    expect(row.openRequests).toEqual({ daily: 1, oldestAgeDays: 3 });
   });
 
   test("an ho gets every location of the site with attendance null and nothing ready to generate", async () => {
@@ -605,7 +611,6 @@ describe("loadActions", () => {
     for (const rows of [forHo, forAdmin]) {
       expect(rows.map((row) => row.locationId)).toEqual([mine.loc.id]);
       expect(rows[0].openRequests).toEqual({
-        weekly: 0,
         daily: 0,
         oldestAgeDays: null,
       });

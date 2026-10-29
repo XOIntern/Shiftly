@@ -35,7 +35,9 @@ export type LocationActions = {
   // Admin only: weeks (this or next) with an approved weekly request and no
   // weekly plan of any status.
   readyToGenerate: string[];
-  openRequests: { weekly: number; daily: number; oldestAgeDays: number | null };
+  // Daily requests still waiting to be filled; weekly requests are created
+  // approved, so an open weekly row is legacy and not counted.
+  openRequests: { daily: number; oldestAgeDays: number | null };
 };
 
 export type ActionsInput = {
@@ -79,7 +81,9 @@ export function deriveLocationActions(input: ActionsInput): LocationActions {
         )
       : [];
 
-  const open = requests.filter((request) => request.status === "open");
+  const open = requests.filter(
+    (request) => request.status === "open" && request.type === "daily",
+  );
   const oldest = open.reduce<Date | null>(
     (min, request) =>
       min === null || request.createdAt < min ? request.createdAt : min,
@@ -100,8 +104,7 @@ export function deriveLocationActions(input: ActionsInput): LocationActions {
     weeklyDrafts,
     readyToGenerate,
     openRequests: {
-      weekly: open.filter((request) => request.type === "weekly").length,
-      daily: open.filter((request) => request.type === "daily").length,
+      daily: open.length,
       oldestAgeDays:
         oldest === null
           ? null
@@ -233,8 +236,8 @@ const rosterHref = (locationId: string, week: string) =>
   `/dashboard/roster?week=${week}&locationId=${locationId}`;
 
 // What the panel lists, per location in the given order. An admin sees all
-// four kinds (open requests only as info, the HO acts on them); an HO sees
-// drafts and open requests, both as todo.
+// four kinds, all as todo; an HO sees drafts (todo) and daily requests still
+// waiting to be filled (info, the admin acts on them).
 export function actionItemsFor(
   actions: LocationActions[],
   role: "admin" | "ho",
@@ -285,15 +288,14 @@ export function actionItemsFor(
       for (const week of loc.readyToGenerate) {
         add(
           `generate:${week}`,
-          `Approved request for week of ${week} is ready to generate`,
+          `Request for week of ${week} is ready to generate`,
           rosterHref(loc.locationId, week),
         );
       }
     }
 
-    const { weekly, daily, oldestAgeDays } = loc.openRequests;
-    const openCount = weekly + daily;
-    if (openCount > 0) {
+    const { daily, oldestAgeDays } = loc.openRequests;
+    if (daily > 0) {
       const age =
         oldestAgeDays === null
           ? ""
@@ -302,9 +304,9 @@ export function actionItemsFor(
             : `, oldest ${plural(oldestAgeDays, "day", "days")}`;
       add(
         "open-requests",
-        `${plural(openCount, "request", "requests")} waiting for ${role === "admin" ? "HO" : "approval"}${age}`,
-        `/dashboard/requests?status=open&type=${weekly > 0 ? "weekly" : "daily"}`,
-        role === "admin" ? "info" : "todo",
+        `${plural(daily, "daily request", "daily requests")} waiting to be filled${age}`,
+        "/dashboard/requests?status=open&type=daily",
+        role === "admin" ? "todo" : "info",
       );
     }
 
