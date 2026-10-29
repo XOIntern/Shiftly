@@ -20,6 +20,12 @@ describe("widgetsFor", () => {
     expect(widgetsFor("ho")).toContain("actions");
   });
 
+  test("only the admin gets the attendance-today widget", () => {
+    expect(widgetsFor("admin")).toEqual(["actions", "attendance_today"]);
+    expect(widgetsFor("ho")).toEqual(["actions"]);
+    expect(widgetsFor("superadmin")).toEqual([]);
+  });
+
   test("every returned key has a title", () => {
     for (const role of ROLES) {
       for (const key of widgetsFor(role)) {
@@ -27,5 +33,6 @@ describe("widgetsFor", () => {
       }
     }
     expect(WIDGET_TITLES.actions).toBe("Needs action");
+    expect(WIDGET_TITLES.attendance_today).toBe("Attendance today");
   });
 });

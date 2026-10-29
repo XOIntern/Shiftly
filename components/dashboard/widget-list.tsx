@@ -1,6 +1,7 @@
 import { Suspense, type ComponentType } from "react";
 
 import { ActionsWidget } from "@/components/dashboard/actions-widget";
+import { AttendanceTodayWidget } from "@/components/dashboard/attendance-today-widget";
 import { WidgetSkeleton } from "@/components/dashboard/widget-frame";
 import {
   WIDGET_TITLES,
@@ -13,6 +14,7 @@ import {
 // that renders its own WidgetFrame, or WidgetError when loadSafely fails.
 const REGISTRY: Record<WidgetKey, ComponentType<WidgetProps>> = {
   actions: ActionsWidget,
+  attendance_today: AttendanceTodayWidget,
 };
 
 // Sync on purpose: each widget streams in behind its own Suspense boundary, so
