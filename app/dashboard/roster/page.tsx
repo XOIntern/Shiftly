@@ -27,6 +27,7 @@ import type { CoverageRequirement, CoverageRow } from "@/lib/engine/coverage";
 import type { EffectiveRules, RosterAssignment } from "@/types/engine";
 import {
   loadDailyRequirements,
+  loadFulfilledDailyLines,
   loadPlanWithRows,
   loadRequirementsForWeek,
   loadWorkerProfiles,
@@ -170,7 +171,7 @@ export default async function RosterPage({
         loadRequirementsForWeek(locationId, week),
         loadDailyRequirements(locationId, dates[0], dates[dates.length - 1]),
         loadDailyAssignments(actor, locationId, dates),
-        loadFulfilledDailyLines(actor, locationId, dates),
+        loadFulfilledDailyLines(locationId, dates[0], dates[dates.length - 1]),
         countApproved(actor, locationId, week),
         db
           .select({ id: workArea.id, name: workArea.name })
@@ -447,35 +448,4 @@ async function loadDailyAssignments(
       ),
     );
   return rows;
-}
-
-// Lines of the location's fulfilled daily requests dated inside the week:
-// their fills are discounted from the daily coverage (see
-// withoutFulfilledDailyFills).
-async function loadFulfilledDailyLines(
-  actor: Actor,
-  locationId: string,
-  dates: string[],
-): Promise<
-  { workAreaId: string; shiftDefId: string; date: string; headcount: number }[]
-> {
-  return db
-    .select({
-      workAreaId: mpRequestLine.workAreaId,
-      shiftDefId: mpRequestLine.shiftDefinitionId,
-      date: mpRequestLine.date,
-      headcount: mpRequestLine.headcount,
-    })
-    .from(mpRequestLine)
-    .innerJoin(mpRequest, eq(mpRequestLine.requestId, mpRequest.id))
-    .where(
-      and(
-        eq(mpRequest.type, "daily"),
-        eq(mpRequest.status, "fulfilled"),
-        eq(mpRequest.siteLocationId, locationId),
-        gte(mpRequestLine.date, dates[0]),
-        lte(mpRequestLine.date, dates[dates.length - 1]),
-        mpRequestListWhere(actor),
-      ),
-    );
 }

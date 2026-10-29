@@ -10,6 +10,7 @@ import {
   loadPlanWithRows,
   loadDailyAssignmentsInRange,
   loadDailyRequirements,
+  loadFulfilledDailyLines,
   loadPriorAssignments,
   loadRequirementsForWeek,
   loadShiftLabels,
@@ -588,6 +589,45 @@ describe("loadDailyRequirements", () => {
     await addRequestLine(theirs, req, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
 
     expect(await loadDailyRequirements(mine.locationId, MON, NEXT_MON)).toEqual([]);
+  });
+});
+
+describe("loadFulfilledDailyLines", () => {
+  test("returns the lines of fulfilled daily requests inside the range", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "done-in");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const fulfilled = await createRequest(fx, { type: "daily", status: "fulfilled", requestDate: TUE });
+    await addRequestLine(fx, fulfilled, { workAreaId: area, shiftDefinitionId: shift, date: TUE, headcount: 4 });
+
+    expect(await loadFulfilledDailyLines(fx.locationId, MON, NEXT_MON)).toEqual([
+      { workAreaId: area, shiftDefId: shift, date: TUE, headcount: 4 },
+    ]);
+  });
+
+  test("skips open daily requests, weekly requests and fulfilled ones outside the range", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "done-out");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const open = await createRequest(fx, { type: "daily", status: "open", requestDate: TUE });
+    await addRequestLine(fx, open, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+    const weekly = await createRequest(fx, { type: "weekly", status: "fulfilled", weekStart: MON });
+    await addRequestLine(fx, weekly, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+    const outOfRange = await createRequest(fx, { type: "daily", status: "fulfilled", requestDate: "2026-02-10" });
+    await addRequestLine(fx, outOfRange, { workAreaId: area, shiftDefinitionId: shift, date: "2026-02-10" });
+
+    expect(await loadFulfilledDailyLines(fx.locationId, MON, NEXT_MON)).toEqual([]);
+  });
+
+  test("other locations' fulfilled lines never leak in", async () => {
+    const mine = await createBase(`t${nextSeq()}`, "done-mine");
+    const theirs = await createBase(`t${nextSeq()}`, "done-theirs");
+    const area = await createWorkArea(theirs, "a");
+    const shift = await createShift(theirs, 1);
+    const req = await createRequest(theirs, { type: "daily", status: "fulfilled", requestDate: TUE });
+    await addRequestLine(theirs, req, { workAreaId: area, shiftDefinitionId: shift, date: TUE });
+
+    expect(await loadFulfilledDailyLines(mine.locationId, MON, NEXT_MON)).toEqual([]);
   });
 });
 
