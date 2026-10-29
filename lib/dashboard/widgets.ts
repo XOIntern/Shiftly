@@ -6,6 +6,8 @@ export const WIDGET_KEYS = [
   "actions",
   "attendance_today",
   "quick_actions",
+  "roster_coverage",
+  "location_overview",
 ] as const;
 export type WidgetKey = (typeof WIDGET_KEYS)[number];
 
@@ -13,6 +15,8 @@ export const WIDGET_TITLES: Record<WidgetKey, string> = {
   actions: "Needs action",
   attendance_today: "Attendance today",
   quick_actions: "Quick actions",
+  roster_coverage: "Roster coverage this week",
+  location_overview: "Locations",
 };
 
 export type WidgetProps = { actor: ScopeActor; now: Date };
@@ -23,8 +27,8 @@ export function widgetsFor(role: ScopeActor["role"]): WidgetKey[] {
     case "admin":
       return ["actions", "attendance_today", "quick_actions"];
     case "ho":
-      return ["actions"];
+      return ["actions", "roster_coverage", "location_overview"];
     case "superadmin":
-      return [];
+      return ["location_overview"];
   }
 }
