@@ -450,6 +450,83 @@ describe("loadActions", () => {
     });
   });
 
+  test("a past day rostered only by a superseded plan version is not in the backlog", async () => {
+    const w = await world();
+    const stale = await seedWorker(cleanup, w.loc);
+    const kept = await seedWorker(cleanup, w.loc);
+    const v1 = await seedRosterPlan(cleanup, w.loc, {
+      status: "published",
+      weekStart: THIS_WEEK,
+      version: 1,
+    });
+    const v2 = await seedRosterPlan(cleanup, w.loc, {
+      status: "published",
+      weekStart: THIS_WEEK,
+      version: 2,
+    });
+    const rostered = (planId: string, workerId: string) =>
+      seedAssignment(cleanup, {
+        planId,
+        loc: w.loc,
+        workerId,
+        workAreaId: w.area.id,
+        shiftId: w.shift.id,
+        date: "2026-01-06",
+      });
+    // Version 1 rostered `stale` on Tuesday with nothing recorded; the
+    // republished version 2 dropped them and kept `kept`, who was recorded.
+    await rostered(v1.id, stale.id);
+    await rostered(v2.id, kept.id);
+    await seedAttendance(cleanup, {
+      loc: w.loc,
+      workerId: kept.id,
+      workAreaId: w.area.id,
+      shiftId: w.shift.id,
+      recordedBy: w.admin.id,
+      date: "2026-01-06",
+    });
+
+    const [row] = await loadActions(asActor(w.admin), NOW);
+
+    expect(row.attendance?.incomplete).toEqual({ count: 0, oldest: null });
+  });
+
+  test("a past day rostered only by the latest plan version and unrecorded is in the backlog", async () => {
+    const w = await world();
+    const early = await seedWorker(cleanup, w.loc);
+    const added = await seedWorker(cleanup, w.loc);
+    const v1 = await seedRosterPlan(cleanup, w.loc, {
+      status: "published",
+      weekStart: THIS_WEEK,
+      version: 1,
+    });
+    const v2 = await seedRosterPlan(cleanup, w.loc, {
+      status: "published",
+      weekStart: THIS_WEEK,
+      version: 2,
+    });
+    const rostered = (planId: string, workerId: string, date: string) =>
+      seedAssignment(cleanup, {
+        planId,
+        loc: w.loc,
+        workerId,
+        workAreaId: w.area.id,
+        shiftId: w.shift.id,
+        date,
+      });
+    // Monday: only version 1 rosters `early` (unrecorded), so it does not
+    // count. Tuesday: only version 2 rosters `added` (unrecorded), so it does.
+    await rostered(v1.id, early.id, "2026-01-05");
+    await rostered(v2.id, added.id, "2026-01-06");
+
+    const [row] = await loadActions(asActor(w.admin), NOW);
+
+    expect(row.attendance?.incomplete).toEqual({
+      count: 1,
+      oldest: "2026-01-06",
+    });
+  });
+
   test("an admin's weekly draft, ready-to-generate week and open requests", async () => {
     const w = await world();
     await seedRosterPlan(cleanup, w.loc, {
