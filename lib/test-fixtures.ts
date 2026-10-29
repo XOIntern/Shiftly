@@ -333,7 +333,13 @@ export async function seedMpRequest(
 
 export async function seedAuditLog(
   cleanup: Cleanup,
-  opts: { actorId: string; siteId?: string; siteLocationId?: string },
+  opts: {
+    actorId: string;
+    siteId?: string;
+    siteLocationId?: string;
+    action?: string;
+    createdAt?: Date;
+  },
 ): Promise<{ id: string }> {
   const id = randomUUID();
   cleanup.defer(async () => {
@@ -342,10 +348,11 @@ export async function seedAuditLog(
   await db.insert(auditLog).values({
     id,
     actorId: opts.actorId,
-    action: "test.fixture",
+    action: opts.action ?? "test.fixture",
     siteId: opts.siteId,
     siteLocationId: opts.siteLocationId,
     details: {},
+    createdAt: opts.createdAt,
   });
   return { id };
 }
