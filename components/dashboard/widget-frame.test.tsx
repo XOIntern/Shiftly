@@ -26,6 +26,21 @@ describe("widget frame", () => {
     expect(html.includes("db down")).toBeFalse();
   });
 
+  test("every widget state exposes its title as a level-2 heading", () => {
+    const heading = /<div[^>]*role="heading"[^>]*aria-level="2"[^>]*>/;
+    for (const node of [
+      <WidgetFrame key="f" title="Needs action">
+        <p>inside</p>
+      </WidgetFrame>,
+      <WidgetError key="e" title="Needs action" />,
+      <WidgetSkeleton key="s" title="Needs action" />,
+    ]) {
+      const html = renderToStaticMarkup(node);
+      expect(heading.test(html)).toBeTrue();
+      expect(html.match(/role="heading"/g)).toHaveLength(1);
+    }
+  });
+
   test("WidgetEmpty renders its children", () => {
     const html = renderToStaticMarkup(
       <WidgetEmpty>Nothing needs action right now.</WidgetEmpty>,

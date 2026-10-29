@@ -8,7 +8,9 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// The card every dashboard widget renders inside: one title, one body.
+// The card every dashboard widget renders inside: one title, one body. The
+// title is a level-2 heading so the per-location headings inside widgets (h3)
+// nest under it.
 export function WidgetFrame({
   title,
   children,
@@ -19,7 +21,9 @@ export function WidgetFrame({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle role="heading" aria-level={2}>
+          {title}
+        </CardTitle>
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
