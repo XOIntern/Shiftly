@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { SessionUser } from "@/types/session";
@@ -35,6 +36,27 @@ beforeAll(() => {
 });
 afterAll(() => {
   mock.module("@/lib/dashboard-counts", () => realDashboardCounts);
+});
+
+// WidgetList is a sync tree of Suspense-wrapped async widgets that read the
+// database; the stub keeps renderToStaticMarkup synchronous and records the
+// props the page hands it. Same snapshot-then-restore pattern as above.
+type WidgetListProps = { actor: SessionUser; now: Date };
+let widgetListProps: WidgetListProps | undefined;
+const lastWidgetListProps = () => widgetListProps;
+const realWidgetList = {
+  ...(await import("@/components/dashboard/widget-list")),
+};
+beforeAll(() => {
+  mock.module("@/components/dashboard/widget-list", () => ({
+    WidgetList: (props: WidgetListProps) => {
+      widgetListProps = props;
+      return createElement("div", { "data-testid": "widget-list" });
+    },
+  }));
+});
+afterAll(() => {
+  mock.module("@/components/dashboard/widget-list", () => realWidgetList);
 });
 
 // Other suites resolve these navigations; nothing here needs them. The real
@@ -107,6 +129,26 @@ describe("dashboard home (issue #123)", () => {
     expect(html.includes("bg-linear")).toBeFalse();
     expect(html.match(/<h1/g)?.length).toBe(1);
     expect(html.includes("page-title")).toBeTrue();
+  });
+
+  test("the widget list renders below the count cards with the actor and a clock", async () => {
+    actor = {
+      id: "t3-dash-widgets",
+      name: "Dashboard Widgets",
+      email: "t3-dash-widgets@shiftly.test",
+      role: "ho",
+      siteId: "t3-dash-site",
+      siteLocationId: null,
+      isActive: true,
+    };
+    widgetListProps = undefined;
+    const html = await renderDashboard();
+
+    expect(html.indexOf("widget-list")).toBeGreaterThan(
+      html.indexOf("Active workers"),
+    );
+    expect(lastWidgetListProps()?.actor).toBe(actor);
+    expect(lastWidgetListProps()?.now).toBeInstanceOf(Date);
   });
 
   test("an admin sees three cards — Active locations is absent", async () => {

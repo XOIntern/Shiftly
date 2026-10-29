@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/session";
 import { dashboardCounts } from "@/lib/dashboard-counts";
 import { SectionCards } from "@/components/section-cards";
+import { WidgetList } from "@/components/dashboard/widget-list";
 
 // Deliberate block: the cards read the actor's scoped counts behind the
 // session check, so there is no static shell worth shipping first. See:
@@ -9,6 +10,9 @@ export const instant = false;
 
 export default async function Page() {
   const user = await requireUser();
+  // After the session read: Cache Components rejects the clock before
+  // dynamic data. Widgets get this one instant so they agree on "today".
+  const now = new Date();
   const counts = await dashboardCounts(user);
 
   return (
@@ -20,6 +24,7 @@ export default async function Page() {
             counts={counts}
             showLocations={user.role !== "admin"}
           />
+          <WidgetList actor={user} now={now} />
         </div>
       </div>
     </div>
