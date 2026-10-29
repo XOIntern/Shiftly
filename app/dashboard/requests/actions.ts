@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -19,7 +19,12 @@ import { pgErrorConstraint, pgErrorCode } from "@/error/db-errors";
 import { requireUser } from "@/lib/session";
 import type { SessionUser } from "@/types/session";
 import type { ActionState } from "@/types/action-state";
-import type { MpRequestLineView } from "@/types/mp-request";
+import type {
+  MpRequestLineView,
+  RequestedWeek,
+  RequestedWeekStatus,
+} from "@/types/mp-request";
+import { dayNumber } from "@/lib/dates";
 import { mergeRequestLines } from "@/lib/mp-request-lines";
 import { fieldErrorsFrom, GENERIC_ERROR } from "@/lib/action-state";
 import { weekDates } from "@/lib/week";
@@ -682,4 +687,58 @@ export async function loadCopySource(
     .where(and(sourceWhere, eq(mpRequest.weekStart, source.weekStart)));
 
   return { weekStart: source.weekStart, lines: mergeRequestLines(lines) };
+}
+
+// The widest window the week-start calendar may ask for: a six-row month grid
+// spans 42 days, so this leaves slack without letting a forged call scan the
+// whole table.
+const MAX_REQUESTED_WEEKS_SPAN_DAYS = 62;
+
+// Read-only lookup behind the week-start calendar's markers: the Mondays in
+// [from, to] (inclusive) on which the location holds a live (open, approved or
+// fulfilled) weekly request, ascending. A week holding a fulfilled request and
+// a later open or approved one reads as the latter — only that one holds the
+// DB slot. Rejected, withdrawn and daily requests never mark a week. Scoped
+// like loadCopySource; anything malformed, reversed, wider than
+// MAX_REQUESTED_WEEKS_SPAN_DAYS or out of scope is simply "no weeks".
+export async function loadRequestedWeeks(
+  siteLocationId: string,
+  from: string,
+  to: string,
+): Promise<RequestedWeek[]> {
+  const actor = await requireUser();
+
+  if (
+    !z.uuid().safeParse(siteLocationId).success ||
+    !z.iso.date().safeParse(from).success ||
+    !z.iso.date().safeParse(to).success
+  ) {
+    return [];
+  }
+  const span = dayNumber(to) - dayNumber(from);
+  if (span < 0 || span > MAX_REQUESTED_WEEKS_SPAN_DAYS) return [];
+
+  const rows = await db
+    .select({ weekStart: mpRequest.weekStart, status: mpRequest.status })
+    .from(mpRequest)
+    .where(
+      and(
+        mpRequestListWhere(actor),
+        eq(mpRequest.siteLocationId, siteLocationId),
+        eq(mpRequest.type, "weekly"),
+        inArray(mpRequest.status, ["open", "approved", "fulfilled"]),
+        gte(mpRequest.weekStart, from),
+        lte(mpRequest.weekStart, to),
+      ),
+    )
+    .orderBy(asc(mpRequest.weekStart));
+
+  const byWeek = new Map<string, RequestedWeekStatus>();
+  for (const row of rows) {
+    if (!row.weekStart) continue;
+    const status = row.status as RequestedWeekStatus;
+    if (byWeek.get(row.weekStart) !== undefined && status === "fulfilled") continue;
+    byWeek.set(row.weekStart, status);
+  }
+  return [...byWeek].map(([weekStart, status]) => ({ weekStart, status }));
 }

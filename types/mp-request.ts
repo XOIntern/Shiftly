@@ -27,6 +27,16 @@ export type MpRequestRow = {
   updatedAt: string;
 };
 
+// A week that already holds a live weekly request at one location, for the
+// week-start calendar's markers. open / approved take the week (the DB slot
+// is held); fulfilled alone leaves it selectable as an addition.
+export type RequestedWeekStatus = "open" | "approved" | "fulfilled";
+
+export type RequestedWeek = {
+  weekStart: string;
+  status: RequestedWeekStatus;
+};
+
 // Active masters for the request grid (create + edit dialogs): the rows of
 // the grid are the work areas × shifts × required positions of ONE
 // location, so all carry the siteLocationId they were scoped to. An area's
