@@ -21,9 +21,17 @@ describe("widgetsFor", () => {
   });
 
   test("only the admin gets the attendance-today widget", () => {
-    expect(widgetsFor("admin")).toEqual(["actions", "attendance_today"]);
+    expect(widgetsFor("admin")).toContain("attendance_today");
     expect(widgetsFor("ho")).toEqual(["actions"]);
     expect(widgetsFor("superadmin")).toEqual([]);
+  });
+
+  test("the admin sees needs action, attendance today, then quick actions", () => {
+    expect(widgetsFor("admin")).toEqual([
+      "actions",
+      "attendance_today",
+      "quick_actions",
+    ]);
   });
 
   test("every returned key has a title", () => {
@@ -34,5 +42,6 @@ describe("widgetsFor", () => {
     }
     expect(WIDGET_TITLES.actions).toBe("Needs action");
     expect(WIDGET_TITLES.attendance_today).toBe("Attendance today");
+    expect(WIDGET_TITLES.quick_actions).toBe("Quick actions");
   });
 });
