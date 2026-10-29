@@ -53,6 +53,21 @@ describe("QuickActionsWidget", () => {
     expect(html.includes("Record today&#x27;s attendance")).toBeTrue();
   });
 
+  test("link classes keep the outline border and the layout overrides", async () => {
+    const html = await render(links);
+    const classes = [...html.matchAll(/<a [^>]*class="([^"]*)"/g)].map(
+      (m) => m[1],
+    );
+    expect(classes).toHaveLength(3);
+    for (const cls of classes) {
+      expect(cls.split(" ")).toContain("border-border");
+      expect(cls.split(" ")).not.toContain("border-transparent");
+      expect(cls.split(" ")).toContain("justify-start");
+      expect(cls.split(" ")).toContain("px-3");
+      expect(cls.split(" ")).toContain("min-h-11");
+    }
+  });
+
   test("no links shows the empty state", async () => {
     const html = await render([]);
     expect(html.includes("No location to show.")).toBeTrue();

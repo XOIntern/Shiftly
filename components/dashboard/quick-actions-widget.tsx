@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cn } from "cn";
 
 import {
   WidgetEmpty,
@@ -36,10 +37,10 @@ export async function QuickActionsWidget({
           <li key={link.href}>
             <Link
               href={link.href}
-              className={buttonVariants({
-                variant: "outline",
-                className: "min-h-11 w-full justify-start px-3",
-              })}
+              className={cn(
+                buttonVariants({ variant: "outline" }),
+                "min-h-11 w-full justify-start px-3",
+              )}
             >
               {link.label}
             </Link>
