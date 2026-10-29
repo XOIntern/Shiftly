@@ -947,6 +947,59 @@ describe("RequestForm markup", () => {
     expect(html.includes("Week start must be a Monday")).toBeTrue();
     expect(html.includes('id="request-week-start"')).toBeTrue();
   });
+
+  // The element carrying the id, so the assertions read that one tag and not
+  // whatever else the markup holds.
+  const tagWithId = (html: string, id: string) =>
+    html.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+
+  test("weekly create picks the week through a calendar trigger, not a native date input", () => {
+    const html = renderForm({
+      siteLocationId: LOC_A1,
+      defaultWeekStart: MONDAY,
+    });
+    const trigger = tagWithId(html, "request-week-start");
+
+    expect(trigger).not.toBe("");
+    expect(trigger.includes('type="date"')).toBeFalse();
+    expect(trigger.includes(' disabled=""')).toBeFalse();
+    // The trigger shows the chosen week's Monday.
+    expect(html.includes("5 Jan 2026")).toBeTrue();
+  });
+
+  test("weekly create with no week chosen invites a pick", () => {
+    const html = renderForm({ siteLocationId: LOC_A1 });
+
+    // The trigger's own text, not the grid's "Pick a week to open…" hint.
+    expect(html.includes(">Pick a week<")).toBeTrue();
+  });
+
+  test("a non-Monday week start shows the Monday it resolves to", () => {
+    const html = renderForm({
+      siteLocationId: LOC_A1,
+      defaultWeekStart: "2026-01-08",
+    });
+
+    expect(html.includes("5 Jan 2026")).toBeTrue();
+    expect(html.includes("8 Jan 2026")).toBeFalse();
+  });
+
+  test("weekly edit keeps the week field disabled", () => {
+    const html = renderEdit("weekly", storedLines);
+    const trigger = tagWithId(html, "request-week-start");
+
+    expect(trigger.includes(' disabled=""')).toBeTrue();
+    expect(trigger.includes('type="date"')).toBeFalse();
+    expect(html.includes("5 Jan 2026")).toBeTrue();
+  });
+
+  test("daily create keeps the native date input", () => {
+    const html = renderForm({ type: "daily", siteLocationId: LOC_A1 });
+    const input = tagWithId(html, "request-request-date");
+
+    expect(input.includes('type="date"')).toBeTrue();
+    expect(html.includes('id="request-week-start"')).toBeFalse();
+  });
 });
 
 // The grouped form. Static markup only (bun test has no DOM), so the
