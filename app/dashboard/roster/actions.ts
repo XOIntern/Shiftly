@@ -213,14 +213,20 @@ export async function generateRoster(
     return { ok: false, message: NO_REQUIREMENTS };
   }
 
-  const [shiftOrder, areaRequirements, rules, prior, workers] =
+  const week = weekDates(weekStart);
+  const [shiftOrder, areaRequirements, rules, history, dailyRows, workers] =
     await Promise.all([
       loadShiftOrder(siteLocationId),
       loadAreaRequirements(siteLocationId),
       loadEffectiveRules(siteLocationId),
-      loadPriorAssignments(siteLocationId, weekDates(weekStart)[0]),
+      loadPriorAssignments(siteLocationId, week[0]),
+      loadDailyAssignmentsInRange(siteLocationId, week[0], week[6]),
       loadWorkerProfiles(siteLocationId, input.workAreaId),
     ]);
+  // The week's daily fills are fixed history for the generator: a worker
+  // already filled for a date is never drafted onto it again, and the fills
+  // count toward C1/C3/C4 like any other assigned day.
+  const prior = [...history, ...dailyRows];
 
   try {
     await db.transaction(async (tx) => {

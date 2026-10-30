@@ -519,6 +519,80 @@ describe("roster actions: generateRoster", () => {
     expect(audit).toBeDefined();
     expect(audit.details).toEqual({ planId: plan.id, version: 1, workAreaId: areaA });
   });
+
+  describe("with a daily fill already in the week", () => {
+    async function seedDemandForTwo(tag: string) {
+      const fx = await createBase(`t242-gen-${randomUUID()}`, tag);
+      const pos = await createPosition(fx, tag);
+      const area = await createWorkArea(fx, "a");
+      await requireAreaPosition(fx, area, pos);
+      const shift = await createShift(fx, 1);
+      const w = await createWorker(fx, "w");
+      const w2 = await createWorker(fx, "w2");
+      await giveWorkerPosition(fx, w, pos);
+      await giveWorkerPosition(fx, w2, pos);
+      // Two seats on TUE: with nobody excluded both workers fill them.
+      await seedWeeklyDemand(fx, [
+        { workAreaId: area, shiftDefinitionId: shift, date: TUE, headcount: 2, positionId: pos },
+      ]);
+      actor = makeActor("admin", null, fx.locationId);
+      await seedUser(actor);
+      return { fx, area, shift, w, w2 };
+    }
+
+    const draftOf = async (locationId: string) =>
+      (
+        await db
+          .select()
+          .from(rosterPlan)
+          .where(and(eq(rosterPlan.siteLocationId, locationId), eq(rosterPlan.kind, "weekly")))
+      )[0];
+
+    test("a full generate never assigns the daily-filled worker on that date", async () => {
+      const s = await seedDemandForTwo("full");
+      await seedDailyRow(s.fx, {
+        workerId: s.w,
+        workAreaId: s.area,
+        shiftDefId: s.shift,
+        date: TUE,
+      });
+
+      const { generateRoster } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId })).ok).toBe(true);
+
+      const rows = await readPlanRows((await draftOf(s.fx.locationId)).id);
+      expect(rows.map((r) => r.workerId)).toEqual([s.w2]);
+    });
+
+    test("regenerating one work area never assigns the daily-filled worker on that date", async () => {
+      const s = await seedDemandForTwo("slice");
+      const { generateRoster } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId })).ok).toBe(true);
+      const draft = await draftOf(s.fx.locationId);
+      expect((await readPlanRows(draft.id)).map((r) => r.workerId).sort()).toEqual(
+        [s.w, s.w2].sort(),
+      );
+
+      // The daily fill lands after the draft was generated.
+      await seedDailyRow(s.fx, {
+        workerId: s.w,
+        workAreaId: s.area,
+        shiftDefId: s.shift,
+        date: TUE,
+      });
+      expect(
+        (
+          await generateRoster({
+            weekStart: MON,
+            siteLocationId: s.fx.locationId,
+            workAreaId: s.area,
+          })
+        ).ok,
+      ).toBe(true);
+
+      expect((await readPlanRows(draft.id)).map((r) => r.workerId)).toEqual([s.w2]);
+    });
+  });
 });
 
 describe("roster actions: publishRoster", () => {
