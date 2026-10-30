@@ -167,6 +167,26 @@ describe("calendarDayAriaLabel", () => {
     );
   });
 
+  test("a day holding a fulfilled daily request says so, informationally, in every calendar", () => {
+    for (const blocks of ["week", "day", null] as const) {
+      const label = calendarDayAriaLabel(day, {
+        hasDaily: false,
+        hasFulfilledDaily: true,
+        blocks,
+      });
+      expect(label).toBe(`${date}, day has a fulfilled daily request`);
+      expect(label.includes("unavailable")).toBe(false);
+    }
+    expect(
+      calendarDayAriaLabel(day, {
+        weekMark: "taken",
+        hasDaily: false,
+        hasFulfilledDaily: true,
+        blocks: "day",
+      }),
+    ).toBe(`${date}, week has an open or approved request, day has a fulfilled daily request`);
+  });
+
   test("a daily request is only called unavailable where days block", () => {
     expect(
       calendarDayAriaLabel(day, { hasDaily: true, blocks: "week" }).includes("unavailable"),

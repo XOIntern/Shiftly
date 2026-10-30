@@ -2,7 +2,11 @@
 
 import { useMemo } from "react";
 
-import { loadRequestedDays, loadRequestedWeeks } from "./actions";
+import {
+  loadFulfilledDays,
+  loadRequestedDays,
+  loadRequestedWeeks,
+} from "./actions";
 import { useMonthLookup } from "./use-month-lookup";
 import {
   daysOfWeeks,
@@ -12,7 +16,8 @@ import {
 } from "./week-calendar";
 
 // Everything a request calendar needs to draw its marks for the visible month:
-// the weeks holding a weekly request and the days holding an open daily one,
+// the weeks holding a weekly request, the days holding an open daily one and
+// the days holding only a fulfilled one,
 // as the Dates the day picker's modifiers take plus the lookups its labels
 // use. Nothing is fetched while `enabled` is false or no location is chosen.
 export function useRequestMarks(
@@ -22,6 +27,12 @@ export function useRequestMarks(
 ) {
   const weeks = useMonthLookup(locationId, enabled, month, loadRequestedWeeks);
   const dates = useMonthLookup(locationId, enabled, month, loadRequestedDays);
+  const fulfilledDates = useMonthLookup(
+    locationId,
+    enabled,
+    month,
+    loadFulfilledDays,
+  );
 
   return useMemo(() => {
     const weekMarks = markedWeeks(weeks);
@@ -33,6 +44,8 @@ export function useRequestMarks(
       takenDays: daysOfWeeks(mondaysWith("taken")),
       fulfilledDays: daysOfWeeks(mondaysWith("fulfilled")),
       dailyDays: dates.map(toLocalDate),
+      fulfilledDailyDates: new Set(fulfilledDates),
+      fulfilledDailyDays: fulfilledDates.map(toLocalDate),
     };
-  }, [weeks, dates]);
+  }, [weeks, dates, fulfilledDates]);
 }

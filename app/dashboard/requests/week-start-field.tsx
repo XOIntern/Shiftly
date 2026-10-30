@@ -49,8 +49,15 @@ export function WeekStartField({
     value ? toLocalDate(mondayOf(value)) : new Date(),
   );
   const active = !disabled && locationId !== null;
-  const { weekMarks, dailyDates, takenDays, fulfilledDays, dailyDays } =
-    useRequestMarks(locationId, !disabled, month);
+  const {
+    weekMarks,
+    dailyDates,
+    takenDays,
+    fulfilledDays,
+    dailyDays,
+    fulfilledDailyDates,
+    fulfilledDailyDays,
+  } = useRequestMarks(locationId, !disabled, month);
 
   const monday = value ? mondayOf(value) : "";
   const noteId = `${id}-note`;
@@ -94,6 +101,7 @@ export function WeekStartField({
               taken: takenDays,
               fulfilled: fulfilledDays,
               daily: dailyDays,
+              dailyFulfilled: fulfilledDailyDays,
             }}
             modifiersClassNames={MODIFIER_CLASS_NAMES}
             classNames={{ disabled: "text-muted-foreground" }}
@@ -103,6 +111,7 @@ export function WeekStartField({
                 return calendarDayAriaLabel(date, {
                   weekMark: weekMarks.get(mondayOf(iso)),
                   hasDaily: dailyDates.has(iso),
+                  hasFulfilledDaily: fulfilledDailyDates.has(iso),
                   blocks: "week",
                 });
               },

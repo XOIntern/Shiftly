@@ -76,8 +76,15 @@ export function calendarDayAriaLabel(
   {
     weekMark,
     hasDaily,
+    hasFulfilledDaily = false,
     blocks,
-  }: { weekMark?: WeekMark; hasDaily: boolean; blocks: CalendarBlocks },
+  }: {
+    weekMark?: WeekMark;
+    hasDaily: boolean;
+    // A fulfilled daily request no longer blocks the day: information only.
+    hasFulfilledDaily?: boolean;
+    blocks: CalendarBlocks;
+  },
 ): string {
   const parts = [LONG_DAY.format(date)];
   if (weekMark === "taken") {
@@ -101,6 +108,7 @@ export function calendarDayAriaLabel(
         : "daily request open",
     );
   }
+  if (hasFulfilledDaily) parts.push("day has a fulfilled daily request");
   return parts.join(", ");
 }
 
