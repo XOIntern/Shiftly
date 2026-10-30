@@ -136,8 +136,33 @@ function isQualified(
   return required.some((p) => worker.positionIds.includes(p));
 }
 
+// Violation count per rule over one worker's rows.
+function violationCounts(
+  rows: RosterAssignment[],
+  worker: GeneratorWorker,
+  workersRecord: Record<string, WorkerProfile>,
+  rules: EffectiveRules,
+  shiftOrder: readonly string[],
+  areaRequirements: Record<string, readonly string[]>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const v of validateRoster(
+    rows,
+    { [worker.id]: workersRecord[worker.id] },
+    rules,
+    shiftOrder,
+    areaRequirements,
+  )) {
+    counts.set(v.rule, (counts.get(v.rule) ?? 0) + 1);
+  }
+  return counts;
+}
+
 // Validate one candidate against this worker's merged horizon (current plan
-// + prior history + the candidate row itself). Clean → admit.
+// + prior history + the candidate row itself). Admitted when the candidate
+// adds no violation: a history row that already breaks a rule (a daily fill
+// kept after the rule was tightened) must not keep the worker out of days it
+// has nothing to do with, while a day that makes it worse is still refused.
 function admitsCandidate(
   worker: GeneratorWorker,
   candidate: RosterAssignment,
@@ -147,15 +172,27 @@ function admitsCandidate(
   shiftOrder: readonly string[],
   areaRequirements: Record<string, readonly string[]>,
 ): boolean {
-  const merged = [...(horizon ?? []), candidate];
-  const violations = validateRoster(
-    merged,
-    { [worker.id]: workersRecord[worker.id] },
+  const rows = horizon ?? [];
+  const before = violationCounts(
+    rows,
+    worker,
+    workersRecord,
     rules,
     shiftOrder,
     areaRequirements,
   );
-  return violations.length === 0;
+  const after = violationCounts(
+    [...rows, candidate],
+    worker,
+    workersRecord,
+    rules,
+    shiftOrder,
+    areaRequirements,
+  );
+  for (const [rule, count] of after) {
+    if (count > (before.get(rule) ?? 0)) return false;
+  }
+  return true;
 }
 
 export function generateDraft(input: GenerateInput): {

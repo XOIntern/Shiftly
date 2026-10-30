@@ -167,21 +167,25 @@ export async function ensureDraftVersion(
 // publish can actually change. Violations on prior (immutable, published)
 // dates are historical: surfaced as warnings, never blocking. Undated
 // violations always block.
+export interface PlanWindow {
+  kind: "weekly" | "daily";
+  weekStart: string | null;
+  requestDate: string | null;
+}
+
+// The Monday of the plan's own week — read from the plan, never derived from
+// its rows, so a plan with no rows still has a week.
+export function planMonday(plan: PlanWindow): string {
+  return plan.kind === "weekly"
+    ? (plan.weekStart as string)
+    : mondayOf(plan.requestDate as string);
+}
+
 export function splitViolationsByHorizon(
   violations: Violation[],
-  plan: {
-    kind: "weekly" | "daily";
-    weekStart: string | null;
-    requestDate: string | null;
-  },
+  plan: PlanWindow,
 ): { blocking: Violation[]; historical: Violation[] } {
-  const horizon = new Set(
-    weekDates(
-      plan.kind === "weekly"
-        ? (plan.weekStart as string)
-        : mondayOf(plan.requestDate as string),
-    ),
-  );
+  const horizon = new Set(weekDates(planMonday(plan)));
   const blocking = violations.filter(
     (v) => v.date === undefined || horizon.has(v.date),
   );
@@ -204,13 +208,14 @@ export async function planViolations(
   siteLocationId: string,
   rules: EffectiveRules,
   rows: RosterAssignment[],
+  plan: PlanWindow,
   // A caller holding a transaction passes its handle so the loaders run on
   // that connection: through the pool, each held connection would wait on up
   // to six more and concurrent edits could starve it.
   executor: DbExecutor = db,
-  kind: "weekly" | "daily" = "weekly",
 ): Promise<Violation[]> {
-  const weekStart = mondayOf(rows[0]?.date ?? "1970-01-05");
+  const { kind } = plan;
+  const weekStart = planMonday(plan);
   // One connection runs one query at a time (pg is dropping its query
   // queue): on a caller's transaction the loaders go in sequence, on the pool
   // they overlap.
@@ -373,8 +378,8 @@ export async function applyAssignmentEdit(
         plan.siteLocationId,
         plan.rulesSnapshot as EffectiveRules,
         rows,
+        plan,
         tx,
-        plan.kind,
       );
 
       return { ok: true, data: { violations } };

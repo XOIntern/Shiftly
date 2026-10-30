@@ -89,6 +89,23 @@ export function discardDialogCopy(
   };
 }
 
+// The generate success toast. The result's note (workers held back by a daily
+// fill that already breaks a rule) is the only place the admin learns why a
+// worker got no shifts, so it rides along and outlives the default toast.
+const NOTE_TOAST_MS = 12_000;
+
+export function generateSuccessToast(result: ActionState): {
+  title: string;
+  options: { description?: string; duration?: number };
+} {
+  return {
+    title: "Draft roster generated.",
+    options: result.message
+      ? { description: result.message, duration: NOTE_TOAST_MS }
+      : {},
+  };
+}
+
 // The publish confirmation's copy. Pure so tests can pin it: the dialog
 // parts cannot render outside an open dialog. A shortfall is named so the
 // admin publishes a short roster knowingly.
@@ -384,7 +401,8 @@ export function GenerateDraftDialog({
         siteLocationId: locationId,
       });
       if (result.ok) {
-        toast.success("Draft roster generated.");
+        const { title, options } = generateSuccessToast(result);
+        toast.success(title, options);
         setOpen(false);
         return;
       }

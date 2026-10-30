@@ -60,6 +60,7 @@ mock.module("next/cache", () => ({
 const MON = "2026-01-05";
 const TUE = "2026-01-06";
 const NEXT_MON = "2026-01-12";
+const MON_PLAN = { kind: "weekly", weekStart: MON, requestDate: null } as const;
 
 function makeActor(
   role: SessionUser["role"],
@@ -946,6 +947,7 @@ describe("planViolations", () => {
         { workerId: w, date: MON, shiftDefId: shiftHigh, workAreaId: area },
         { workerId: w, date: TUE, shiftDefId: shiftLow, workAreaId: area },
       ],
+      MON_PLAN,
     );
 
     const c3 = violations.find((v) => v.rule === "C3");
@@ -972,6 +974,7 @@ describe("planViolations", () => {
       fx.locationId,
       await loadEffectiveRules(fx.locationId),
       [{ workerId: w, date: MON, shiftDefId: shift, workAreaId: area }],
+      MON_PLAN,
     );
 
     const c7 = violations.find((v) => v.rule === "C7");
@@ -1028,6 +1031,7 @@ describe("planViolations", () => {
             { workerId: w, date: MON, shiftDefId: highId, workAreaId: areaId },
             { workerId: w, date: TUE, shiftDefId: lowId, workAreaId: areaId },
           ],
+          MON_PLAN,
           tx,
         );
         throw ROLLBACK;
@@ -1075,6 +1079,7 @@ describe("planViolations", () => {
         s.fx.locationId,
         await loadEffectiveRules(s.fx.locationId),
         [s.row(MON)],
+        MON_PLAN,
       );
 
       expect(violations.some((v) => v.rule === "C1" && v.date === TUE)).toBe(true);
@@ -1093,6 +1098,7 @@ describe("planViolations", () => {
         s.fx.locationId,
         await loadEffectiveRules(s.fx.locationId),
         [s.row(TUE)],
+        MON_PLAN,
       );
 
       const conflict = violations.find((v) =>
@@ -1116,8 +1122,7 @@ describe("planViolations", () => {
         s.fx.locationId,
         await loadEffectiveRules(s.fx.locationId),
         [s.row(TUE)],
-        undefined,
-        "daily",
+        { kind: "daily", weekStart: null, requestDate: TUE },
       );
 
       expect(violations).toEqual([]);
@@ -1162,6 +1167,7 @@ describe("planViolations", () => {
         s.fx.locationId,
         await loadEffectiveRules(s.fx.locationId),
         [s.row(MON)],
+        MON_PLAN,
       );
 
       expect(violations.filter((v) => v.rule === "C1")).toHaveLength(1);
@@ -1736,6 +1742,221 @@ describe("roster actions: fillDailyRequest", () => {
     expect(result).toEqual({ ok: false, message: "Daily request not found." });
     expect(await dailyAssignmentCount(s.fx.locationId)).toBe(0);
     expect(await requestStatus(foreign)).toBe("open");
+  });
+});
+
+// #250: daily fills are fixed history for the generator. When one already
+// breaks a rule, the worker is scheduled only on days that add nothing to it,
+// and the generate result says so instead of leaving a silent shortfall.
+describe("roster actions: generate explains workers held back by daily fills (#250)", () => {
+  const WED = "2026-01-07";
+
+  async function seedWeek(tag: string, dailyDates: string[]) {
+    const fx = await createBase(`t250-${tag}-${randomUUID()}`, tag);
+    const pos = await createPosition(fx, "p");
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shift = await createShift(fx, 1);
+    await createShift(fx, 2); // keeps C4 neutral
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
+    const [{ employeeId }] = await db
+      .select({ employeeId: worker.employeeId })
+      .from(worker)
+      .where(eq(worker.id, w));
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos },
+    ]);
+    await tightenRule(fx, "C1", 1);
+    for (const date of dailyDates) {
+      await seedDailyRow(fx, { workerId: w, workAreaId: area, shiftDefId: shift, date });
+    }
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    return { fx, w, employeeId };
+  }
+
+  test("names the worker and the broken rule when a daily fill already violates", async () => {
+    const s = await seedWeek("note", [TUE, WED]);
+
+    const { generateRoster } = await import("./actions");
+    const result = await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId });
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain(s.employeeId);
+    expect(result.message).toContain("max is 1");
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(and(eq(rosterPlan.siteLocationId, s.fx.locationId), eq(rosterPlan.kind, "weekly")));
+    expect(await readPlanRows(plan.id)).toEqual([]);
+  });
+
+  test("adds no note when the daily fills are clean", async () => {
+    const s = await seedWeek("clean", [TUE]);
+
+    const { generateRoster } = await import("./actions");
+    const result = await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId });
+
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+// #249: a fill and a publish of the same location validate against each
+// other's rows, so they take one per-location lock and validate under it. The
+// tests hold that lock from outside, so the action under test is provably
+// waiting on it; the "winner" then commits its row and the waiter must see it.
+describe("roster actions: fill and publish serialise per location (#249)", () => {
+  const pause = (ms = 200) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function seedLocation(tag: string) {
+    const fx = await createBase(`t249-${tag}-${randomUUID()}`, tag);
+    const pos = await createPosition(fx, "p");
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shift = await createShift(fx, 1);
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    return { fx, pos, area, shift, w };
+  }
+
+  async function seedWeeklyPlan(
+    s: Awaited<ReturnType<typeof seedLocation>>,
+    status: "draft" | "published",
+    workerId: string,
+    date: string,
+  ): Promise<string> {
+    const planId = randomUUID();
+    await db.insert(rosterPlan).values({
+      id: planId,
+      siteId: s.fx.siteId,
+      siteLocationId: s.fx.locationId,
+      kind: "weekly",
+      weekStart: MON,
+      version: 1,
+      status,
+      rulesSnapshot: {},
+    });
+    await db.insert(rosterAssignment).values({
+      planId,
+      siteId: s.fx.siteId,
+      siteLocationId: s.fx.locationId,
+      workerId,
+      workAreaId: s.area,
+      shiftDefinitionId: s.shift,
+      date,
+    });
+    return planId;
+  }
+
+  async function fillFor(
+    s: Awaited<ReturnType<typeof seedLocation>>,
+    requestId: string,
+    workerId: string,
+    date: string,
+  ) {
+    const { fillDailyRequest } = await import("./actions");
+    return fillDailyRequest({
+      requestId,
+      workAreaId: s.area,
+      shiftDefId: s.shift,
+      date,
+      positionId: s.pos,
+      workerId,
+      siteLocationId: s.fx.locationId,
+    });
+  }
+
+  // Holds the location lock until `release()`; resolves once it is held.
+  async function holdLock(locationId: string) {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    const { lockRosterLocation } = await import("@/lib/roster-lock");
+    const tx = db.transaction(async (t) => {
+      await lockRosterLocation(t, locationId);
+      held();
+      await released;
+    });
+    await acquired;
+    return { release, done: tx };
+  }
+
+  const settled = (p: Promise<unknown>) =>
+    Promise.race([p.then(() => true), pause().then(() => false)]);
+
+  test("a publish waits for the location lock and refuses a fill that committed meanwhile", async () => {
+    const s = await seedLocation("pub");
+    const draftId = await seedWeeklyPlan(s, "draft", s.w, TUE);
+    const lock = await holdLock(s.fx.locationId);
+
+    const { publishRoster } = await import("./actions");
+    const publishing = publishRoster(draftId);
+    expect(await settled(publishing)).toBe(false);
+
+    // The fill that won the race: committed while the publish was waiting.
+    await seedDailyRow(s.fx, {
+      workerId: s.w,
+      workAreaId: s.area,
+      shiftDefId: s.shift,
+      date: TUE,
+    });
+    lock.release();
+    await lock.done;
+
+    const result = await publishing;
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("already has a shift on 2026-01-06");
+    const [plan] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, draftId));
+    expect(plan.status).toBe("draft");
+  });
+
+  test("a fill waits for the location lock and refuses a weekly publish that committed meanwhile", async () => {
+    const s = await seedLocation("fill");
+    const requestId = await createRequest(s.fx, { type: "daily", requestDate: TUE });
+    const lock = await holdLock(s.fx.locationId);
+
+    const filling = fillFor(s, requestId, s.w, TUE);
+    expect(await settled(filling)).toBe(false);
+
+    // The publish that won the race: a published weekly with the same worker-day.
+    await seedWeeklyPlan(s, "published", s.w, TUE);
+    lock.release();
+    await lock.done;
+
+    const result = await filling;
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("already has a shift on 2026-01-06");
+    const dailyRows = await db
+      .select({ id: rosterAssignment.id })
+      .from(rosterAssignment)
+      .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
+      .where(and(eq(rosterPlan.siteLocationId, s.fx.locationId), eq(rosterPlan.kind, "daily")));
+    expect(dailyRows).toHaveLength(0);
+  });
+
+  test("a fill and a publish that do not conflict both succeed", async () => {
+    const s = await seedLocation("both");
+    const other = await createWorker(s.fx, "other");
+    await giveWorkerPosition(s.fx, other, s.pos);
+    const draftId = await seedWeeklyPlan(s, "draft", s.w, TUE);
+    const requestId = await createRequest(s.fx, { type: "daily", requestDate: "2026-01-07" });
+
+    const { publishRoster } = await import("./actions");
+    const [published, filled] = await Promise.all([
+      publishRoster(draftId),
+      fillFor(s, requestId, other, "2026-01-07"),
+    ]);
+
+    expect(published.ok).toBe(true);
+    expect(filled.ok).toBe(true);
   });
 });
 
@@ -2452,6 +2673,62 @@ describe("roster actions: publish gate horizon (retroactive tightening)", () => 
     const [after] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, nextPlan.id));
     expect(after.status).toBe("published");
     expect(after.publishedAt).not.toBeNull();
+  });
+
+  // #248: the week is the plan's own, not derived from its first row, so a plan
+  // with no rows still loads the history before its week.
+  test("an empty weekly plan still reports the prior-plan warnings", async () => {
+    const fx = await createBase(`t248-${randomUUID()}`, "empty-prior");
+    const pos = await createPosition(fx, "ep");
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shift1 = await createShift(fx, 1);
+    await createShift(fx, 2); // keeps C4 neutral
+    const w1 = await createWorker(fx, "w1");
+    await giveWorkerPosition(fx, w1, pos);
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 1, positionId: pos },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [v1] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    for (const date of [TUE, "2026-01-07"]) {
+      await db.insert(rosterAssignment).values({
+        planId: v1.id,
+        siteId: fx.siteId,
+        siteLocationId: fx.locationId,
+        workerId: w1,
+        workAreaId: area,
+        shiftDefinitionId: shift1,
+        date,
+      });
+    }
+    expect((await publishRoster(v1.id)).ok).toBe(true);
+    await tightenRule(fx, "C1", 2);
+
+    const emptyId = randomUUID();
+    await db.insert(rosterPlan).values({
+      id: emptyId,
+      siteId: fx.siteId,
+      siteLocationId: fx.locationId,
+      kind: "weekly",
+      weekStart: NEXT_MON,
+      version: 1,
+      status: "draft",
+      rulesSnapshot: {},
+    });
+
+    const result = await publishRoster(emptyId);
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("Prior-plan warnings (not blocking)");
+    expect(result.message).toContain("2026-01-07");
   });
 });
 

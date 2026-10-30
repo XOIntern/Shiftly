@@ -252,8 +252,7 @@ export default async function RosterPage({
         bundle.plan.siteLocationId,
         bundle.plan.rulesSnapshot as EffectiveRules,
         bundle.assignments,
-        undefined,
-        bundle.plan.kind,
+        bundle.plan,
       )
     : [];
   const blockingViolationCount = bundle
