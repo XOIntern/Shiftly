@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 
 import { db } from "./db";
 import { pgErrorCode } from "../error/db-errors";
@@ -97,11 +97,20 @@ describe("roster_rule_config scoping (issue #48 task 1)", () => {
       },
     ]);
 
-    // All four scopes for C3 are present after the writes.
+    // All four scopes for C3 are present after the writes. Narrowed to this
+    // test's own rows: a shared database can hold other sites' C3 overrides.
     const rows = await db
       .select({ id: rosterRuleConfig.id })
       .from(rosterRuleConfig)
-      .where(eq(rosterRuleConfig.ruleKey, "C3"));
+      .where(
+        and(
+          eq(rosterRuleConfig.ruleKey, "C3"),
+          or(
+            eq(rosterRuleConfig.id, globalId),
+            eq(rosterRuleConfig.siteId, siteId),
+          ),
+        ),
+      );
     expect(new Set(rows.map((r) => r.id))).toEqual(
       new Set([
         globalId,

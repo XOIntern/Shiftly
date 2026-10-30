@@ -362,7 +362,9 @@ describe("requests page SSR (mp-requests Task 8)", () => {
     });
     actor = makeActor("superadmin", null, null);
 
-    const html = await renderRequests();
+    // Widened so leftover rows in a shared database cannot push the seeded
+    // ones off the first page (they sort last: January 2026 anchors).
+    const html = await renderRequests({ pageSize: "50" });
     expect(html.includes(fx.anchors.rqA1)).toBeTrue();
     expect(html.includes(fx.anchors.rqA2)).toBeTrue();
     expect(html.includes(fx.anchors.rqB1)).toBeTrue();
