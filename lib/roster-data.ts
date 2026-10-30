@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or } from "drizzle-orm";
 
 import { db } from "./db";
 import type { DbExecutor } from "./db";
@@ -308,8 +308,9 @@ export async function loadDailyAssignmentsInRange(
   return rows;
 }
 
-// Prior history for C1/C2/C5/C6: assignment rows of PUBLISHED plans of the
-// location with date < beforeDate, in the engine shape. After a revise the
+// Prior history for C1/C2/C5/C6: assignment rows of PUBLISHED plans (and of
+// daily plans, whatever their status) of the location with date <
+// beforeDate, in the engine shape. After a revise the
 // old version stays published alongside the new one — only the LATEST
 // published version per week enters history, or the same worker-day loads
 // twice (kicking count-based rules over the line and deadlocking the
@@ -336,7 +337,9 @@ export async function loadPriorAssignments(
     .where(
       and(
         eq(rosterPlan.siteLocationId, siteLocationId),
-        eq(rosterPlan.status, "published"),
+        // A daily plan stays `draft` for good yet is a real fill: read it as
+        // it stands, or earlier weeks' daily fills never reach C2/C5.
+        or(eq(rosterPlan.status, "published"), eq(rosterPlan.kind, "daily")),
         lt(rosterAssignment.date, beforeDate),
       ),
     )
