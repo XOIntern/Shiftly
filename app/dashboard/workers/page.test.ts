@@ -219,13 +219,18 @@ describe("workers page server queries", () => {
     });
     actor = makeActor("superadmin", null, null);
 
-    // Shared dev DB: other suites' workers may exist, so the unfiltered
-    // and junk renders assert presence, while the filtered one is exact.
     const filtered = await renderWorkers({ siteId: fx.ids.siteA });
     expect(filtered.workers.map((w) => w.id)).toEqual([fx.ids.wA]);
     expect(filtered.total).toBe(1);
 
-    const junk = await renderWorkers({ siteId: "junk" as never });
+    // Shared dev DB: the unfiltered list is paginated and sorted by site
+    // name, so unrelated workers can fill page 1 and push the fixtures off
+    // it. The employee-id search narrows the junk render to the fixtures'
+    // own rows, and it still spans both sites.
+    const junk = await renderWorkers({
+      siteId: "junk" as never,
+      q: "t13-wpage-emp",
+    });
     const junkIds = junk.workers.map((w) => w.id);
     expect(junkIds).toContain(fx.ids.wA);
     expect(junkIds).toContain(fx.ids.wB);
