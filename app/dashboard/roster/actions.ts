@@ -724,8 +724,9 @@ export async function suggestReplacementsAction(
       }))
     : [];
 
-  // Daily fills of the week sit on top of the published plan; leaving them
-  // out would suggest a worker already filled today and undercount the week.
+  // Daily fills of the week count next to the published plan (if any);
+  // leaving them out would suggest a worker already filled today and
+  // undercount the week.
   const week = weekDates(weekStart);
   const [prior, dailyRows, workers, shiftOrder, areaRequirements, rules] =
     await Promise.all([
@@ -861,7 +862,8 @@ export async function fillDailyRequest(
   }
 
   // Admission, not trust: the candidate is validated over the merged week
-  // context — the published week's rows (when there is one), every daily-plan row of that week
+  // context — the published week's rows (when there is one), every daily-plan
+  // row of that week
   // (the same range suggestReplacementsAction reads, so an earlier fill on a
   // nearby day counts toward C1/C3/C4), and the prior history. Rejected
   // candidates never reach the write.

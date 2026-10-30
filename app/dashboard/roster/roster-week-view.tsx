@@ -177,7 +177,6 @@ export function RosterWeekView({
             selectedWorkAreaId={workAreaId}
             onSelectWorkArea={setWorkArea}
             canFill={canWrite}
-            weeklyPublished={plans.some((p) => p.status === "published")}
             siteLocationId={locationId ?? ""}
           />
         </div>

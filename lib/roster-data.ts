@@ -278,8 +278,9 @@ export async function loadFulfilledDailyLines(
 
 // Assignment rows of the location's DAILY plans with a date in
 // [fromDate, toDate], any plan status: the same scope fillDailyRequest reads
-// for its date. A daily fill is an exception on top of the published week, so
-// anything that reasons about a worker's week has to see these rows too.
+// for its date. A daily fill stands on its own (a weekly roster is not
+// required), so anything that reasons about a worker's week has to see these
+// rows too.
 export async function loadDailyAssignmentsInRange(
   siteLocationId: string,
   fromDate: string,
