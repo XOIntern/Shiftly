@@ -4,13 +4,18 @@ import { db } from "./db";
 import type { DbExecutor } from "./db";
 import { rosterAssignment, rosterPlan } from "../drizzle/schema";
 import { mondayOf, weekDates } from "./week";
-import { buildWorkersRecord, validateRoster } from "./engine/validate";
+import {
+  buildWorkersRecord,
+  crossPlanDayConflicts,
+  validateRoster,
+} from "./engine/validate";
 import type { Violation } from "./engine/validate";
 import type { EffectiveRules, RosterAssignment } from "@/types/engine";
 import type { ActionState } from "@/types/action-state";
 import {
   loadAreaNames,
   loadAreaRequirements,
+  loadDailyAssignmentsInRange,
   loadPriorAssignments,
   loadShiftLabels,
   loadShiftOrder,
@@ -189,9 +194,12 @@ export function splitViolationsByHorizon(
 // The plan's rows validated over the merged context: plan rows (the current
 // side) + prior published history strictly before the plan's horizon, rules
 // from the plan's own snapshot (the editor judges by the rules the draft
-// was generated with; publish re-checks against the RESOLVED ones). The
-// page's publish-gate summary reuses this — the SAME semantics the edit
-// envelope rides on, never a divergent reimplementation.
+// was generated with; publish re-checks against the RESOLVED ones). A weekly
+// plan is also validated together with the daily fills of its week (they are
+// context, never part of the plan's rows), and a worker holding a row in both
+// is reported by name and date. The page's publish-gate summary reuses this —
+// the SAME semantics the edit envelope rides on, never a divergent
+// reimplementation.
 export async function planViolations(
   siteLocationId: string,
   rules: EffectiveRules,
@@ -200,6 +208,7 @@ export async function planViolations(
   // that connection: through the pool, each held connection would wait on up
   // to six more and concurrent edits could starve it.
   executor: DbExecutor = db,
+  kind: "weekly" | "daily" = "weekly",
 ): Promise<Violation[]> {
   const weekStart = mondayOf(rows[0]?.date ?? "1970-01-05");
   // One connection runs one query at a time (pg is dropping its query
@@ -212,24 +221,45 @@ export async function planViolations(
     tail = result.catch(() => undefined);
     return result;
   };
-  const [shiftOrder, shiftLabels, areaNames, areaRequirements, profiles, prior] =
-    await Promise.all([
+  const [
+    shiftOrder,
+    shiftLabels,
+    areaNames,
+    areaRequirements,
+    profiles,
+    prior,
+    dailyRows,
+  ] = await Promise.all([
       load(() => loadShiftOrder(siteLocationId, executor)),
       load(() => loadShiftLabels(siteLocationId, executor)),
       load(() => loadAreaNames(siteLocationId, executor)),
       load(() => loadAreaRequirements(siteLocationId, executor)),
       load(() => loadWorkerProfiles(siteLocationId, undefined, executor)),
       load(() => loadPriorAssignments(siteLocationId, weekDates(weekStart)[0], executor)),
+      kind === "weekly"
+        ? load(() =>
+            loadDailyAssignmentsInRange(
+              siteLocationId,
+              weekDates(weekStart)[0],
+              weekDates(weekStart)[6],
+              executor,
+            ),
+          )
+        : Promise.resolve([] as RosterAssignment[]),
     ]);
-  return validateRoster(
-    [...rows, ...prior],
-    buildWorkersRecord(profiles),
-    rules,
-    shiftOrder,
-    areaRequirements,
-    shiftLabels,
-    areaNames,
-  );
+  const employeeIds = new Map(profiles.map((p) => [p.id, p.employeeId]));
+  return [
+    ...validateRoster(
+      [...rows, ...dailyRows, ...prior],
+      buildWorkersRecord(profiles),
+      rules,
+      shiftOrder,
+      areaRequirements,
+      shiftLabels,
+      areaNames,
+    ),
+    ...crossPlanDayConflicts(rows, dailyRows, (id) => employeeIds.get(id) ?? id),
+  ];
 }
 
 // The write half of the guarded `setAssignment` action, its own transaction.
@@ -324,6 +354,7 @@ export async function applyAssignmentEdit(
         plan.rulesSnapshot as EffectiveRules,
         rows,
         tx,
+        plan.kind,
       );
 
       return { ok: true, data: { violations } };
