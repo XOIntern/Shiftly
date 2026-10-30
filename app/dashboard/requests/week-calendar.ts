@@ -8,7 +8,7 @@ import { dayFromNumber, dayNumber, mondayOf } from "@/lib/dates";
 import { weekDates } from "@/lib/week";
 import type { RequestedWeek } from "@/types/mp-request";
 
-// taken: an open/approved request holds the week (a new one would be refused);
+// taken: an approved request holds the week (a new one would be refused);
 // fulfilled: only delivered demand, a later addition is still legal.
 export type WeekMark = "taken" | "fulfilled";
 

@@ -557,6 +557,57 @@ describe("request actions: createRequest", () => {
     expect(rows.length).toBe(1);
   });
 
+  test("a week holding a legacy open weekly row still refuses a new request with the duplicate message", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+
+    fixtureCleanup.defer(async () => {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1],
+        ...fx,
+      });
+    });
+    // A database restored from before the backfill still holds this row.
+    await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: MONDAY,
+      status: "open",
+    });
+    const { createRequest } = await import("./actions");
+    const result = await createRequest(
+      weeklyInput({
+        lines: [
+          {
+            workAreaId: waA1,
+            shiftDefinitionId: shiftA1,
+            positionId: posA1,
+            date: MONDAY,
+            headcount: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe("A request for this week/date already exists");
+  });
+
   test("line with a foreign-location work area: FK message, nothing written", async () => {
     const fx = await seedGlobalData();
     const waB = await seedWorkArea({ siteId: fx.siteB, siteLocationId: fx.locB });
@@ -1854,7 +1905,7 @@ describe("request actions: loadCopySource", () => {
     return requestId;
   }
 
-  test("returns the latest earlier week with an open, approved or fulfilled request, skips weeks holding only rejected ones, returns null when none, and never returns another location's request for an admin", async () => {
+  test("returns the latest earlier week with an approved or fulfilled request, skips weeks holding only rejected ones, returns null when none, and never returns another location's request for an admin", async () => {
     const fx = await seedGlobalData();
     const masters = await seedMasters(fx);
     actor = makeActor("admin", null, fx.locA1);
@@ -1906,12 +1957,12 @@ describe("request actions: loadCopySource", () => {
       headcount: 2,
     });
 
-    // An open later week wins; only weeks strictly before the anchor count.
+    // An approved later week wins; only weeks strictly before the anchor count.
     await seedWeek(fx, masters, {
       createdBy: actor.id,
       weekStart: WEEK_3,
       headcount: 9,
-      status: "open",
+      status: "approved",
     });
     const latest = await loadCopySource(fx.locA1, "2026-02-23");
     expect(latest?.weekStart).toBe(WEEK_3);
@@ -1984,7 +2035,33 @@ describe("request actions: loadCopySource", () => {
     expect(await loadCopySource(fx.locA1, WEEK_1)).toBeNull();
   });
 
-  test("merges every open, approved or fulfilled request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
+  test("a weekly row left open by an old database is not offered as a copy source", async () => {
+    const fx = await seedGlobalData();
+    const masters = await seedMasters(fx);
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    fixtureCleanup.defer(async () => {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [masters.workAreaId],
+        shiftIds: [masters.shiftId],
+        positionIds: [masters.positionId],
+        ...fx,
+      });
+    });
+    const { loadCopySource } = await import("./actions");
+
+    await seedWeek(fx, masters, {
+      createdBy: actor.id,
+      weekStart: WEEK_1,
+      headcount: 4,
+      status: "open",
+    });
+
+    expect(await loadCopySource(fx.locA1, WEEK_2)).toBeNull();
+  });
+
+  test("merges every approved or fulfilled request of the latest week: a fulfilled request plus a late approved delta are summed, rejected ones are excluded", async () => {
     const fx = await seedGlobalData();
     const masters = await seedMasters(fx);
     actor = makeActor("admin", null, fx.locA1);
@@ -2078,7 +2155,7 @@ describe("request actions: loadRequestedWeeks", () => {
     });
   }
 
-  test("returns the live weeks of a location ascending with their status, leaves out rejected, withdrawn and daily requests, collapses fulfilled plus open to open, and treats both range ends as inclusive", async () => {
+  test("returns the live weeks of a location ascending with their status, leaves out rejected, withdrawn and daily requests, collapses fulfilled plus approved to approved, and treats both range ends as inclusive", async () => {
     const fx = await seedGlobalData();
     actor = makeActor("admin", null, fx.locA1);
     await seedUser(actor);
@@ -2088,14 +2165,14 @@ describe("request actions: loadRequestedWeeks", () => {
     const { loadRequestedWeeks } = await import("./actions");
 
     // Seeded out of order so insertion order cannot decide the answer.
-    await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-03-02", status: "open" });
+    await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-03-02", status: "approved" });
     await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-02-02", status: "approved" });
     await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-02-09", status: "fulfilled" });
     await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-02-16", status: "rejected" });
     await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-02-23", status: "withdrawn" });
-    // A fulfilled request with a later open delta in the same week is taken.
+    // A fulfilled request with a later approved delta in the same week is taken.
     await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-03-09", status: "fulfilled" });
-    await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-03-09", status: "open" });
+    await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-03-09", status: "approved" });
     // A daily request never marks a week.
     await seedRequest({
       siteId: fx.siteA,
@@ -2109,18 +2186,32 @@ describe("request actions: loadRequestedWeeks", () => {
     expect(await loadRequestedWeeks(fx.locA1, FROM, TO)).toEqual([
       { weekStart: "2026-02-02", status: "approved" },
       { weekStart: "2026-02-09", status: "fulfilled" },
-      { weekStart: "2026-03-02", status: "open" },
-      { weekStart: "2026-03-09", status: "open" },
+      { weekStart: "2026-03-02", status: "approved" },
+      { weekStart: "2026-03-09", status: "approved" },
     ]);
 
     // Both ends are inclusive; one day inside either end drops that week.
     expect(await loadRequestedWeeks(fx.locA1, "2026-02-03", "2026-03-08")).toEqual([
       { weekStart: "2026-02-09", status: "fulfilled" },
-      { weekStart: "2026-03-02", status: "open" },
+      { weekStart: "2026-03-02", status: "approved" },
     ]);
     expect(await loadRequestedWeeks(fx.locA1, "2026-02-02", "2026-02-02")).toEqual([
       { weekStart: "2026-02-02", status: "approved" },
     ]);
+  });
+
+  test("a weekly row left open by an old database is not marked", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    fixtureCleanup.defer(async () => {
+      await dropAll({ userIds: [actor.id], ...fx });
+    });
+    const { loadRequestedWeeks } = await import("./actions");
+
+    await seedWeekly(fx, { createdBy: actor.id, weekStart: "2026-02-02", status: "open" });
+
+    expect(await loadRequestedWeeks(fx.locA1, FROM, TO)).toEqual([]);
   });
 
   test("an admin never sees another location's weeks, an ho only sees their own site, and a superadmin sees any location", async () => {
@@ -2135,7 +2226,7 @@ describe("request actions: loadRequestedWeeks", () => {
     });
     const { loadRequestedWeeks } = await import("./actions");
 
-    await seedWeekly(fx, { createdBy: creator.id, weekStart: "2026-02-02", status: "open" });
+    await seedWeekly(fx, { createdBy: creator.id, weekStart: "2026-02-02", status: "approved" });
     await seedWeekly(fx, {
       createdBy: creator.id,
       weekStart: "2026-02-09",
@@ -2152,7 +2243,7 @@ describe("request actions: loadRequestedWeeks", () => {
 
     actor = admin;
     expect(await loadRequestedWeeks(fx.locA1, FROM, TO)).toEqual([
-      { weekStart: "2026-02-02", status: "open" },
+      { weekStart: "2026-02-02", status: "approved" },
     ]);
     expect(await loadRequestedWeeks(fx.locA2, FROM, TO)).toEqual([]);
     expect(await loadRequestedWeeks(fx.locB, FROM, TO)).toEqual([]);
@@ -2180,7 +2271,7 @@ describe("request actions: loadRequestedWeeks", () => {
     });
     const { loadRequestedWeeks } = await import("./actions");
 
-    await seedWeekly(fx, { createdBy: creator.id, weekStart: "2026-02-02", status: "open" });
+    await seedWeekly(fx, { createdBy: creator.id, weekStart: "2026-02-02", status: "approved" });
 
     expect(await loadRequestedWeeks("not-a-uuid", FROM, TO)).toEqual([]);
     expect(await loadRequestedWeeks(fx.locA1, "soon", TO)).toEqual([]);
