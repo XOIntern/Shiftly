@@ -42,7 +42,7 @@ export class ActionAbort extends Error {
 
 const NOT_FOUND = "Roster not found.";
 const DAILY_FILLS_EXIST =
-  "Daily fills exist for this week — clear them before revising";
+  "Daily fills exist for this week. Clear them before revising";
 
 // The editor's inline-violations envelope: a saved edit is always ok — the
 // violations drive the inline warning, they do not refuse the write.

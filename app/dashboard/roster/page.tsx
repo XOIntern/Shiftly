@@ -332,8 +332,8 @@ export default async function RosterPage({
       version: chosen.version,
       canEdit: canWrite && chosen.status === "draft",
       readOnlyReason: canWrite
-        ? "Published — locked; revise to open the next draft."
-        : "Read-only — rosters are managed by admins.",
+        ? "Published and locked. Revise to open the next draft."
+        : "Read-only. Rosters are managed by admins.",
       shifts: shiftRows
         .filter((s) => s.isActive)
         .map(({ id, label, startTime, endTime }) => ({

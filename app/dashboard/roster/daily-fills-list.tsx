@@ -20,10 +20,10 @@ export function DailyFillsList({ fills }: { fills: DailyFillView[] }) {
 
   return (
     <section aria-label="Daily fills" className="flex min-w-0 flex-col gap-4">
-      <h2 className="text-sm font-medium">Daily fills</h2>
+      <h2 className="text-xs font-semibold text-muted-foreground">Daily fills</h2>
       {[...byDate.entries()].map(([date, list]) => (
-        <div key={date} className="flex flex-col gap-1">
-          <h3 className="text-xs font-medium text-muted-foreground">{date}</h3>
+        <div key={date} className="flex flex-col gap-1.5">
+          <h3 className="text-sm font-medium tabular-nums">{date}</h3>
           <ul className="divide-y rounded-lg border">
             {list.map((fill) => (
               <li
@@ -34,7 +34,7 @@ export function DailyFillsList({ fills }: { fills: DailyFillView[] }) {
                   {fill.workAreaName} · {fill.shiftLabel}
                 </span>
                 <span className="text-muted-foreground">
-                  <span className="font-mono text-xs">{fill.employeeId}</span>{" "}
+                  <span className="font-mono text-xs tabular-nums">{fill.employeeId}</span>{" "}
                   {fill.name}
                 </span>
               </li>

@@ -90,7 +90,7 @@ export function violationSummary(violations: Violation[]): string | null {
     .slice(0, 3)
     .map((v) => badgeText(v))
     .join("; ");
-  return `${violations.length} rule warning${violations.length === 1 ? "" : "s"} — ${head}`;
+  return `${violations.length} rule warning${violations.length === 1 ? "" : "s"}: ${head}`;
 }
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -168,34 +168,39 @@ export function RosterGrid({
 
   return (
     <div className="flex flex-col gap-3">
-      <h2 id={headingId} className="text-sm font-medium break-words">{workAreaName}</h2>
+      <h2 id={headingId} className="text-sm font-semibold break-words">{workAreaName}</h2>
 
       {!canEdit ? (
         <p className="text-sm text-muted-foreground">{readOnlyReason}</p>
       ) : null}
       {summary ? (
-        <p className="text-sm text-amber-600 dark:text-amber-400" role="status">
+        <p className="rounded-md bg-warning-bg px-3 py-2 text-sm text-warning" role="status">
           {summary}
         </p>
       ) : null}
 
-      <div className="overflow-x-auto rounded-md border">
+      <div className="overflow-x-auto rounded-lg border">
         <table
           aria-labelledby={headingId}
           className="w-full border-collapse text-sm"
         >
           <thead>
-            <tr className="border-b bg-muted/50">
-              <th className="min-w-[180px] px-3 py-2 text-start font-medium">
+            <tr className="border-b">
+              <th className="sticky start-0 z-10 min-w-36 border-e bg-background px-3 py-2 text-start text-xs font-medium text-muted-foreground sm:min-w-44">
                 Worker
               </th>
               {dates.map((date, index) => (
                 <th
                   key={date}
-                  className="w-20 px-2 py-2 text-center font-medium"
+                  className={cn(
+                    "w-20 px-2 py-2 text-center",
+                    index >= 5 && "bg-background-alt",
+                  )}
                 >
-                  <span className="block">{DAY_LABELS[index]}</span>
-                  <span className="block text-xs font-normal text-muted-foreground tabular-nums">
+                  <span className="block text-xs font-medium text-muted-foreground">
+                    {DAY_LABELS[index]}
+                  </span>
+                  <span className="block text-sm font-medium tabular-nums whitespace-nowrap">
                     {date.slice(5)}
                   </span>
                 </th>
@@ -204,8 +209,8 @@ export function RosterGrid({
           </thead>
           <tbody>
             {workers.map((row) => (
-              <tr key={row.id} className="border-b">
-                <td className="px-3 py-1.5">
+              <tr key={row.id} className="border-b bg-background last:border-b-0 hover:bg-hover">
+                <td className="sticky start-0 z-[1] border-e bg-inherit px-3 py-1.5">
                   <span className="block font-medium">{row.employeeId}</span>
                   {row.name ? (
                     <span className="block text-xs text-muted-foreground">
@@ -222,28 +227,32 @@ export function RosterGrid({
                     </Badge>
                   ))}
                 </td>
-                {dates.map((date) => {
+                {dates.map((date, index) => {
                   const key = assignmentKey(row.id, date);
                   const shiftDefId = cells[key];
                   const shift = shiftDefId ? labelOf.get(shiftDefId) : undefined;
                   const dailyShiftId = shiftDefId ? undefined : dailyCells[key];
+                  const weekend = index >= 5;
                   if (dailyShiftId) {
                     const dailyShift = labelOf.get(dailyShiftId);
                     return (
-                      <td key={date} className={canEdit ? "p-0.5" : undefined}>
+                      <td
+                        key={date}
+                        className={cn(canEdit && "p-0.5", weekend && "bg-background-alt")}
+                      >
                         <span
-                          className="block rounded border border-dashed bg-muted px-1 py-1 text-center text-xs"
+                          className="block rounded-md border border-dashed border-accent-teal-200 bg-accent-teal-50 px-1.5 py-1 text-center text-xs text-accent-teal-800"
                           title="Daily fill, not editable here"
                         >
                           {dailyShift ? (
                             <>
                               {dailyShift.label}
-                              <span className="block font-normal tabular-nums text-muted-foreground">
+                              <span className="block font-normal tabular-nums">
                                 {dailyShift.startTime}–{dailyShift.endTime}
                               </span>
                             </>
                           ) : null}
-                          <span className="block font-normal text-muted-foreground">
+                          <span className="block font-medium">
                             Daily
                             <span className="sr-only"> fill, not editable here</span>
                           </span>
@@ -254,8 +263,8 @@ export function RosterGrid({
                   const cell = (
                     <span
                       className={cn(
-                        "block rounded px-1 py-1 text-center text-xs",
-                        shift && "bg-primary/10 font-medium",
+                        "block rounded-md px-1.5 py-1.5 text-center text-xs",
+                        shift && "bg-primary/10 font-medium text-foreground",
                       )}
                     >
                       {shift ? (
@@ -266,13 +275,18 @@ export function RosterGrid({
                           </span>
                         </>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-muted-foreground">-</span>
                       )}
                     </span>
                   );
-                  if (!canEdit) return <td key={date}>{cell}</td>;
+                  if (!canEdit)
+                    return (
+                      <td key={date} className={cn(weekend && "bg-background-alt")}>
+                        {cell}
+                      </td>
+                    );
                   return (
-                    <td key={date} className="p-0.5">
+                    <td key={date} className={cn("p-0.5", weekend && "bg-background-alt")}>
                       <Popover.Root
                         open={openCell === key}
                         onOpenChange={(open) =>
@@ -283,7 +297,7 @@ export function RosterGrid({
                           render={
                             <button
                               type="button"
-                              className="w-full cursor-pointer rounded border border-transparent hover:border-border"
+                              className="w-full cursor-pointer rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
                               aria-label={`Open shift picker for ${row.employeeId} on ${date}`}
                               disabled={pending}
                             />

@@ -233,7 +233,7 @@ describe("violationsByWorker / badgeText / violationSummary", () => {
       { rule: "C2", workerId: W2, message: "two" },
       { rule: "C3", workerId: W1, message: "three" },
     ]);
-    expect(summary).toBe("3 rule warnings — C1 · one; C2 · two; C3 · three");
+    expect(summary).toBe("3 rule warnings: C1 · one; C2 · two; C3 · three");
     expect(violationSummary([])).toBeNull();
   });
 });

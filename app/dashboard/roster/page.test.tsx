@@ -941,7 +941,7 @@ describe("roster page SSR (roster-engine Task 7)", () => {
 
     expect(html.includes("Revise plan")).toBeTrue();
     expect(
-      html.includes("Published — locked; revise to open the next draft."),
+      html.includes("Published and locked. Revise to open the next draft."),
     ).toBeTrue();
     expect(html.includes("Open shift picker")).toBeFalse();
   });
