@@ -248,17 +248,37 @@ export async function planViolations(
         : Promise.resolve([] as RosterAssignment[]),
     ]);
   const employeeIds = new Map(profiles.map((p) => [p.id, p.employeeId]));
+  const employeeOf = (workerId: string) => employeeIds.get(workerId) ?? workerId;
+  const week = weekDates(weekStart);
+  const planWorkers = new Set(rows.map((r) => r.workerId));
+  const found = validateRoster(
+    [...rows, ...dailyRows, ...prior],
+    buildWorkersRecord(profiles),
+    rules,
+    shiftOrder,
+    areaRequirements,
+    shiftLabels,
+    areaNames,
+  );
+  // A violation inside the week that only involves daily fills (the worker
+  // has no row in this plan) is not this plan's to fix — daily fills cannot
+  // be removed — so it must not block the weekly plan, e.g. after a rule was
+  // tightened. Anything dated outside the week stays, as a historical warning.
+  const own =
+    kind === "weekly"
+      ? found.filter(
+          (v) =>
+            planWorkers.has(v.workerId) ||
+            v.date === undefined ||
+            v.date < week[0] ||
+            v.date > week[6],
+        )
+      : found;
   return [
-    ...validateRoster(
-      [...rows, ...dailyRows, ...prior],
-      buildWorkersRecord(profiles),
-      rules,
-      shiftOrder,
-      areaRequirements,
-      shiftLabels,
-      areaNames,
-    ),
-    ...crossPlanDayConflicts(rows, dailyRows, (id) => employeeIds.get(id) ?? id),
+    // Name the worker: the plan's grid shows a row per worker, but the
+    // refusal message is read on its own.
+    ...own.map((v) => ({ ...v, message: `${employeeOf(v.workerId)}: ${v.message}` })),
+    ...crossPlanDayConflicts(rows, dailyRows, employeeOf),
   ];
 }
 

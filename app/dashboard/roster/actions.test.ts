@@ -849,7 +849,27 @@ describe("roster actions: publishRoster", () => {
       expect(result.ok).toBe(false);
       expect(result.message).toContain("max is 3");
       expect(result.message).toContain(THU);
+      const [{ employeeId }] = await db
+        .select({ employeeId: worker.employeeId })
+        .from(worker)
+        .where(eq(worker.id, s.w));
+      expect(result.message).toContain(employeeId);
       expect(await s.statusOf(planId)).toBe("draft");
+    });
+
+    test("a violation among daily fills of a worker the weekly plan does not use does not block publish", async () => {
+      const s = await seedWeek("dailyonly");
+      // Four daily fills for w, then the location tightens C1 to 3: the
+      // 4th daily day is over the limit, yet nothing in this weekly plan can
+      // fix it (daily fills cannot be removed).
+      for (const date of [MON, TUE, WED, THU]) await s.daily(s.w, date);
+      await tightenRule(s.fx, "C1", 3);
+      const planId = await s.seedDraft([{ workerId: s.w2, date: FRI }]);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(true);
+      expect(await s.statusOf(planId)).toBe("published");
     });
 
     test("an empty weekly plan still publishes when daily fills exist", async () => {
