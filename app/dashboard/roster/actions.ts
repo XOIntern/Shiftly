@@ -52,6 +52,7 @@ import {
 } from "@/lib/roster-scope";
 import { recordMpRequestAudit } from "@/lib/mp-request-audit";
 import { recordRosterAudit } from "@/lib/roster-audit";
+import { lockRosterLocation } from "@/lib/roster-lock";
 import {
   ActionAbort,
   applyAssignmentEdit,
@@ -523,58 +524,75 @@ export async function publishRoster(planId: string): Promise<ActionState> {
 
   const siteLocationId = plan.siteLocationId;
   const rules = await loadEffectiveRules(siteLocationId);
-  // The same merged context the editor and the page's publish gate use (plan
-  // rows + the week's daily fills + prior history), judged by the freshly
-  // resolved rules, so publish and the editor cannot disagree.
-  const [violations, requirements] = await Promise.all([
-    planViolations(siteLocationId, rules, bundle.assignments, plan, db),
+  const requirements =
     plan.kind === "weekly"
-      ? loadRequirementsForWeek(siteLocationId, plan.weekStart as string)
-      : Promise.resolve([] as RequirementLine[]),
-  ]);
+      ? await loadRequirementsForWeek(siteLocationId, plan.weekStart as string)
+      : ([] as RequirementLine[]);
 
-  // Workers deactivated (or removed) after generation never reach the
-  // profiles loader — validateRoster would silently skip their checks.
-  // Flag every offending row so a stale draft cannot publish silently.
-  const workerIds = [...new Set(bundle.rows.map((r) => r.workerId))];
-  if (workerIds.length > 0) {
-    const workerRows = await db
-      .select({
-        id: worker.id,
-        employeeId: worker.employeeId,
-        isActive: worker.isActive,
-        deletedAt: worker.deletedAt,
-      })
-      .from(worker)
-      .where(inArray(worker.id, workerIds));
-    const offenderByWorker = new Map(
-      workerRows
-        .filter((w) => w.deletedAt !== null || !w.isActive)
-        .map((w) => [w.id, w]),
-    );
-    for (const row of bundle.rows) {
-      const offender = offenderByWorker.get(row.workerId);
-      if (!offender) continue;
-      violations.push({
-        rule: "C7",
-        workerId: row.workerId,
-        date: row.date,
-        message: `${offender.employeeId} is no longer active`,
-      });
-    }
-  }
-
-  const { blocking, historical } = splitViolationsByHorizon(violations, plan);
-
-  if (blocking.length > 0) {
-    return { ok: false, message: violationMessage(blocking) };
-  }
-
-  // Deficits are shown, not blocking (spec §6.3): the count rides the audit.
-  const deficits = computeDeficit(requirements, bundle.assignments);
+  let historical: Violation[] = [];
+  let deficitCount = 0;
 
   try {
     await db.transaction(async (tx) => {
+      // Validate under the location lock, never before it: a daily fill
+      // committing between the read and the write would otherwise slip past
+      // the cross-plan and rule checks (#249).
+      await lockRosterLocation(tx, siteLocationId);
+
+      // The same merged context the editor and the page's publish gate use
+      // (plan rows + the week's daily fills + prior history), judged by the
+      // freshly resolved rules, so publish and the editor cannot disagree.
+      const violations = await planViolations(
+        siteLocationId,
+        rules,
+        bundle.assignments,
+        plan,
+        tx,
+      );
+
+      // Workers deactivated (or removed) after generation never reach the
+      // profiles loader — validateRoster would silently skip their checks.
+      // Flag every offending row so a stale draft cannot publish silently.
+      const workerIds = [...new Set(bundle.rows.map((r) => r.workerId))];
+      if (workerIds.length > 0) {
+        const workerRows = await tx
+          .select({
+            id: worker.id,
+            employeeId: worker.employeeId,
+            isActive: worker.isActive,
+            deletedAt: worker.deletedAt,
+          })
+          .from(worker)
+          .where(inArray(worker.id, workerIds));
+        const offenderByWorker = new Map(
+          workerRows
+            .filter((w) => w.deletedAt !== null || !w.isActive)
+            .map((w) => [w.id, w]),
+        );
+        for (const row of bundle.rows) {
+          const offender = offenderByWorker.get(row.workerId);
+          if (!offender) continue;
+          violations.push({
+            rule: "C7",
+            workerId: row.workerId,
+            date: row.date,
+            message: `${offender.employeeId} is no longer active`,
+          });
+        }
+      }
+
+      const split = splitViolationsByHorizon(violations, plan);
+      if (split.blocking.length > 0) {
+        throw new ActionAbort({
+          ok: false,
+          message: violationMessage(split.blocking),
+        });
+      }
+      historical = split.historical;
+
+      // Deficits are shown, not blocking (spec §6.3): the count rides the audit.
+      deficitCount = computeDeficit(requirements, bundle.assignments).length;
+
       // Guarded write: the draft status rides in the WHERE (plus the
       // fail-closed mutation WHERE for the actor's scope), so a concurrent
       // publish/revision turns this into a 0-row no-op.
@@ -605,7 +623,7 @@ export async function publishRoster(planId: string): Promise<ActionState> {
           planId,
           version: plan.version,
           violationCount: 0,
-          deficitCount: deficits.length,
+          deficitCount,
         },
       });
 
@@ -785,12 +803,6 @@ export async function fillDailyRequest(
 
   const weekStart = mondayOf(input.date);
 
-  // A published weekly plan is context when the week has one, never a
-  // prerequisite: a daily request can be filled before (or without) a weekly
-  // roster. The shared helper picks the LATEST published version (same one
-  // suggestReplacementsAction reads — the two cannot disagree about which
-  // week's rows are operative). A draft weekly is invisible to the fill.
-  const weekly = await latestPublishedWeeklyPlan(siteLocationId, weekStart);
   const siteId = await deriveSiteId(siteLocationId);
   if (!siteId) return { ok: false, message: REQUEST_GONE };
 
@@ -861,97 +873,105 @@ export async function fillDailyRequest(
     return { ok: false, message: REFERENCE_FK };
   }
 
-  // Admission, not trust: the candidate is validated over the merged week
-  // context — the published week's rows (when there is one), every daily-plan
-  // row of that week
-  // (the same range suggestReplacementsAction reads, so an earlier fill on a
-  // nearby day counts toward C1/C3/C4), and the prior history. Rejected
-  // candidates never reach the write.
-  const week = weekDates(weekStart);
-  const [
-    rules,
-    shiftOrder,
-    shiftLabels,
-    areaNames,
-    areaRequirements,
-    prior,
-    profiles,
-    weeklyRows,
-    dailyRows,
-  ] = await Promise.all([
-    loadEffectiveRules(siteLocationId),
-    loadShiftOrder(siteLocationId),
-    loadShiftLabels(siteLocationId),
-    loadAreaNames(siteLocationId),
-    loadAreaRequirements(siteLocationId),
-    loadPriorAssignments(siteLocationId, week[0]),
-    loadWorkerProfiles(siteLocationId),
-    weekly
-      ? db
-          .select({
-            workerId: rosterAssignment.workerId,
-            date: rosterAssignment.date,
-            shiftDefinitionId: rosterAssignment.shiftDefinitionId,
-            workAreaId: rosterAssignment.workAreaId,
-          })
-          .from(rosterAssignment)
-          .where(eq(rosterAssignment.planId, weekly.id))
-      : Promise.resolve([]),
-    loadDailyAssignmentsInRange(siteLocationId, week[0], week[6]),
-  ]);
-
-  const engineShape = (r: {
-    workerId: string;
-    date: string;
-    shiftDefinitionId: string;
-    workAreaId: string;
-  }): RosterAssignment => ({
-    workerId: r.workerId,
-    date: r.date,
-    shiftDefId: r.shiftDefinitionId,
-    workAreaId: r.workAreaId,
-  });
-
-  // The fill is position-aware (#141): the candidate must hold the exact
-  // position the line demands — the profiles loader emits one entry per
-  // worker×area pair with the worker's position set.
-  const profile = profiles.find((p) => p.id === input.workerId);
-  if (!profile || !profile.positionIds.includes(input.positionId)) {
-    return { ok: false, message: POSITION_MISMATCH };
-  }
-
-  const candidate: RosterAssignment = {
-    workerId: input.workerId,
-    date: input.date,
-    shiftDefId: input.shiftDefId,
-    workAreaId: input.workAreaId,
-  };
-  // One shift per worker-day across plans: the same worker on the same date
-  // in the published weekly would otherwise be accepted as two work days.
-  const conflicts = crossPlanDayConflicts(
-    [candidate],
-    weeklyRows.map(engineShape),
-    (id) => profiles.find((p) => p.id === id)?.employeeId ?? id,
-  );
-  if (conflicts.length > 0) {
-    return { ok: false, message: violationMessage(conflicts) };
-  }
-
-  const violations = validateRoster(
-    [...weeklyRows.map(engineShape), ...dailyRows, ...prior, candidate],
-    buildWorkersRecord(profiles),
-    rules,
-    shiftOrder,
-    areaRequirements,
-    shiftLabels,
-    areaNames,
-  );
-  if (violations.length > 0) {
-    return { ok: false, message: violationMessage(violations) };
-  }
+  const rules = await loadEffectiveRules(siteLocationId);
 
   try {
     await db.transaction(async (tx) => {
+      // Everything the admission reads is read under the location lock, so a
+      // weekly publish that committed first is seen and one that has not yet
+      // committed waits for this fill (#249). The loaders run in sequence:
+      // one transaction connection runs one query at a time.
+      await lockRosterLocation(tx, siteLocationId);
+
+      // A published weekly plan is context when the week has one, never a
+      // prerequisite: a daily request can be filled before (or without) a
+      // weekly roster. The shared helper picks the LATEST published version
+      // (same one suggestReplacementsAction reads — the two cannot disagree
+      // about which week's rows are operative). A draft weekly is invisible
+      // to the fill.
+      const weekly = await latestPublishedWeeklyPlan(siteLocationId, weekStart, tx);
+
+      // Admission, not trust: the candidate is validated over the merged week
+      // context — the published week's rows (when there is one), every
+      // daily-plan row of that week (the same range suggestReplacementsAction
+      // reads, so an earlier fill on a nearby day counts toward C1/C3/C4),
+      // and the prior history. Rejected candidates never reach the write.
+      const week = weekDates(weekStart);
+      const shiftOrder = await loadShiftOrder(siteLocationId, tx);
+      const shiftLabels = await loadShiftLabels(siteLocationId, tx);
+      const areaNames = await loadAreaNames(siteLocationId, tx);
+      const areaRequirements = await loadAreaRequirements(siteLocationId, tx);
+      const prior = await loadPriorAssignments(siteLocationId, week[0], tx);
+      const profiles = await loadWorkerProfiles(siteLocationId, undefined, tx);
+      const weeklyRows = weekly
+        ? await tx
+            .select({
+              workerId: rosterAssignment.workerId,
+              date: rosterAssignment.date,
+              shiftDefinitionId: rosterAssignment.shiftDefinitionId,
+              workAreaId: rosterAssignment.workAreaId,
+            })
+            .from(rosterAssignment)
+            .where(eq(rosterAssignment.planId, weekly.id))
+        : [];
+      const dailyRows = await loadDailyAssignmentsInRange(
+        siteLocationId,
+        week[0],
+        week[6],
+        tx,
+      );
+
+      const engineShape = (r: {
+        workerId: string;
+        date: string;
+        shiftDefinitionId: string;
+        workAreaId: string;
+      }): RosterAssignment => ({
+        workerId: r.workerId,
+        date: r.date,
+        shiftDefId: r.shiftDefinitionId,
+        workAreaId: r.workAreaId,
+      });
+
+      // The fill is position-aware (#141): the candidate must hold the exact
+      // position the line demands — the profiles loader emits one entry per
+      // worker×area pair with the worker's position set.
+      const profile = profiles.find((p) => p.id === input.workerId);
+      if (!profile || !profile.positionIds.includes(input.positionId)) {
+        throw new ActionAbort({ ok: false, message: POSITION_MISMATCH });
+      }
+
+      const candidate: RosterAssignment = {
+        workerId: input.workerId,
+        date: input.date,
+        shiftDefId: input.shiftDefId,
+        workAreaId: input.workAreaId,
+      };
+      // One shift per worker-day across plans: the same worker on the same
+      // date in the published weekly would otherwise be accepted as two work
+      // days.
+      const conflicts = crossPlanDayConflicts(
+        [candidate],
+        weeklyRows.map(engineShape),
+        (id) => profiles.find((p) => p.id === id)?.employeeId ?? id,
+      );
+      if (conflicts.length > 0) {
+        throw new ActionAbort({ ok: false, message: violationMessage(conflicts) });
+      }
+
+      const violations = validateRoster(
+        [...weeklyRows.map(engineShape), ...dailyRows, ...prior, candidate],
+        buildWorkersRecord(profiles),
+        rules,
+        shiftOrder,
+        areaRequirements,
+        shiftLabels,
+        areaNames,
+      );
+      if (violations.length > 0) {
+        throw new ActionAbort({ ok: false, message: violationMessage(violations) });
+      }
+
       // The daily plan for the date, any status — reuse it when present
       // (the partial unique keeps exactly one row per date forever).
       const [daily] = await tx
@@ -1090,6 +1110,7 @@ export async function fillDailyRequest(
       }
     });
   } catch (err) {
+    if (err instanceof ActionAbort) return err.state;
     const code = pgErrorCode(err);
     if (code === "23505") {
       const constraint = pgErrorConstraint(err);
