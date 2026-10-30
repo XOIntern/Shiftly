@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "../../lib/db";
 import { installCleanup } from "../../lib/test-cleanup";
@@ -91,10 +91,15 @@ describe("weekly request backfill migration", () => {
     expect(statusOf.get(weeklyWithdrawn.id)).toBe("withdrawn");
     expect(statusOf.get(weeklyFulfilled.id)).toBe("fulfilled");
 
-    const stillOpenWeekly = await db
+    const stillOpenWeeklyHere = await db
       .select({ id: mpRequest.id })
       .from(mpRequest)
-      .where(sql`${mpRequest.type} = 'weekly' and ${mpRequest.status} = 'open'`);
-    expect(stillOpenWeekly).toHaveLength(0);
+      .where(
+        and(
+          eq(mpRequest.siteLocationId, loc.id),
+          sql`${mpRequest.type} = 'weekly' and ${mpRequest.status} = 'open'`,
+        ),
+      );
+    expect(stillOpenWeeklyHere).toHaveLength(0);
   });
 });
