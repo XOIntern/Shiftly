@@ -26,7 +26,11 @@ import { computeDeficit } from "@/lib/engine/deficit";
 import { generateDraft } from "@/lib/engine/generate";
 import type { RequirementLine, SuggestedCandidate } from "@/lib/engine/generate";
 import { suggestReplacements } from "@/lib/engine/suggest";
-import { buildWorkersRecord, validateRoster } from "@/lib/engine/validate";
+import {
+  buildWorkersRecord,
+  crossPlanDayConflicts,
+  validateRoster,
+} from "@/lib/engine/validate";
 import type { Violation } from "@/lib/engine/validate";
 import type { RosterAssignment } from "@/types/engine";
 import { loadEffectiveRules } from "@/lib/rule-config";
@@ -113,7 +117,6 @@ const DRAFT_EXISTS = "Draft already exists";
 const NOT_FOUND = "Roster not found.";
 const ALREADY_PUBLISHED = "Roster is already published";
 const RACE_MESSAGE = "Roster state changed, reload";
-const PUBLISH_FIRST = "Publish the weekly roster first";
 const REQUEST_GONE = "Daily request not found.";
 const WORKER_UNAVAILABLE = "Worker is not available for this roster";
 const REFERENCE_FK =
@@ -781,12 +784,14 @@ export async function fillDailyRequest(
 
   const weekStart = mondayOf(input.date);
 
-  // A published weekly plan must cover the date's week — the daily fill is
-  // an exception to a plan, not a standalone roster. The shared helper
-  // picks the LATEST published version (same one suggestReplacementsAction
-  // reads — the two cannot disagree about which week's rows are operative).
+  // A published weekly plan is context when the week has one, never a
+  // prerequisite: a daily request can be filled before (or without) a weekly
+  // roster. The shared helper picks the LATEST published version (same one
+  // suggestReplacementsAction reads — the two cannot disagree about which
+  // week's rows are operative). A draft weekly is invisible to the fill.
   const weekly = await latestPublishedWeeklyPlan(siteLocationId, weekStart);
-  if (!weekly) return { ok: false, message: PUBLISH_FIRST };
+  const siteId = await deriveSiteId(siteLocationId);
+  if (!siteId) return { ok: false, message: REQUEST_GONE };
 
   const [request] = await db
     .select({
@@ -856,7 +861,7 @@ export async function fillDailyRequest(
   }
 
   // Admission, not trust: the candidate is validated over the merged week
-  // context — the published week's rows, every daily-plan row of that week
+  // context — the published week's rows (when there is one), every daily-plan row of that week
   // (the same range suggestReplacementsAction reads, so an earlier fill on a
   // nearby day counts toward C1/C3/C4), and the prior history. Rejected
   // candidates never reach the write.
@@ -879,15 +884,17 @@ export async function fillDailyRequest(
     loadAreaRequirements(siteLocationId),
     loadPriorAssignments(siteLocationId, week[0]),
     loadWorkerProfiles(siteLocationId),
-    db
-      .select({
-        workerId: rosterAssignment.workerId,
-        date: rosterAssignment.date,
-        shiftDefinitionId: rosterAssignment.shiftDefinitionId,
-        workAreaId: rosterAssignment.workAreaId,
-      })
-      .from(rosterAssignment)
-      .where(eq(rosterAssignment.planId, weekly.id)),
+    weekly
+      ? db
+          .select({
+            workerId: rosterAssignment.workerId,
+            date: rosterAssignment.date,
+            shiftDefinitionId: rosterAssignment.shiftDefinitionId,
+            workAreaId: rosterAssignment.workAreaId,
+          })
+          .from(rosterAssignment)
+          .where(eq(rosterAssignment.planId, weekly.id))
+      : Promise.resolve([]),
     loadDailyAssignmentsInRange(siteLocationId, week[0], week[6]),
   ]);
 
@@ -917,6 +924,17 @@ export async function fillDailyRequest(
     shiftDefId: input.shiftDefId,
     workAreaId: input.workAreaId,
   };
+  // One shift per worker-day across plans: the same worker on the same date
+  // in the published weekly would otherwise be accepted as two work days.
+  const conflicts = crossPlanDayConflicts(
+    [candidate],
+    weeklyRows.map(engineShape),
+    (id) => profiles.find((p) => p.id === id)?.employeeId ?? id,
+  );
+  if (conflicts.length > 0) {
+    return { ok: false, message: violationMessage(conflicts) };
+  }
+
   const violations = validateRoster(
     [...weeklyRows.map(engineShape), ...dailyRows, ...prior, candidate],
     buildWorkersRecord(profiles),
@@ -952,7 +970,7 @@ export async function fillDailyRequest(
           await tx
             .insert(rosterPlan)
             .values({
-              siteId: weekly.siteId,
+              siteId: siteId,
               siteLocationId,
               kind: "daily",
               requestDate: input.date,
@@ -966,17 +984,17 @@ export async function fillDailyRequest(
               siteId: rosterPlan.siteId,
             })
         )[0].id,
-        siteId: weekly.siteId,
+        siteId: siteId,
       };
 
       await tx.insert(rosterAssignment).values(
-        assignmentRow(planRow.id, weekly.siteId, siteLocationId, candidate),
+        assignmentRow(planRow.id, siteId, siteLocationId, candidate),
       );
 
       await recordRosterAudit(tx, {
         actorId: actor.id,
         action: "roster.daily_request.fill",
-        siteId: weekly.siteId,
+        siteId: siteId,
         siteLocationId,
         details: {
           requestId: input.requestId,
@@ -1056,7 +1074,7 @@ export async function fillDailyRequest(
           await recordMpRequestAudit(tx, {
             actorId: actor.id,
             action: "mp_request.status_change",
-            siteId: weekly.siteId,
+            siteId: siteId,
             siteLocationId,
             details: {
               requestId: input.requestId,
