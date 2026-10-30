@@ -694,6 +694,112 @@ describe("roster actions: publishRoster", () => {
       deficitCount: 0,
     });
   });
+
+  describe("with daily fills of the week", () => {
+    const WED = "2026-01-07";
+    const THU = "2026-01-08";
+    const FRI = "2026-01-09";
+
+    async function seedWeek(tag: string) {
+      const fx = await createBase(`t242-pub-${randomUUID()}`, tag);
+      const area = await createWorkArea(fx, "a");
+      const shift = await createShift(fx, 1);
+      // A second, later shift keeps shift 1 from being the last in the
+      // rotation, so consecutive days do not trip C4's rest-day rule.
+      await createShift(fx, 2);
+      const w = await createWorker(fx, "w");
+      const w2 = await createWorker(fx, "w2");
+      actor = makeActor("admin", null, fx.locationId);
+      await seedUser(actor);
+      const { publishRoster } = await import("./actions");
+
+      // A weekly draft planted directly, so the rows are exactly the ones a
+      // test names.
+      const seedDraft = async (rows: { workerId: string; date: string }[]) => {
+        const planId = randomUUID();
+        await db.insert(rosterPlan).values({
+          id: planId,
+          siteId: fx.siteId,
+          siteLocationId: fx.locationId,
+          kind: "weekly",
+          weekStart: MON,
+          rulesSnapshot: {},
+        });
+        if (rows.length > 0) {
+          await db.insert(rosterAssignment).values(
+            rows.map((r) => ({
+              planId,
+              siteId: fx.siteId,
+              siteLocationId: fx.locationId,
+              workerId: r.workerId,
+              workAreaId: area,
+              shiftDefinitionId: shift,
+              date: r.date,
+            })),
+          );
+        }
+        return planId;
+      };
+      const daily = (workerId: string, date: string) =>
+        seedDailyRow(fx, { workerId, workAreaId: area, shiftDefId: shift, date });
+      const statusOf = async (planId: string) =>
+        (await db.select().from(rosterPlan).where(eq(rosterPlan.id, planId)))[0].status;
+      return { fx, w, w2, seedDraft, daily, publishRoster, statusOf };
+    }
+
+    test("a weekly row on the date of a daily fill refuses publish and names the date", async () => {
+      const s = await seedWeek("dup");
+      await s.daily(s.w, TUE);
+      const planId = await s.seedDraft([{ workerId: s.w, date: TUE }]);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("already has a shift on 2026-01-06");
+      expect(await s.statusOf(planId)).toBe("draft");
+    });
+
+    test("weekly rows plus daily fills over C1 refuse publish, naming the date", async () => {
+      const s = await seedWeek("c1");
+      await tightenRule(s.fx, "C1", 3);
+      await s.daily(s.w, MON);
+      await s.daily(s.w, TUE);
+      const planId = await s.seedDraft([
+        { workerId: s.w, date: WED },
+        { workerId: s.w, date: THU },
+        { workerId: s.w, date: FRI },
+      ]);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("max is 3");
+      expect(result.message).toContain(THU);
+      expect(await s.statusOf(planId)).toBe("draft");
+    });
+
+    test("an empty weekly plan still publishes when daily fills exist", async () => {
+      const s = await seedWeek("empty");
+      await s.daily(s.w, TUE);
+      const planId = await s.seedDraft([]);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(true);
+      expect(await s.statusOf(planId)).toBe("published");
+    });
+
+    test("a weekly draft publishes when the daily fill belongs to another worker", async () => {
+      const s = await seedWeek("other");
+      const planId = await s.seedDraft([{ workerId: s.w, date: TUE }]);
+      await s.daily(s.w2, TUE);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(true);
+      expect(await s.statusOf(planId)).toBe("published");
+    });
+  });
 });
 
 // A daily plan (any status) holding one row — the shape a daily fill leaves

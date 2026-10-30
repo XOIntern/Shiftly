@@ -52,6 +52,7 @@ import {
   ActionAbort,
   applyAssignmentEdit,
   ensureDraftVersion,
+  planViolations,
   splitViolationsByHorizon,
   type SetAssignmentInput,
   type SetAssignmentResult,
@@ -512,34 +513,16 @@ export async function publishRoster(planId: string): Promise<ActionState> {
   }
 
   const siteLocationId = plan.siteLocationId;
-  const horizonStart = weekDates(
-    plan.kind === "weekly"
-      ? (plan.weekStart as string)
-      : mondayOf(plan.requestDate as string),
-  )[0];
   const rules = await loadEffectiveRules(siteLocationId);
-  const [shiftOrder, shiftLabels, areaNames, areaRequirements, prior, profiles, requirements] =
-    await Promise.all([
-      loadShiftOrder(siteLocationId),
-      loadShiftLabels(siteLocationId),
-      loadAreaNames(siteLocationId),
-      loadAreaRequirements(siteLocationId),
-      loadPriorAssignments(siteLocationId, horizonStart),
-      loadWorkerProfiles(siteLocationId),
-      plan.kind === "weekly"
-        ? loadRequirementsForWeek(siteLocationId, plan.weekStart as string)
-        : Promise.resolve([] as RequirementLine[]),
-    ]);
-
-  const violations = validateRoster(
-    [...bundle.assignments, ...prior],
-    buildWorkersRecord(profiles),
-    rules,
-    shiftOrder,
-    areaRequirements,
-    shiftLabels,
-    areaNames,
-  );
+  // The same merged context the editor and the page's publish gate use (plan
+  // rows + the week's daily fills + prior history), judged by the freshly
+  // resolved rules, so publish and the editor cannot disagree.
+  const [violations, requirements] = await Promise.all([
+    planViolations(siteLocationId, rules, bundle.assignments, db, plan.kind),
+    plan.kind === "weekly"
+      ? loadRequirementsForWeek(siteLocationId, plan.weekStart as string)
+      : Promise.resolve([] as RequirementLine[]),
+  ]);
 
   // Workers deactivated (or removed) after generation never reach the
   // profiles loader — validateRoster would silently skip their checks.
