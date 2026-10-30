@@ -6,6 +6,8 @@ import type { SiteLocationOption, SiteOption } from "@/types/site";
 import type { CoverageRow } from "@/lib/engine/coverage";
 import type { RosterGate } from "@/app/dashboard/roster/roster-gate";
 import { RequirementsPanel } from "@/app/dashboard/roster/requirements-panel";
+import { DailyFillsList } from "@/app/dashboard/roster/daily-fills-list";
+import type { DailyFillView } from "@/app/dashboard/roster/daily-fills-list";
 import { RosterGrid } from "@/app/dashboard/roster/roster-grid";
 import type {
   GridWorker,
@@ -63,6 +65,7 @@ export function RosterWeekView({
   plans,
   selectedPlanId,
   plan,
+  dailyFills,
   gate,
   totals,
   violationHead,
@@ -83,6 +86,8 @@ export function RosterWeekView({
   plans: RosterPlanOption[];
   selectedPlanId: string | null;
   plan: GridPlanView | null;
+  // The week's daily fills, listed instead of the grid when there is no plan.
+  dailyFills: DailyFillView[];
   gate: RosterGate;
   totals: { required: number; filled: number } | null;
   violationHead: string[];
@@ -198,11 +203,15 @@ export function RosterWeekView({
               workerTotal={plan.workerTotal}
               onRowPageChange={setRowPage}
             />
+          ) : dailyFills.length > 0 ? (
+            <DailyFillsList fills={dailyFills} />
           ) : (
             <p className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-              {canWrite
-                ? "No roster plan for this week yet. Generate a draft once a request is approved."
-                : "No roster plan for this week."}
+              {!canWrite
+                ? "No roster plan for this week."
+                : requirements.rows.some((row) => row.source === "daily")
+                  ? "No weekly roster for this week. Fill daily requests from the requirements panel."
+                  : "No roster plan for this week yet. Generate a draft once a request is approved."}
             </p>
           )}
         </div>
