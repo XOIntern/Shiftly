@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { CircleCheckIcon } from "lucide-react";
 
 import {
   WidgetEmpty,
@@ -48,6 +49,14 @@ describe("widget frame", () => {
       <WidgetEmpty>Nothing needs action right now.</WidgetEmpty>,
     );
     expect(html.includes("Nothing needs action right now.")).toBeTrue();
+  });
+
+  test("WidgetEmpty can lead with an icon that stays out of the accessible name", () => {
+    const html = renderToStaticMarkup(
+      <WidgetEmpty icon={CircleCheckIcon}>All clear.</WidgetEmpty>,
+    );
+    expect(html.includes("All clear.")).toBeTrue();
+    expect(html.match(/<svg[^>]*aria-hidden="true"/g)).toHaveLength(1);
   });
 
   test("WidgetSkeleton keeps the title while loading", () => {

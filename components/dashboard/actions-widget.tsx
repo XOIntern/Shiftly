@@ -1,4 +1,4 @@
-import { CircleAlertIcon, InfoIcon } from "lucide-react";
+import { CircleAlertIcon, CircleCheckIcon, InfoIcon } from "lucide-react";
 import Link from "next/link";
 
 import {
@@ -88,7 +88,7 @@ export async function ActionsWidget({
   if (items.length === 0) {
     return (
       <WidgetFrame title={title}>
-        <WidgetEmpty>Nothing needs your attention.</WidgetEmpty>
+        <WidgetEmpty icon={CircleCheckIcon}>Nothing needs your attention.</WidgetEmpty>
       </WidgetFrame>
     );
   }

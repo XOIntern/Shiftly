@@ -30,12 +30,14 @@ function MetricCard({
   return (
     <Card className="@container/card">
       <CardHeader>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription className="font-medium text-foreground-secondary">
+          {description}
+        </CardDescription>
         <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
           {value}
         </CardTitle>
       </CardHeader>
-      <CardFooter className="flex-col items-start gap-1.5 text-sm">
+      <CardFooter className="flex-col items-start gap-1.5 text-xs">
         <div className="text-muted-foreground">{footer}</div>
       </CardFooter>
     </Card>

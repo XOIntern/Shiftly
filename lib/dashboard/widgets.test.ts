@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { WIDGET_TITLES, widgetsFor } from "./widgets";
+import { WIDGET_TITLES, widgetColumns, widgetsFor } from "./widgets";
 
 const ROLES = ["superadmin", "ho", "admin"] as const;
 
@@ -74,5 +74,40 @@ describe("widgetsFor", () => {
     expect(WIDGET_TITLES.roster_coverage).toBe("Roster coverage this week");
     expect(WIDGET_TITLES.location_overview).toBe("Locations");
     expect(WIDGET_TITLES.audit_feed).toBe("Recent activity");
+  });
+});
+
+describe("widgetColumns", () => {
+  test("every role's columns hold exactly the widgets it sees, once each", () => {
+    for (const role of ROLES) {
+      const { strip, main, side } = widgetColumns(role);
+      expect([...strip, ...main, ...side].sort()).toEqual(
+        [...widgetsFor(role)].sort(),
+      );
+    }
+  });
+
+  test("the admin's quick actions sit in the strip above the two main widgets", () => {
+    expect(widgetColumns("admin")).toEqual({
+      strip: ["quick_actions"],
+      main: ["actions", "attendance_today"],
+      side: [],
+    });
+  });
+
+  test("the HO keeps needs action and roster coverage in the main column", () => {
+    expect(widgetColumns("ho")).toEqual({
+      strip: [],
+      main: ["actions", "roster_coverage"],
+      side: ["location_overview", "audit_feed"],
+    });
+  });
+
+  test("the superadmin gets locations beside recent activity", () => {
+    expect(widgetColumns("superadmin")).toEqual({
+      strip: [],
+      main: ["location_overview"],
+      side: ["audit_feed"],
+    });
   });
 });
