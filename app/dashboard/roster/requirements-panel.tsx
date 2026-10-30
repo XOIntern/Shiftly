@@ -94,8 +94,8 @@ export function RequirementsPanel({
                   aria-current={selected ? "true" : undefined}
                   onClick={() => onSelectWorkArea(row.workAreaId)}
                   className={cn(
-                    "w-full rounded-lg px-3 py-2 text-left outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50",
-                    selected && "bg-accent ring-1 ring-foreground/25",
+                    "w-full rounded-md px-3 py-2 text-left outline-none hover:bg-hover focus-visible:ring-3 focus-visible:ring-ring/50",
+                    selected && "bg-primary/5 shadow-[inset_2px_0_0_0_var(--primary)]",
                   )}
                 >
                   {body}
@@ -105,7 +105,7 @@ export function RequirementsPanel({
           }
 
           return (
-            <li key={row.key} className="flex flex-col gap-2 rounded-lg px-3 py-2">
+            <li key={row.key} className="flex flex-col gap-2 rounded-md px-3 py-2">
               {body}
               {canFill && row.filled < row.required ? (
                 <div>

@@ -56,6 +56,32 @@ export type RequirementsView = {
   positionNames: Record<string, string>;
 };
 
+// The brand mark's 3 x 3 cell grid as the empty-state illustration: blue
+// cells with the two teal ones on the diagonal. Decorative, the copy says it.
+function RosterMark() {
+  const steps = [0, 1, 2];
+  return (
+    <svg aria-hidden="true" viewBox="0 0 48 48" className="size-12">
+      {steps.flatMap((row) =>
+        steps.map((col) => {
+          const teal = (row === 0 && col === 2) || (row === 2 && col === 0);
+          return (
+            <rect
+              key={`${row}-${col}`}
+              x={col * 16 + 2}
+              y={row * 16 + 2}
+              width={12}
+              height={12}
+              rx={3}
+              className={teal ? "fill-accent-teal-500" : "fill-primary/80"}
+            />
+          );
+        }),
+      )}
+    </svg>
+  );
+}
+
 export function RosterWeekView({
   week,
   canWrite,
@@ -143,9 +169,8 @@ export function RosterWeekView({
           Roster
         </h1>
         <p className="max-w-prose text-sm text-muted-foreground">
-          Weekly drafts generated from approved manpower requests, validated
-          against rules C1-C7 and published only when compliant. Unfilled
-          demand stays visible per work area and shift.
+          Drafts from approved requests, checked against rules C1-C7 before
+          publishing.
         </p>
       </div>
 
@@ -172,8 +197,10 @@ export function RosterWeekView({
       {/* Panel first in source order: it stacks above the grid on narrow
       screens and sits in the left column from lg up. */}
       <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)] lg:items-start">
-        <div className="flex min-w-0 flex-col gap-2 lg:border-e lg:pe-4">
-          <h2 className="text-sm font-medium">Requirements</h2>
+        <div className="flex min-w-0 flex-col gap-3 lg:border-e lg:pe-4">
+          <h2 className="text-xs font-semibold text-muted-foreground">
+            Requirements
+          </h2>
           <RequirementsPanel
             rows={requirements.rows}
             areaNames={requirements.areaNames}
@@ -207,13 +234,16 @@ export function RosterWeekView({
           ) : dailyFills.length > 0 ? (
             <DailyFillsList fills={dailyFills} />
           ) : (
-            <p className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-              {!canWrite
-                ? "No roster plan for this week."
-                : requirements.rows.some((row) => row.source === "daily")
-                  ? "No weekly roster for this week. Fill daily requests from the requirements panel."
-                  : "No roster plan for this week yet. Generate a draft once a request is approved."}
-            </p>
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-background-alt px-6 py-10 text-center">
+              <RosterMark />
+              <p className="max-w-sm text-sm text-muted-foreground">
+                {!canWrite
+                  ? "No roster plan for this week."
+                  : requirements.rows.some((row) => row.source === "daily")
+                    ? "No weekly roster for this week. Fill daily requests from the requirements panel."
+                    : "No roster plan for this week yet. Generate a draft once a request is approved."}
+              </p>
+            </div>
           )}
         </div>
       </div>

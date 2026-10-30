@@ -2679,13 +2679,13 @@ describe("roster actions: revise guard (decision-7, daily fills)", () => {
     expect(aborted).toBeInstanceOf(ActionAbort);
     expect((aborted as InstanceType<typeof ActionAbort>).state).toEqual({
       ok: false,
-      message: "Daily fills exist for this week — clear them before revising",
+      message: "Daily fills exist for this week. Clear them before revising",
     });
 
     // The guarded action surfaces the same refusal as an envelope.
     expect(await revisePlan(weekly.id)).toEqual({
       ok: false,
-      message: "Daily fills exist for this week — clear them before revising",
+      message: "Daily fills exist for this week. Clear them before revising",
     });
 
     // No clone was written.

@@ -8,6 +8,7 @@ import { Popover } from "@base-ui/react/popover";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 import { dayFromNumber, dayNumber } from "@/lib/dates";
 import { mondayOf } from "@/lib/week";
+import { cn } from "@/lib/utils";
 import type { RosterGate } from "@/app/dashboard/roster/roster-gate";
 import { RosterWeekPicker } from "@/app/dashboard/roster/roster-week-picker";
 import {
@@ -429,14 +430,21 @@ function StatusText({
 
   return (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-      <span className="font-medium">
+      <span
+        className={cn(
+          "inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-medium",
+          planStatus === "draft"
+            ? "bg-muted text-foreground-secondary"
+            : "bg-accent-teal-100 text-accent-teal-800",
+        )}
+      >
         {planStatus === "draft" ? "Draft" : "Published"}
         {planVersion !== null ? ` v${planVersion}` : ""}
       </span>
       {totals ? (
         <>
           <Separator />
-          <span className="text-muted-foreground">
+          <span className="tabular-nums text-muted-foreground">
             {totals.filled}/{totals.required} filled
           </span>
         </>
@@ -449,7 +457,7 @@ function StatusText({
               render={
                 <button
                   type="button"
-                  className="rounded-sm py-1.5 text-muted-foreground underline decoration-dotted underline-offset-4 outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+                  className="inline-flex items-center rounded-sm bg-warning-bg px-2 py-1 text-xs font-medium text-warning outline-none hover:bg-warning-border focus-visible:ring-3 focus-visible:ring-ring/50"
                 />
               }
             >
