@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import Link from "next/link";
 import { TriangleAlertIcon } from "lucide-react";
 
@@ -22,6 +23,9 @@ export type RequirementsPanelProps = {
   selectedWorkAreaId: string;
   onSelectWorkArea: (id: string) => void;
   canFill: boolean;
+  // Whether the week has a published weekly plan: a daily fill is an exception
+  // to that plan, so without one the suggestion menu cannot lead to a fill.
+  weeklyPublished: boolean;
   siteLocationId: string;
 };
 
@@ -33,8 +37,11 @@ export function RequirementsPanel({
   selectedWorkAreaId,
   onSelectWorkArea,
   canFill,
+  weeklyPublished,
   siteLocationId,
 }: RequirementsPanelProps) {
+  const publishFirstId = useId();
+
   if (rows.length === 0) {
     return (
       <section aria-label="Requirements">
@@ -51,8 +58,19 @@ export function RequirementsPanel({
     );
   }
 
+  const publishFirst =
+    canFill && !weeklyPublished && rows.some((row) => row.source === "daily");
+
   return (
     <section aria-label="Requirements" className="min-w-0">
+      {publishFirst ? (
+        <p
+          id={publishFirstId}
+          className="mb-2 px-3 text-xs text-muted-foreground"
+        >
+          Publish the weekly roster first to fill daily requests.
+        </p>
+      ) : null}
       <ul className="flex flex-col gap-1">
         {rows.map((row) => {
           const title = `${areaNames[row.workAreaId] ?? "Work area"} · ${
@@ -102,6 +120,7 @@ export function RequirementsPanel({
                     row={row}
                     positionNames={positionNames}
                     siteLocationId={siteLocationId}
+                    blockedBy={publishFirst ? publishFirstId : undefined}
                   />
                 </div>
               ) : null}
