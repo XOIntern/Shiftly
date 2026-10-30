@@ -146,10 +146,10 @@ describe("RosterStatusBar", () => {
       gate: {
         action: "generate",
         enabled: false,
-        reason: "No request approved by HO for this week",
+        reason: "No weekly request for this week",
       },
     });
-    expect(html).toContain("No request approved by HO for this week");
+    expect(html).toContain("No weekly request for this week");
     expect(html).toContain('href="/dashboard/requests"');
     const trigger = html.indexOf("Generate draft");
     expect(trigger).toBeGreaterThan(-1);

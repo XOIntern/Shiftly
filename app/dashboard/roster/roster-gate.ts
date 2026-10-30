@@ -36,7 +36,7 @@ export function rosterGate(input: {
     return {
       action: "generate",
       enabled: false,
-      reason: "No request approved by HO for this week",
+      reason: "No weekly request for this week",
     };
   }
   return {

@@ -194,10 +194,14 @@ export function DailySlotMenu({
   row,
   positionNames,
   siteLocationId,
+  blockedBy,
 }: {
   row: CoverageRow;
   positionNames: Record<string, string>;
   siteLocationId: string;
+  // Id of the note that explains why the menu is unavailable; set means the
+  // trigger renders disabled and points at it.
+  blockedBy?: string;
 }) {
   const filler = useSlotFill();
   const date = row.date;
@@ -211,7 +215,8 @@ export function DailySlotMenu({
             variant="outline"
             size="sm"
             className="max-sm:h-10"
-            disabled={filler.busy}
+            disabled={filler.busy || blockedBy !== undefined}
+            aria-describedby={blockedBy}
           >
             <UserPlusIcon data-icon="inline-start" />
             Suggest replacements

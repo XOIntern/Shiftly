@@ -559,7 +559,7 @@ describe("roster page SSR (roster-engine Task 7)", () => {
     expect(html.includes("Generate draft")).toBeFalse();
     // The empty-week explanation must NOT appear on a covered week.
     expect(
-      html.includes("No request approved by HO for this week"),
+      html.includes("No weekly request for this week"),
     ).toBeFalse();
   });
 
@@ -588,7 +588,7 @@ describe("roster page SSR (roster-engine Task 7)", () => {
 
     expect(html.includes("Generate draft")).toBeTrue();
     expect(
-      html.includes("No request approved by HO for this week"),
+      html.includes("No weekly request for this week"),
     ).toBeTrue();
     // The generate trigger is rendered disabled (the explanation rides
     // the same gate).
@@ -608,7 +608,7 @@ describe("roster page SSR (roster-engine Task 7)", () => {
     const html = await renderRoster({ week: fx.APPROVED_MONDAY });
 
     expect(text(html)).toContain("3 slots from 1 request");
-    expect(html.includes("No request approved by HO")).toBeFalse();
+    expect(html.includes("No weekly request for this week")).toBeFalse();
     const trigger = html.indexOf("Generate draft");
     expect(trigger).toBeGreaterThan(-1);
     expect(html.slice(Math.max(0, trigger - 3000), trigger)).not.toContain(
@@ -702,6 +702,43 @@ describe("roster page SSR (roster-engine Task 7)", () => {
     expect(page).toContain("Suggest replacements");
     // The old daily table is gone.
     expect(page).not.toContain("Daily requests");
+  });
+
+  // The opening tag of the first "Suggest replacements" trigger.
+  const suggestTrigger = (html: string): string => {
+    const start = html.lastIndexOf("<button", html.indexOf("Suggest replacements"));
+    return html.slice(start, html.indexOf(">", start) + 1);
+  };
+
+  test("a week with a published weekly plan keeps the daily suggestions enabled", async () => {
+    const fx = await seedRosterFixtures();
+    fixtureCleanup.defer(async () => {
+      await fx.cleanup();
+    });
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    // The fixture's week holds a draft AND a published weekly plan, so a
+    // daily fill has a published plan to sit on top of.
+    const html = await renderRoster({ week: fx.MONDAY });
+
+    expect(suggestTrigger(html)).not.toContain('disabled=""');
+    expect(text(html)).not.toContain("Publish the weekly roster first");
+  });
+
+  test("a week whose weekly plan is only a draft blocks the daily suggestions until it is published", async () => {
+    const fx = await seedRosterFixtures();
+    fixtureCleanup.defer(async () => {
+      await fx.cleanup();
+    });
+    // Drop the fixture's published plan: what is left is a draft-only week.
+    await db.delete(rosterPlan).where(eq(rosterPlan.id, fx.ids.publishedL1));
+    actor = makeActor("admin", null, fx.ids.locL1);
+
+    const html = await renderRoster({ week: fx.MONDAY });
+
+    expect(text(html)).toContain("Draft v1");
+    expect(text(html)).toContain("Publish the weekly roster first");
+    expect(suggestTrigger(html)).toContain('disabled=""');
   });
 
   test("a daily fill shows as a read-only Daily cell in the worker's row, for an admin and an ho", async () => {
