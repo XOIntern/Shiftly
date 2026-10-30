@@ -717,15 +717,14 @@ describe("roster page SSR (roster-engine Task 7)", () => {
     });
     actor = makeActor("admin", null, fx.ids.locL1);
 
-    // The fixture's week holds a draft AND a published weekly plan, so a
-    // daily fill has a published plan to sit on top of.
+    // The fixture's week holds a draft AND a published weekly plan.
     const html = await renderRoster({ week: fx.MONDAY });
 
     expect(suggestTrigger(html)).not.toContain('disabled=""');
     expect(text(html)).not.toContain("Publish the weekly roster first");
   });
 
-  test("a week whose weekly plan is only a draft blocks the daily suggestions until it is published", async () => {
+  test("a week whose weekly plan is only a draft keeps the daily suggestions enabled", async () => {
     const fx = await seedRosterFixtures();
     fixtureCleanup.defer(async () => {
       await fx.cleanup();
@@ -737,8 +736,8 @@ describe("roster page SSR (roster-engine Task 7)", () => {
     const html = await renderRoster({ week: fx.MONDAY });
 
     expect(text(html)).toContain("Draft v1");
-    expect(text(html)).toContain("Publish the weekly roster first");
-    expect(suggestTrigger(html)).toContain('disabled=""');
+    expect(text(html)).not.toContain("Publish the weekly roster first");
+    expect(suggestTrigger(html)).not.toContain('disabled=""');
   });
 
   test("a daily fill shows as a read-only Daily cell in the worker's row, for an admin and an ho", async () => {

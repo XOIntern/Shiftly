@@ -716,6 +716,27 @@ describe("loadPriorAssignments", () => {
   });
 });
 
+describe("loadPriorAssignments with daily fills", () => {
+  test("a daily plan counts as history whatever its status, a draft weekly plan still does not", async () => {
+    const fx = await createBase(`t${nextSeq()}`, "prior-daily-draft");
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    const workerId = await createWorker(fx, "w");
+    const args = { workerId, workAreaId: area, shiftDefinitionId: shift };
+
+    // Daily fills stay `draft` forever, so earlier weeks' fills only reach
+    // C2/C5 (and the cross-week C3/C4) if history reads them as they are.
+    const daily = await createPlan(fx, { kind: "daily", status: "draft", requestDate: TUE });
+    await addPlanAssignment(fx, daily, { ...args, date: TUE });
+    const weeklyDraft = await createPlan(fx, { status: "draft", weekStart: MON });
+    await addPlanAssignment(fx, weeklyDraft, { ...args, date: MON });
+
+    expect(await loadPriorAssignments(fx.locationId, NEXT_MON)).toEqual([
+      { workerId, date: TUE, shiftDefId: shift, workAreaId: area },
+    ]);
+  });
+});
+
 describe("loadDailyAssignmentsInRange", () => {
   test("daily-plan rows of the location inside the inclusive range, any plan status; weekly rows and out-of-range dates excluded", async () => {
     const fx = await createBase(`t${nextSeq()}`, "daily-range");

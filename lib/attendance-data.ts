@@ -60,7 +60,7 @@ async function loadWeeklyRows(
 }
 
 // The daily plan of the date, whatever its status: a daily fill stays `draft`
-// and takes effect once it is filled, on top of the published week.
+// and takes effect once it is filled, with or without a published week.
 async function loadDailyRows(
   siteLocationId: string,
   date: string,

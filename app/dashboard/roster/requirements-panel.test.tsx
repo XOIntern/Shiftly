@@ -56,7 +56,6 @@ const base: PanelProps = {
   selectedWorkAreaId: AREA_COLD,
   onSelectWorkArea: () => {},
   canFill: true,
-  weeklyPublished: true,
   siteLocationId: SITE_LOC,
 };
 
@@ -136,29 +135,9 @@ describe("RequirementsPanel", () => {
     return html.slice(start, html.indexOf(">", start) + 1);
   };
 
-  test("without a published weekly plan the suggestion trigger is disabled and the panel says to publish first", () => {
-    const html = render({ rows: [daily], weeklyPublished: false });
-    expect(suggestTrigger(html)).toContain('disabled=""');
-    expect(text(html)).toContain("Publish the weekly roster first");
-  });
-
-  test("with a published weekly plan the suggestion trigger is enabled and no publish-first note shows", () => {
-    const html = render({ rows: [daily], weeklyPublished: true });
+  test("a daily row shows an enabled suggestion trigger and no publish-first note, whatever the weekly plan", () => {
+    const html = render({ rows: [daily] });
     expect(suggestTrigger(html)).not.toContain('disabled=""');
-    expect(text(html)).not.toContain("Publish the weekly roster first");
-  });
-
-  test("the publish-first note needs a daily row: weekly rows alone never show it", () => {
-    const html = render({ rows: [weeklyShort], weeklyPublished: false });
-    expect(text(html)).not.toContain("Publish the weekly roster first");
-  });
-
-  test("a read-only viewer never sees the publish-first note", () => {
-    const html = render({
-      rows: [daily],
-      canFill: false,
-      weeklyPublished: false,
-    });
     expect(text(html)).not.toContain("Publish the weekly roster first");
   });
 });

@@ -519,6 +519,80 @@ describe("roster actions: generateRoster", () => {
     expect(audit).toBeDefined();
     expect(audit.details).toEqual({ planId: plan.id, version: 1, workAreaId: areaA });
   });
+
+  describe("with a daily fill already in the week", () => {
+    async function seedDemandForTwo(tag: string) {
+      const fx = await createBase(`t242-gen-${randomUUID()}`, tag);
+      const pos = await createPosition(fx, tag);
+      const area = await createWorkArea(fx, "a");
+      await requireAreaPosition(fx, area, pos);
+      const shift = await createShift(fx, 1);
+      const w = await createWorker(fx, "w");
+      const w2 = await createWorker(fx, "w2");
+      await giveWorkerPosition(fx, w, pos);
+      await giveWorkerPosition(fx, w2, pos);
+      // Two seats on TUE: with nobody excluded both workers fill them.
+      await seedWeeklyDemand(fx, [
+        { workAreaId: area, shiftDefinitionId: shift, date: TUE, headcount: 2, positionId: pos },
+      ]);
+      actor = makeActor("admin", null, fx.locationId);
+      await seedUser(actor);
+      return { fx, area, shift, w, w2 };
+    }
+
+    const draftOf = async (locationId: string) =>
+      (
+        await db
+          .select()
+          .from(rosterPlan)
+          .where(and(eq(rosterPlan.siteLocationId, locationId), eq(rosterPlan.kind, "weekly")))
+      )[0];
+
+    test("a full generate never assigns the daily-filled worker on that date", async () => {
+      const s = await seedDemandForTwo("full");
+      await seedDailyRow(s.fx, {
+        workerId: s.w,
+        workAreaId: s.area,
+        shiftDefId: s.shift,
+        date: TUE,
+      });
+
+      const { generateRoster } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId })).ok).toBe(true);
+
+      const rows = await readPlanRows((await draftOf(s.fx.locationId)).id);
+      expect(rows.map((r) => r.workerId)).toEqual([s.w2]);
+    });
+
+    test("regenerating one work area never assigns the daily-filled worker on that date", async () => {
+      const s = await seedDemandForTwo("slice");
+      const { generateRoster } = await import("./actions");
+      expect((await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId })).ok).toBe(true);
+      const draft = await draftOf(s.fx.locationId);
+      expect((await readPlanRows(draft.id)).map((r) => r.workerId).sort()).toEqual(
+        [s.w, s.w2].sort(),
+      );
+
+      // The daily fill lands after the draft was generated.
+      await seedDailyRow(s.fx, {
+        workerId: s.w,
+        workAreaId: s.area,
+        shiftDefId: s.shift,
+        date: TUE,
+      });
+      expect(
+        (
+          await generateRoster({
+            weekStart: MON,
+            siteLocationId: s.fx.locationId,
+            workAreaId: s.area,
+          })
+        ).ok,
+      ).toBe(true);
+
+      expect((await readPlanRows(draft.id)).map((r) => r.workerId)).toEqual([s.w2]);
+    });
+  });
 });
 
 describe("roster actions: publishRoster", () => {
@@ -694,7 +768,167 @@ describe("roster actions: publishRoster", () => {
       deficitCount: 0,
     });
   });
+
+  describe("with daily fills of the week", () => {
+    const WED = "2026-01-07";
+    const THU = "2026-01-08";
+    const FRI = "2026-01-09";
+
+    async function seedWeek(tag: string) {
+      const fx = await createBase(`t242-pub-${randomUUID()}`, tag);
+      const area = await createWorkArea(fx, "a");
+      const shift = await createShift(fx, 1);
+      // A second, later shift keeps shift 1 from being the last in the
+      // rotation, so consecutive days do not trip C4's rest-day rule.
+      await createShift(fx, 2);
+      const w = await createWorker(fx, "w");
+      const w2 = await createWorker(fx, "w2");
+      actor = makeActor("admin", null, fx.locationId);
+      await seedUser(actor);
+      const { publishRoster } = await import("./actions");
+
+      // A weekly draft planted directly, so the rows are exactly the ones a
+      // test names.
+      const seedDraft = async (rows: { workerId: string; date: string }[]) => {
+        const planId = randomUUID();
+        await db.insert(rosterPlan).values({
+          id: planId,
+          siteId: fx.siteId,
+          siteLocationId: fx.locationId,
+          kind: "weekly",
+          weekStart: MON,
+          rulesSnapshot: {},
+        });
+        if (rows.length > 0) {
+          await db.insert(rosterAssignment).values(
+            rows.map((r) => ({
+              planId,
+              siteId: fx.siteId,
+              siteLocationId: fx.locationId,
+              workerId: r.workerId,
+              workAreaId: area,
+              shiftDefinitionId: shift,
+              date: r.date,
+            })),
+          );
+        }
+        return planId;
+      };
+      const daily = (workerId: string, date: string) =>
+        seedDailyRow(fx, { workerId, workAreaId: area, shiftDefId: shift, date });
+      const statusOf = async (planId: string) =>
+        (await db.select().from(rosterPlan).where(eq(rosterPlan.id, planId)))[0].status;
+      return { fx, w, w2, seedDraft, daily, publishRoster, statusOf };
+    }
+
+    test("a weekly row on the date of a daily fill refuses publish and names the date", async () => {
+      const s = await seedWeek("dup");
+      await s.daily(s.w, TUE);
+      const planId = await s.seedDraft([{ workerId: s.w, date: TUE }]);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("already has a shift on 2026-01-06");
+      expect(await s.statusOf(planId)).toBe("draft");
+    });
+
+    test("weekly rows plus daily fills over C1 refuse publish, naming the date", async () => {
+      const s = await seedWeek("c1");
+      await tightenRule(s.fx, "C1", 3);
+      await s.daily(s.w, MON);
+      await s.daily(s.w, TUE);
+      const planId = await s.seedDraft([
+        { workerId: s.w, date: WED },
+        { workerId: s.w, date: THU },
+        { workerId: s.w, date: FRI },
+      ]);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("max is 3");
+      expect(result.message).toContain(THU);
+      const [{ employeeId }] = await db
+        .select({ employeeId: worker.employeeId })
+        .from(worker)
+        .where(eq(worker.id, s.w));
+      expect(result.message).toContain(employeeId);
+      expect(await s.statusOf(planId)).toBe("draft");
+    });
+
+    test("a violation among daily fills of a worker the weekly plan does not use does not block publish", async () => {
+      const s = await seedWeek("dailyonly");
+      // Four daily fills for w, then the location tightens C1 to 3: the
+      // 4th daily day is over the limit, yet nothing in this weekly plan can
+      // fix it (daily fills cannot be removed).
+      for (const date of [MON, TUE, WED, THU]) await s.daily(s.w, date);
+      await tightenRule(s.fx, "C1", 3);
+      const planId = await s.seedDraft([{ workerId: s.w2, date: FRI }]);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(true);
+      expect(await s.statusOf(planId)).toBe("published");
+    });
+
+    test("an empty weekly plan still publishes when daily fills exist", async () => {
+      const s = await seedWeek("empty");
+      await s.daily(s.w, TUE);
+      const planId = await s.seedDraft([]);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(true);
+      expect(await s.statusOf(planId)).toBe("published");
+    });
+
+    test("a weekly draft publishes when the daily fill belongs to another worker", async () => {
+      const s = await seedWeek("other");
+      const planId = await s.seedDraft([{ workerId: s.w, date: TUE }]);
+      await s.daily(s.w2, TUE);
+
+      const result = await s.publishRoster(planId);
+
+      expect(result.ok).toBe(true);
+      expect(await s.statusOf(planId)).toBe("published");
+    });
+  });
 });
+
+// A daily plan (any status) holding one row — the shape a daily fill leaves
+// behind, planted directly so a test controls the date and the plan status.
+async function seedDailyRow(
+  fx: BaseFixture,
+  args: {
+    workerId: string;
+    workAreaId: string;
+    shiftDefId: string;
+    date: string;
+    status?: "draft" | "published";
+  },
+): Promise<string> {
+  const planId = randomUUID();
+  await db.insert(rosterPlan).values({
+    id: planId,
+    siteId: fx.siteId,
+    siteLocationId: fx.locationId,
+    kind: "daily",
+    requestDate: args.date,
+    status: args.status ?? "draft",
+    rulesSnapshot: {},
+  });
+  await db.insert(rosterAssignment).values({
+    planId,
+    siteId: fx.siteId,
+    siteLocationId: fx.locationId,
+    workerId: args.workerId,
+    workAreaId: args.workAreaId,
+    shiftDefinitionId: args.shiftDefId,
+    date: args.date,
+  });
+  return planId;
+}
 
 describe("planViolations", () => {
   test("a planted downshift is reported with the shift labels, not the ids", async () => {
@@ -805,6 +1039,133 @@ describe("planViolations", () => {
     const c3 = violations.find((v) => v.rule === "C3");
     expect(c3?.message).toContain("from Tx Night to Tx Morning");
     expect(violations.some((v) => v.message === "unknown shift")).toBe(false);
+  });
+
+  describe("with the week's daily fills", () => {
+    async function seedWeek(tag: string) {
+      const fx = await createBase(`t242-pv-${randomUUID()}`, tag);
+      const area = await createWorkArea(fx, "a");
+      const shift = await createShift(fx, 1);
+      const w = await createWorker(fx, "w");
+      const [{ employeeId }] = await db
+        .select({ employeeId: worker.employeeId })
+        .from(worker)
+        .where(eq(worker.id, w));
+      const { planViolations } = await import("@/lib/roster-plan-mutations");
+      const row = (date: string) => ({
+        workerId: w,
+        date,
+        shiftDefId: shift,
+        workAreaId: area,
+      });
+      return { fx, area, shift, w, employeeId, planViolations, row };
+    }
+
+    test("a daily fill counts toward C1 of the weekly plan", async () => {
+      const s = await seedWeek("c1");
+      await tightenRule(s.fx, "C1", 1);
+      await seedDailyRow(s.fx, {
+        workerId: s.w,
+        workAreaId: s.area,
+        shiftDefId: s.shift,
+        date: TUE,
+      });
+
+      const violations = await s.planViolations(
+        s.fx.locationId,
+        await loadEffectiveRules(s.fx.locationId),
+        [s.row(MON)],
+      );
+
+      expect(violations.some((v) => v.rule === "C1" && v.date === TUE)).toBe(true);
+    });
+
+    test("a weekly row on the date of a daily fill names the worker and date", async () => {
+      const s = await seedWeek("dup");
+      await seedDailyRow(s.fx, {
+        workerId: s.w,
+        workAreaId: s.area,
+        shiftDefId: s.shift,
+        date: TUE,
+      });
+
+      const violations = await s.planViolations(
+        s.fx.locationId,
+        await loadEffectiveRules(s.fx.locationId),
+        [s.row(TUE)],
+      );
+
+      const conflict = violations.find((v) =>
+        v.message.includes("already has a shift on 2026-01-06"),
+      );
+      expect(conflict?.message).toContain(s.employeeId);
+      expect(conflict?.workerId).toBe(s.w);
+    });
+
+    test("a daily plan's own validation ignores other daily fills", async () => {
+      const s = await seedWeek("kind");
+      await tightenRule(s.fx, "C1", 1);
+      await seedDailyRow(s.fx, {
+        workerId: s.w,
+        workAreaId: s.area,
+        shiftDefId: s.shift,
+        date: TUE,
+      });
+
+      const violations = await s.planViolations(
+        s.fx.locationId,
+        await loadEffectiveRules(s.fx.locationId),
+        [s.row(TUE)],
+        undefined,
+        "daily",
+      );
+
+      expect(violations).toEqual([]);
+    });
+
+    test("a revised weekly (two published versions) counts the daily fill once", async () => {
+      const s = await seedWeek("rev");
+      await tightenRule(s.fx, "C1", 1);
+      for (const [version, status] of [
+        [1, "published"],
+        [2, "published"],
+      ] as const) {
+        const planId = randomUUID();
+        await db.insert(rosterPlan).values({
+          id: planId,
+          siteId: s.fx.siteId,
+          siteLocationId: s.fx.locationId,
+          kind: "weekly",
+          weekStart: MON,
+          version,
+          status,
+          rulesSnapshot: {},
+        });
+        await db.insert(rosterAssignment).values({
+          planId,
+          siteId: s.fx.siteId,
+          siteLocationId: s.fx.locationId,
+          workerId: s.w,
+          workAreaId: s.area,
+          shiftDefinitionId: s.shift,
+          date: MON,
+        });
+      }
+      await seedDailyRow(s.fx, {
+        workerId: s.w,
+        workAreaId: s.area,
+        shiftDefId: s.shift,
+        date: TUE,
+      });
+
+      const violations = await s.planViolations(
+        s.fx.locationId,
+        await loadEffectiveRules(s.fx.locationId),
+        [s.row(MON)],
+      );
+
+      expect(violations.filter((v) => v.rule === "C1")).toHaveLength(1);
+    });
   });
 });
 
@@ -922,32 +1283,112 @@ describe("roster actions: setAssignment + ensureDraftVersion", () => {
 });
 
 describe("roster actions: fillDailyRequest", () => {
-  test("without a published weekly plan covering the date's week: refused", async () => {
-    const fx = await createBase(`t6-dn-${randomUUID()}`, "daily-nopub");
+  // One worker qualified for one area, two shifts (so C4 stays neutral on
+  // consecutive days), and an open daily request per date.
+  async function seedFillWorld(tag: string, requestDates: string[]) {
+    const fx = await createBase(`t242-fill-${randomUUID()}`, tag);
     const area = await createWorkArea(fx, "a");
     const shift = await createShift(fx, 1);
+    await createShift(fx, 2);
     const w = await createWorker(fx, "w");
-    const requestId = await createRequest(fx, { type: "daily", requestDate: TUE });
+    const pos = await createPosition(fx, tag);
+    await requireAreaPosition(fx, area, pos);
+    await giveWorkerPosition(fx, w, pos);
+    const requestIds: string[] = [];
+    for (const date of requestDates) {
+      requestIds.push(await createRequest(fx, { type: "daily", requestDate: date }));
+    }
     actor = makeActor("admin", null, fx.locationId);
     await seedUser(actor);
+    const fill = async (i: number, date: string) => {
+      const { fillDailyRequest } = await import("./actions");
+      return fillDailyRequest({
+        requestId: requestIds[i],
+        workAreaId: area,
+        shiftDefId: shift,
+        date,
+        positionId: pos,
+        workerId: w,
+        siteLocationId: fx.locationId,
+      });
+    };
+    return { fx, area, shift, w, pos, requestIds, fill };
+  }
 
-    const { fillDailyRequest } = await import("./actions");
-    const result = await fillDailyRequest({
-      requestId,
-      workAreaId: area,
-      shiftDefId: shift,
-      date: TUE,
-      positionId: randomUUID(),
-      workerId: w,
-      siteLocationId: fx.locationId,
-    });
-    expect(result).toEqual({ ok: false, message: "Publish the weekly roster first" });
+  const dailyPlanOf = async (locationId: string) =>
+    (
+      await db
+        .select()
+        .from(rosterPlan)
+        .where(and(eq(rosterPlan.siteLocationId, locationId), eq(rosterPlan.kind, "daily")))
+    )[0];
 
-    const plans = await db
-      .select({ id: rosterPlan.id })
+  test("succeeds without any weekly plan: daily plan under the location's site, with the audit row", async () => {
+    const s = await seedFillWorld("noweekly", [TUE]);
+
+    const result = await s.fill(0, TUE);
+    expect(result).toEqual({ ok: true });
+
+    const dailyPlan = await dailyPlanOf(s.fx.locationId);
+    expect(dailyPlan.siteId).toBe(s.fx.siteId);
+    expect(dailyPlan.requestDate).toBe(TUE);
+    expect(await readPlanRows(dailyPlan.id)).toEqual([
+      { workerId: s.w, workAreaId: s.area, shiftDefinitionId: s.shift, date: TUE },
+    ]);
+
+    const audits = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "roster.daily_request.fill"),
+          eq(auditLog.actorId, actor.id),
+        ),
+      );
+    expect(audits.length).toBeGreaterThan(0);
+    expect(audits.every((a) => a.siteId === s.fx.siteId)).toBe(true);
+  });
+
+  test("C1 still refuses a fill over the weekly limit, counting earlier daily fills", async () => {
+    const s = await seedFillWorld("c1", [TUE, "2026-01-07"]);
+    await tightenRule(s.fx, "C1", 1);
+
+    expect((await s.fill(0, TUE)).ok).toBe(true);
+    const second = await s.fill(1, "2026-01-07");
+
+    expect(second.ok).toBe(false);
+    expect(second.message).toContain("max is 1");
+  });
+
+  test("refuses a worker who already works that date in the published weekly roster", async () => {
+    const s = await seedFillWorld("pubdup", [TUE]);
+    await seedWeeklyDemand(s.fx, [
+      { workAreaId: s.area, shiftDefinitionId: s.shift, date: TUE, headcount: 1, positionId: s.pos },
+    ]);
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId })).ok).toBe(true);
+    const [weeklyPlan] = await db
+      .select()
       .from(rosterPlan)
-      .where(eq(rosterPlan.siteLocationId, fx.locationId));
-    expect(plans.length).toBe(0);
+      .where(eq(rosterPlan.siteLocationId, s.fx.locationId));
+    expect((await publishRoster(weeklyPlan.id)).ok).toBe(true);
+
+    const result = await s.fill(0, TUE);
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("already has a shift on 2026-01-06");
+    expect(await dailyPlanOf(s.fx.locationId)).toBeUndefined();
+  });
+
+  test("an unpublished weekly draft does not block the fill", async () => {
+    const s = await seedFillWorld("draft", [TUE]);
+    await seedWeeklyDemand(s.fx, [
+      { workAreaId: s.area, shiftDefinitionId: s.shift, date: TUE, headcount: 1, positionId: s.pos },
+    ]);
+    const { generateRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId })).ok).toBe(true);
+
+    expect(await s.fill(0, TUE)).toEqual({ ok: true });
   });
 
   test("daily fill happy: daily plan + assignment + audit over the published week", async () => {
