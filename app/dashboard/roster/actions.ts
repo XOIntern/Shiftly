@@ -352,6 +352,7 @@ export async function generateRoster(
   }
 
   revalidatePath("/dashboard/roster");
+  revalidatePath("/dashboard/requests");
   return { ok: true };
 }
 
@@ -488,6 +489,7 @@ export async function discardDraft(planId: string): Promise<ActionState> {
   }
 
   revalidatePath("/dashboard/roster");
+  revalidatePath("/dashboard/requests");
   return { ok: true };
 }
 
@@ -659,6 +661,7 @@ export async function publishRoster(planId: string): Promise<ActionState> {
   }
 
   revalidatePath("/dashboard/roster");
+  revalidatePath("/dashboard/requests");
   // Historical (prior-plan) warnings ride a successful result so the
   // tightening that does not block is still never silent.
   if (historical.length > 0) {
@@ -1092,5 +1095,6 @@ export async function fillDailyRequest(
   }
 
   revalidatePath("/dashboard/roster");
+  revalidatePath("/dashboard/requests");
   return { ok: true };
 }
