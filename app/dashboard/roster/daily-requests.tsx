@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { UserPlusIcon } from "lucide-react";
+import { SparklesIcon, UserPlusIcon } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { GENERIC_ERROR } from "@/lib/action-state";
 import { runExclusive } from "@/lib/run-exclusive";
 import {
+  autoFillDailyRequests,
   fillDailyRequest,
   suggestReplacementsAction,
 } from "@/app/dashboard/roster/actions";
@@ -187,6 +188,57 @@ function PositionSubmenu({
         />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
+  );
+}
+
+// Fills every open daily request of the week in one go. The server fills each
+// empty slot with its best clean candidate and skips the ones it cannot; the
+// result message says how many of each, and a skipped slot stays in the panel
+// for a manual pick from its Suggest replacements menu.
+export function AutoFillDailyButton({
+  week,
+  siteLocationId,
+}: {
+  week: string;
+  siteLocationId: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+
+  function run() {
+    void runExclusive(lock, async () => {
+      setBusy(true);
+      try {
+        const result = await autoFillDailyRequests({
+          weekStart: week,
+          siteLocationId,
+        });
+        if (result.ok) {
+          toast.success(result.message ?? "Daily requests filled.");
+          return;
+        }
+        toast.error(result.message ?? GENERIC_ERROR);
+      } catch {
+        toast.error(GENERIC_ERROR);
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="max-sm:h-10"
+      disabled={busy}
+      aria-busy={busy}
+      onClick={run}
+    >
+      <SparklesIcon data-icon="inline-start" />
+      {busy ? "Filling…" : "Auto-fill daily"}
+    </Button>
   );
 }
 

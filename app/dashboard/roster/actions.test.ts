@@ -2276,6 +2276,189 @@ describe("roster actions: suggestReplacementsAction", () => {
   });
 });
 
+describe("roster actions: autoFillDailyRequests", () => {
+  const WED = "2026-01-07";
+
+  // A location with `workerCount` workers qualified for one position of one
+  // area, two shifts (C4 stays neutral on consecutive days) and an open daily
+  // request per entry of `requests`, each with one line for that position.
+  async function seedAutoFillWorld(
+    tag: string,
+    workerCount: number,
+    requests: { date: string; headcount?: number }[],
+  ) {
+    const fx = await createBase(`t-autofill-${randomUUID()}`, tag);
+    const area = await createWorkArea(fx, "a");
+    const shift = await createShift(fx, 1);
+    await createShift(fx, 2);
+    const pos = await createPosition(fx, tag);
+    await requireAreaPosition(fx, area, pos);
+    const workers: string[] = [];
+    for (let i = 0; i < workerCount; i++) {
+      const w = await createWorker(fx, `w${i}`);
+      await giveWorkerPosition(fx, w, pos);
+      workers.push(w);
+    }
+    const requestIds: string[] = [];
+    for (const r of requests) {
+      const id = await createRequest(fx, { type: "daily", requestDate: r.date });
+      await addRequestLine(fx, id, {
+        workAreaId: area,
+        shiftDefinitionId: shift,
+        date: r.date,
+        headcount: r.headcount,
+        positionId: pos,
+      });
+      requestIds.push(id);
+    }
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    return { fx, area, shift, pos, workers, requestIds };
+  }
+
+  const statusOf = async (requestId: string) =>
+    (
+      await db
+        .select({ status: mpRequest.status })
+        .from(mpRequest)
+        .where(eq(mpRequest.id, requestId))
+    )[0].status;
+
+  const dailyRowsOf = (locationId: string) =>
+    db
+      .select({ workerId: rosterAssignment.workerId, date: rosterAssignment.date })
+      .from(rosterAssignment)
+      .innerJoin(rosterPlan, eq(rosterAssignment.planId, rosterPlan.id))
+      .where(and(eq(rosterPlan.siteLocationId, locationId), eq(rosterPlan.kind, "daily")));
+
+  test("fills every open daily request of the week and marks the requests fulfilled", async () => {
+    const s = await seedAutoFillWorld("all", 1, [{ date: TUE }, { date: WED }]);
+
+    const { autoFillDailyRequests } = await import("./actions");
+    const result = await autoFillDailyRequests({
+      weekStart: MON,
+      siteLocationId: s.fx.locationId,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(2);
+    expect(result.blocked).toBe(0);
+    expect(await statusOf(s.requestIds[0])).toBe("fulfilled");
+    expect(await statusOf(s.requestIds[1])).toBe("fulfilled");
+    expect(await dailyRowsOf(s.fx.locationId)).toHaveLength(2);
+  });
+
+  test("a line with a headcount of 2 gets two different workers", async () => {
+    const s = await seedAutoFillWorld("headcount", 2, [{ date: TUE, headcount: 2 }]);
+
+    const { autoFillDailyRequests } = await import("./actions");
+    const result = await autoFillDailyRequests({
+      weekStart: MON,
+      siteLocationId: s.fx.locationId,
+    });
+
+    expect(result.applied).toBe(2);
+    const rows = await dailyRowsOf(s.fx.locationId);
+    expect(new Set(rows.map((r) => r.workerId)).size).toBe(2);
+    expect(await statusOf(s.requestIds[0])).toBe("fulfilled");
+  });
+
+  test("only tops up what is still empty when a slot is partly filled", async () => {
+    const s = await seedAutoFillWorld("partial", 2, [{ date: TUE, headcount: 2 }]);
+    const { fillDailyRequest, autoFillDailyRequests } = await import("./actions");
+    expect(
+      (
+        await fillDailyRequest({
+          requestId: s.requestIds[0],
+          workAreaId: s.area,
+          shiftDefId: s.shift,
+          date: TUE,
+          positionId: s.pos,
+          workerId: s.workers[0],
+          siteLocationId: s.fx.locationId,
+        })
+      ).ok,
+    ).toBe(true);
+
+    const result = await autoFillDailyRequests({
+      weekStart: MON,
+      siteLocationId: s.fx.locationId,
+    });
+
+    expect(result.applied).toBe(1);
+    expect(result.blocked).toBe(0);
+    const rows = await dailyRowsOf(s.fx.locationId);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.workerId)).size).toBe(2);
+  });
+
+  test("skips a slot with no clean candidate and reports it, leaving the request open", async () => {
+    const s = await seedAutoFillWorld("nocand", 0, [{ date: TUE }]);
+
+    const { autoFillDailyRequests } = await import("./actions");
+    const result = await autoFillDailyRequests({
+      weekStart: MON,
+      siteLocationId: s.fx.locationId,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.applied).toBe(0);
+    expect(result.blocked).toBe(1);
+    expect(result.message).toContain("1 skipped");
+    expect(await statusOf(s.requestIds[0])).toBe("open");
+    expect(await dailyRowsOf(s.fx.locationId)).toHaveLength(0);
+  });
+
+  test("fills what the rules allow and skips the rest, with the same limits as a manual fill", async () => {
+    const s = await seedAutoFillWorld("c1", 1, [{ date: TUE }, { date: WED }]);
+    await tightenRule(s.fx, "C1", 1);
+
+    const { autoFillDailyRequests } = await import("./actions");
+    const result = await autoFillDailyRequests({
+      weekStart: MON,
+      siteLocationId: s.fx.locationId,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(1);
+    expect(result.blocked).toBe(1);
+    expect(result.message).toContain("Filled 1");
+    expect(result.message).toContain("1 skipped");
+    expect(await statusOf(s.requestIds[0])).toBe("fulfilled");
+    expect(await statusOf(s.requestIds[1])).toBe("open");
+  });
+
+  test("leaves requests of other weeks alone and says when nothing is open this week", async () => {
+    const s = await seedAutoFillWorld("otherweek", 1, [{ date: NEXT_MON }]);
+
+    const { autoFillDailyRequests } = await import("./actions");
+    const result = await autoFillDailyRequests({
+      weekStart: MON,
+      siteLocationId: s.fx.locationId,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "No open daily requests to fill this week.",
+    });
+    expect(await statusOf(s.requestIds[0])).toBe("open");
+  });
+
+  test("an ho cannot auto-fill", async () => {
+    const s = await seedAutoFillWorld("ho", 1, [{ date: TUE }]);
+    actor = makeActor("ho", s.fx.siteId, null);
+
+    const { autoFillDailyRequests } = await import("./actions");
+    const result = await autoFillDailyRequests({
+      weekStart: MON,
+      siteLocationId: s.fx.locationId,
+    });
+
+    expect(result).toEqual({ ok: false, message: "Only admins fill daily requests" });
+    expect(await statusOf(s.requestIds[0])).toBe("open");
+  });
+});
+
 describe("roster actions: session scope", () => {
   test("ho calls generate: rejected outright, nothing written", async () => {
     const fx = await createBase(`t6-ho-${randomUUID()}`, "ho");

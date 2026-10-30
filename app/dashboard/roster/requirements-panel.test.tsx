@@ -57,6 +57,7 @@ const base: PanelProps = {
   onSelectWorkArea: () => {},
   canFill: true,
   siteLocationId: SITE_LOC,
+  week: "2026-11-02",
 };
 
 const render = (overrides: Partial<PanelProps> = {}) =>
@@ -145,5 +146,20 @@ describe("RequirementsPanel", () => {
     const full = { ...daily, filled: daily.required };
     expect(text(render({ rows: [full] }))).not.toContain("Suggest replacements");
     expect(text(render({ rows: [daily] }))).toContain("Suggest replacements");
+  });
+
+  test("a short daily row offers one Auto-fill daily button for the week", () => {
+    const html = text(render({ rows: [weeklyShort, daily] }));
+    expect(html).toContain("Auto-fill daily");
+    expect(html.split("Auto-fill daily")).toHaveLength(2);
+  });
+
+  test("no Auto-fill daily button without a short daily row, or when the viewer cannot fill", () => {
+    const full = { ...daily, filled: daily.required };
+    expect(text(render({ rows: [weeklyShort] }))).not.toContain("Auto-fill daily");
+    expect(text(render({ rows: [full] }))).not.toContain("Auto-fill daily");
+    expect(text(render({ rows: [daily], canFill: false }))).not.toContain(
+      "Auto-fill daily",
+    );
   });
 });
