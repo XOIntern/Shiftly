@@ -70,8 +70,9 @@ export function RequestDateField({
         <CalendarIcon aria-hidden />
         <span>{value ? formatDay(value) : "Pick a date"}</span>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto">
+      <PopoverContent align="start" className="w-80">
         <Calendar
+          className="w-full"
           mode="single"
           required
           weekStartsOn={1}
