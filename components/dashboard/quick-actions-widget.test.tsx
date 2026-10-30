@@ -68,6 +68,17 @@ describe("QuickActionsWidget", () => {
     }
   });
 
+  test("the links wrap in one row instead of stacking full width", async () => {
+    const html = await render(links);
+    expect(html.match(/<ul class="[^"]*flex-wrap[^"]*"/)).not.toBeNull();
+    const classes = [...html.matchAll(/<a [^>]*class="([^"]*)"/g)].map(
+      (m) => m[1],
+    );
+    for (const cls of classes) {
+      expect(cls.split(" ")).not.toContain("w-full");
+    }
+  });
+
   test("no links shows the empty state", async () => {
     const html = await render([]);
     expect(html.includes("No location to show.")).toBeTrue();

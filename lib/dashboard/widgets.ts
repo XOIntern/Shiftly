@@ -34,3 +34,35 @@ export function widgetsFor(role: ScopeActor["role"]): WidgetKey[] {
       return ["location_overview", "audit_feed"];
   }
 }
+
+// How a role's widgets are placed on the page. `strip` runs full width above
+// the grid, `main` is the primary column, `side` the secondary one. Together
+// they hold exactly widgetsFor(role), each widget once.
+export type WidgetColumns = {
+  strip: WidgetKey[];
+  main: WidgetKey[];
+  side: WidgetKey[];
+};
+
+export function widgetColumns(role: ScopeActor["role"]): WidgetColumns {
+  switch (role) {
+    case "admin":
+      return {
+        strip: ["quick_actions"],
+        main: ["actions", "attendance_today"],
+        side: [],
+      };
+    case "ho":
+      return {
+        strip: [],
+        main: ["actions", "roster_coverage"],
+        side: ["location_overview", "audit_feed"],
+      };
+    case "superadmin":
+      return {
+        strip: [],
+        main: ["location_overview"],
+        side: ["audit_feed"],
+      };
+  }
+}

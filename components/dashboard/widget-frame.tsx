@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 
 import {
   Card,
@@ -42,8 +43,21 @@ export function WidgetError({ title }: { title: string }) {
   );
 }
 
-export function WidgetEmpty({ children }: { children: ReactNode }) {
-  return <p className="text-sm text-muted-foreground">{children}</p>;
+// An optional icon marks the state at a glance. It is decorative: the text
+// alone carries the meaning, so the icon is hidden from screen readers.
+export function WidgetEmpty({
+  children,
+  icon: Icon,
+}: {
+  children: ReactNode;
+  icon?: LucideIcon;
+}) {
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      {Icon ? <Icon aria-hidden="true" className="size-4 shrink-0" /> : null}
+      <span>{children}</span>
+    </p>
+  );
 }
 
 // Keeps the title while the body loads, so the layout does not shift.

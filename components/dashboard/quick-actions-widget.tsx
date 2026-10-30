@@ -32,14 +32,14 @@ export async function QuickActionsWidget({
 
   return (
     <WidgetFrame title={title}>
-      <ul className="flex flex-col gap-2">
+      <ul className="flex flex-wrap gap-2">
         {result.data.map((link) => (
           <li key={link.href}>
             <Link
               href={link.href}
               className={cn(
                 buttonVariants({ variant: "outline" }),
-                "min-h-11 w-full justify-start px-3",
+                "min-h-11 justify-start px-3",
               )}
             >
               {link.label}
