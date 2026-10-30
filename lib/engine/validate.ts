@@ -269,3 +269,34 @@ function checkQualification(
     }
   }
 }
+
+// The DB unique on a roster row is per plan, so a worker can hold a row in a
+// weekly plan and another in a daily plan on the same date. validateRoster
+// counts both toward C1 but never names the duplicate; this does. Reported
+// under C1 (a duplicated day is a double-counted work day) so no rule key is
+// added. One violation per (worker, date) present in both inputs.
+export function crossPlanDayConflicts(
+  planRows: RosterAssignment[],
+  otherPlanRows: RosterAssignment[],
+  describe: (workerId: string) => string = (workerId) => workerId,
+): Violation[] {
+  const other = new Set(otherPlanRows.map((a) => `${a.workerId}|${a.date}`));
+  const seen = new Set<string>();
+  const violations: Violation[] = [];
+  for (const a of planRows) {
+    const key = `${a.workerId}|${a.date}`;
+    if (!other.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    violations.push({
+      rule: "C1",
+      workerId: a.workerId,
+      date: a.date,
+      message: `${describe(a.workerId)} already has a shift on ${a.date} in another plan`,
+    });
+  }
+  return violations.sort(
+    (x, y) =>
+      (x.date as string).localeCompare(y.date as string) ||
+      x.workerId.localeCompare(y.workerId),
+  );
+}

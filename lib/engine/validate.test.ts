@@ -5,7 +5,7 @@ import type { EffectiveRule, EffectiveRules, RosterAssignment } from "@/types/en
 import type { WorkerProfile } from "@/types/worker";
 import { resolveRules } from "./resolve";
 import type { RuleConfigRow } from "@/types/domain";
-import { validateRoster } from "./validate";
+import { crossPlanDayConflicts, validateRoster } from "./validate";
 
 // Task 1 of the roster-engine plan: the pure validator over an ordered set
 // of shift definitions. The engine speaks indices into `shiftOrder`, never
@@ -356,5 +356,76 @@ describe("validateRoster (roster-engine task 1)", () => {
     expect(validateRoster(assignments, workers, rules(), mkShift(3), {})).toEqual([
       { rule: "C3", workerId: "w1", date: "2026-01-05", message: "unknown shift" },
     ]);
+  });
+});
+
+describe("crossPlanDayConflicts", () => {
+  test("a worker on different dates in the two plans has no conflict", () => {
+    expect(
+      crossPlanDayConflicts(
+        [assign("w1", "2026-01-05", "s0")],
+        [assign("w1", "2026-01-06", "s0")],
+      ),
+    ).toEqual([]);
+  });
+
+  test("a worker on the same date in both plans is one C1 violation naming the date", () => {
+    const result = crossPlanDayConflicts(
+      [assign("w1", "2026-01-06", "s0")],
+      [assign("w1", "2026-01-06", "s1")],
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].rule).toBe("C1");
+    expect(result[0].workerId).toBe("w1");
+    expect(result[0].date).toBe("2026-01-06");
+    expect(result[0].message).toContain("already has a shift on 2026-01-06");
+  });
+
+  test("different workers on the same date do not conflict", () => {
+    expect(
+      crossPlanDayConflicts(
+        [assign("w1", "2026-01-06", "s0")],
+        [assign("w2", "2026-01-06", "s0")],
+      ),
+    ).toEqual([]);
+  });
+
+  test("several conflicts come back ordered by date then worker", () => {
+    const planRows = [
+      assign("w2", "2026-01-07", "s0"),
+      assign("w2", "2026-01-06", "s0"),
+      assign("w1", "2026-01-06", "s0"),
+    ];
+    const otherRows = [
+      assign("w1", "2026-01-06", "s1"),
+      assign("w2", "2026-01-06", "s1"),
+      assign("w2", "2026-01-07", "s1"),
+    ];
+
+    expect(
+      crossPlanDayConflicts(planRows, otherRows).map((v) => [v.date, v.workerId]),
+    ).toEqual([
+      ["2026-01-06", "w1"],
+      ["2026-01-06", "w2"],
+      ["2026-01-07", "w2"],
+    ]);
+  });
+
+  test("the describe override replaces the worker id in the message", () => {
+    const [violation] = crossPlanDayConflicts(
+      [assign("w1", "2026-01-06", "s0")],
+      [assign("w1", "2026-01-06", "s1")],
+      (id) => `EMP-${id}`,
+    );
+
+    expect(violation.message).toBe(
+      "EMP-w1 already has a shift on 2026-01-06 in another plan",
+    );
+  });
+
+  test("empty inputs have no conflicts", () => {
+    expect(crossPlanDayConflicts([], [])).toEqual([]);
+    expect(crossPlanDayConflicts([assign("w1", "2026-01-06", "s0")], [])).toEqual([]);
   });
 });
