@@ -60,6 +60,7 @@ mock.module("next/cache", () => ({
 const MON = "2026-01-05";
 const TUE = "2026-01-06";
 const NEXT_MON = "2026-01-12";
+const MON_PLAN = { kind: "weekly", weekStart: MON, requestDate: null } as const;
 
 function makeActor(
   role: SessionUser["role"],
@@ -946,6 +947,7 @@ describe("planViolations", () => {
         { workerId: w, date: MON, shiftDefId: shiftHigh, workAreaId: area },
         { workerId: w, date: TUE, shiftDefId: shiftLow, workAreaId: area },
       ],
+      MON_PLAN,
     );
 
     const c3 = violations.find((v) => v.rule === "C3");
@@ -972,6 +974,7 @@ describe("planViolations", () => {
       fx.locationId,
       await loadEffectiveRules(fx.locationId),
       [{ workerId: w, date: MON, shiftDefId: shift, workAreaId: area }],
+      MON_PLAN,
     );
 
     const c7 = violations.find((v) => v.rule === "C7");
@@ -1028,6 +1031,7 @@ describe("planViolations", () => {
             { workerId: w, date: MON, shiftDefId: highId, workAreaId: areaId },
             { workerId: w, date: TUE, shiftDefId: lowId, workAreaId: areaId },
           ],
+          MON_PLAN,
           tx,
         );
         throw ROLLBACK;
@@ -1075,6 +1079,7 @@ describe("planViolations", () => {
         s.fx.locationId,
         await loadEffectiveRules(s.fx.locationId),
         [s.row(MON)],
+        MON_PLAN,
       );
 
       expect(violations.some((v) => v.rule === "C1" && v.date === TUE)).toBe(true);
@@ -1093,6 +1098,7 @@ describe("planViolations", () => {
         s.fx.locationId,
         await loadEffectiveRules(s.fx.locationId),
         [s.row(TUE)],
+        MON_PLAN,
       );
 
       const conflict = violations.find((v) =>
@@ -1116,8 +1122,7 @@ describe("planViolations", () => {
         s.fx.locationId,
         await loadEffectiveRules(s.fx.locationId),
         [s.row(TUE)],
-        undefined,
-        "daily",
+        { kind: "daily", weekStart: null, requestDate: TUE },
       );
 
       expect(violations).toEqual([]);
@@ -1162,6 +1167,7 @@ describe("planViolations", () => {
         s.fx.locationId,
         await loadEffectiveRules(s.fx.locationId),
         [s.row(MON)],
+        MON_PLAN,
       );
 
       expect(violations.filter((v) => v.rule === "C1")).toHaveLength(1);
@@ -2452,6 +2458,62 @@ describe("roster actions: publish gate horizon (retroactive tightening)", () => 
     const [after] = await db.select().from(rosterPlan).where(eq(rosterPlan.id, nextPlan.id));
     expect(after.status).toBe("published");
     expect(after.publishedAt).not.toBeNull();
+  });
+
+  // #248: the week is the plan's own, not derived from its first row, so a plan
+  // with no rows still loads the history before its week.
+  test("an empty weekly plan still reports the prior-plan warnings", async () => {
+    const fx = await createBase(`t248-${randomUUID()}`, "empty-prior");
+    const pos = await createPosition(fx, "ep");
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shift1 = await createShift(fx, 1);
+    await createShift(fx, 2); // keeps C4 neutral
+    const w1 = await createWorker(fx, "w1");
+    await giveWorkerPosition(fx, w1, pos);
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift1, date: MON, headcount: 1, positionId: pos },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+
+    const { generateRoster, publishRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [v1] = await db
+      .select()
+      .from(rosterPlan)
+      .where(eq(rosterPlan.siteLocationId, fx.locationId));
+    for (const date of [TUE, "2026-01-07"]) {
+      await db.insert(rosterAssignment).values({
+        planId: v1.id,
+        siteId: fx.siteId,
+        siteLocationId: fx.locationId,
+        workerId: w1,
+        workAreaId: area,
+        shiftDefinitionId: shift1,
+        date,
+      });
+    }
+    expect((await publishRoster(v1.id)).ok).toBe(true);
+    await tightenRule(fx, "C1", 2);
+
+    const emptyId = randomUUID();
+    await db.insert(rosterPlan).values({
+      id: emptyId,
+      siteId: fx.siteId,
+      siteLocationId: fx.locationId,
+      kind: "weekly",
+      weekStart: NEXT_MON,
+      version: 1,
+      status: "draft",
+      rulesSnapshot: {},
+    });
+
+    const result = await publishRoster(emptyId);
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("Prior-plan warnings (not blocking)");
+    expect(result.message).toContain("2026-01-07");
   });
 });
 

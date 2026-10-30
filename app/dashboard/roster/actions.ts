@@ -527,7 +527,7 @@ export async function publishRoster(planId: string): Promise<ActionState> {
   // rows + the week's daily fills + prior history), judged by the freshly
   // resolved rules, so publish and the editor cannot disagree.
   const [violations, requirements] = await Promise.all([
-    planViolations(siteLocationId, rules, bundle.assignments, db, plan.kind),
+    planViolations(siteLocationId, rules, bundle.assignments, plan, db),
     plan.kind === "weekly"
       ? loadRequirementsForWeek(siteLocationId, plan.weekStart as string)
       : Promise.resolve([] as RequirementLine[]),
