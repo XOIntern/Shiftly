@@ -30,9 +30,9 @@ export type MpRequestRow = {
 };
 
 // A week that already holds a live weekly request at one location, for the
-// week-start calendar's markers. open / approved take the week (the DB slot
-// is held); fulfilled alone leaves it selectable as an addition.
-export type RequestedWeekStatus = "open" | "approved" | "fulfilled";
+// week-start calendar's markers. approved takes the week (the DB slot is
+// held); fulfilled alone leaves it selectable as an addition.
+export type RequestedWeekStatus = "approved" | "fulfilled";
 
 export type RequestedWeek = {
   weekStart: string;

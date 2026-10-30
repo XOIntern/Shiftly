@@ -52,8 +52,7 @@ class ActionAbort extends Error {
 
 // Messages the tests assert verbatim.
 const HO_CREATE_MESSAGE = "Only admins enter requests";
-const DUPLICATE_OPEN_SLOT =
-  "An open request for this week/date already exists";
+const DUPLICATE_SLOT = "A request for this week/date already exists";
 const NOT_EDITABLE = "This request can no longer be edited.";
 const WEEK_HAS_ROSTER =
   "This week already has a roster. Discard the draft roster first.";
@@ -119,7 +118,7 @@ function requestResult(err: unknown): ActionState {
     ) {
       return { ok: false, fieldErrors: { lines: LINE_DUPLICATE } };
     }
-    return { ok: false, message: DUPLICATE_OPEN_SLOT };
+    return { ok: false, message: DUPLICATE_SLOT };
   }
   if (code === "23503" || code === "23001") {
     return { ok: false, message: REFERENCE_FK };
@@ -571,7 +570,7 @@ export async function loadCopySource(
     mpRequestListWhere(actor),
     eq(mpRequest.siteLocationId, siteLocationId),
     eq(mpRequest.type, "weekly"),
-    inArray(mpRequest.status, ["open", "approved", "fulfilled"]),
+    inArray(mpRequest.status, ["approved", "fulfilled"]),
   );
   const [source] = await db
     .select({ weekStart: mpRequest.weekStart })
@@ -629,10 +628,9 @@ function isCalendarWindow(
 }
 
 // Read-only lookup behind the week-start calendar's markers: the Mondays in
-// [from, to] (inclusive) on which the location holds a live (open, approved or
+// [from, to] (inclusive) on which the location holds a live (approved or
 // fulfilled) weekly request, ascending. A week holding a fulfilled request and
-// a later open or approved one reads as the latter — only that one holds the
-// DB slot. Rejected, withdrawn and daily requests never mark a week. Scoped
+// a later approved one reads as the latter — only that one holds the DB slot. Rejected, withdrawn and daily requests never mark a week. Scoped
 // like loadCopySource; anything malformed, reversed, wider than
 // MAX_REQUESTED_WEEKS_SPAN_DAYS or out of scope is simply "no weeks".
 export async function loadRequestedWeeks(
@@ -652,7 +650,7 @@ export async function loadRequestedWeeks(
         mpRequestListWhere(actor),
         eq(mpRequest.siteLocationId, siteLocationId),
         eq(mpRequest.type, "weekly"),
-        inArray(mpRequest.status, ["open", "approved", "fulfilled"]),
+        inArray(mpRequest.status, ["approved", "fulfilled"]),
         gte(mpRequest.weekStart, from),
         lte(mpRequest.weekStart, to),
       ),

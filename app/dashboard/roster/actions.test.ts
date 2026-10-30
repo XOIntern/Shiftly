@@ -42,14 +42,18 @@ mock.module("@/lib/session", () => ({
   requireHO: async () => actor,
   requireSuperadmin: async () => actor,
 }));
-// No Next request context under bun test — revalidation is a no-op stub.
+// No Next request context under bun test — revalidatePath only records the
+// paths it was asked for.
 // Real exports kept (revalidateTag, updateTag, … stay available to suites that
 // run after this one: module mocks are process-wide); only revalidatePath is
 // replaced, since there is no Next request context under bun test.
 const realNextCache = { ...(await import("next/cache")) };
+let revalidated: string[] = [];
 mock.module("next/cache", () => ({
   ...realNextCache,
-  revalidatePath: () => {},
+  revalidatePath: (path: string) => {
+    revalidated.push(path);
+  },
 }));
 
 // A known Monday and the days after it.
@@ -2542,5 +2546,104 @@ describe("roster actions: discardDraft", () => {
 
     expect(await discardDraft("not-a-uuid")).toEqual({ ok: false, message: "Roster not found." });
     expect(await discardDraft(randomUUID())).toEqual({ ok: false, message: "Roster not found." });
+  });
+});
+
+describe("roster actions: requests list revalidation", () => {
+  const BOTH = ["/dashboard/requests", "/dashboard/roster"];
+
+  async function seedFixture(tag: string) {
+    const fx = await createBase(`t4-rv-${tag}-${randomUUID()}`, tag);
+    const pos = await createPosition(fx, "p");
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shift = await createShift(fx, 1);
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos },
+    ]);
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    return { fx, pos, area, shift, w };
+  }
+
+  async function weeklyDraft(fx: BaseFixture) {
+    const { generateRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(and(eq(rosterPlan.siteLocationId, fx.locationId), eq(rosterPlan.status, "draft")));
+    return plan;
+  }
+
+  test("generateRoster revalidates the roster and the requests list", async () => {
+    const { fx } = await seedFixture("gen");
+    revalidated = [];
+
+    const { generateRoster } = await import("./actions");
+    expect((await generateRoster({ weekStart: MON, siteLocationId: fx.locationId })).ok).toBe(true);
+
+    expect([...new Set(revalidated)].sort()).toEqual(BOTH);
+  });
+
+  test("discardDraft revalidates the roster and the requests list", async () => {
+    const { fx } = await seedFixture("discard");
+    const plan = await weeklyDraft(fx);
+    revalidated = [];
+
+    const { discardDraft } = await import("./actions");
+    expect((await discardDraft(plan.id)).ok).toBe(true);
+
+    expect([...new Set(revalidated)].sort()).toEqual(BOTH);
+  });
+
+  test("publishRoster revalidates the roster and the requests list", async () => {
+    const { fx } = await seedFixture("publish");
+    const plan = await weeklyDraft(fx);
+    revalidated = [];
+
+    const { publishRoster } = await import("./actions");
+    expect((await publishRoster(plan.id)).ok).toBe(true);
+
+    expect([...new Set(revalidated)].sort()).toEqual(BOTH);
+  });
+
+  test("fillDailyRequest revalidates the roster and the requests list", async () => {
+    const { fx, pos, area, shift, w } = await seedFixture("fill");
+    // A higher-order shift keeps C4 (rest after the LAST shift) neutral here.
+    await createShift(fx, 2);
+    const requestId = await createRequest(fx, { type: "daily", requestDate: TUE });
+    const { publishRoster, fillDailyRequest } = await import("./actions");
+    const plan = await weeklyDraft(fx);
+    expect((await publishRoster(plan.id)).ok).toBe(true);
+    revalidated = [];
+
+    const result = await fillDailyRequest({
+      requestId,
+      workAreaId: area,
+      shiftDefId: shift,
+      date: TUE,
+      positionId: pos,
+      workerId: w,
+      siteLocationId: fx.locationId,
+    });
+    expect(result.ok).toBe(true);
+
+    expect([...new Set(revalidated)].sort()).toEqual(BOTH);
+  });
+
+  test("a refused publish does not revalidate anything", async () => {
+    const { fx, w } = await seedFixture("refused");
+    const plan = await weeklyDraft(fx);
+    // The worker dies AFTER the draft was generated, so publishing is refused.
+    await db.update(worker).set({ isActive: false }).where(eq(worker.id, w));
+    revalidated = [];
+
+    const { publishRoster } = await import("./actions");
+    expect((await publishRoster(plan.id)).ok).toBe(false);
+
+    expect(revalidated).toEqual([]);
   });
 });

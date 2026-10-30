@@ -14,9 +14,9 @@ import {
 } from "./week-calendar";
 
 describe("markedWeeks", () => {
-  test("maps open and approved weeks to taken and fulfilled-only weeks to fulfilled", () => {
+  test("maps approved weeks to taken and fulfilled-only weeks to fulfilled", () => {
     const marks = markedWeeks([
-      { weekStart: "2026-02-02", status: "open" },
+      { weekStart: "2026-02-02", status: "approved" },
       { weekStart: "2026-02-09", status: "approved" },
       { weekStart: "2026-02-16", status: "fulfilled" },
     ]);
@@ -28,12 +28,12 @@ describe("markedWeeks", () => {
     ]);
   });
 
-  test("a week holding both a fulfilled and an open request is taken whichever comes first", () => {
+  test("a week holding both a fulfilled and an approved request is taken whichever comes first", () => {
     const fulfilled: RequestedWeek = { weekStart: "2026-03-02", status: "fulfilled" };
-    const open: RequestedWeek = { weekStart: "2026-03-02", status: "open" };
+    const approved: RequestedWeek = { weekStart: "2026-03-02", status: "approved" };
 
-    expect(markedWeeks([fulfilled, open]).get("2026-03-02")).toBe("taken");
-    expect(markedWeeks([open, fulfilled]).get("2026-03-02")).toBe("taken");
+    expect(markedWeeks([fulfilled, approved]).get("2026-03-02")).toBe("taken");
+    expect(markedWeeks([approved, fulfilled]).get("2026-03-02")).toBe("taken");
   });
 
   test("no weeks, no marks", () => {

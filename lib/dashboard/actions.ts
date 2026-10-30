@@ -236,7 +236,7 @@ const rosterHref = (locationId: string, week: string) =>
   `/dashboard/roster?week=${week}&locationId=${locationId}`;
 
 // What the panel lists, per location in the given order. An admin sees all
-// four kinds, all as todo; an HO sees drafts (todo) and daily requests still
+// five kinds, all as todo; an HO sees drafts (todo) and daily requests still
 // waiting to be filled (info, the admin acts on them).
 export function actionItemsFor(
   actions: LocationActions[],
