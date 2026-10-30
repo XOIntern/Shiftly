@@ -183,6 +183,7 @@ export function RosterWeekView({
             onSelectWorkArea={setWorkArea}
             canFill={canWrite}
             siteLocationId={locationId ?? ""}
+            week={week}
           />
         </div>
 

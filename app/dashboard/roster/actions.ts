@@ -39,6 +39,8 @@ import {
   loadAreaNames,
   loadAreaRequirements,
   loadDailyAssignmentsInRange,
+  loadDailyRequirements,
+  loadFulfilledDailyLines,
   loadPlanWithRows,
   loadPriorAssignments,
   loadRequirementsForWeek,
@@ -114,6 +116,7 @@ const HO_DISCARD_MESSAGE = "Only admins discard drafts";
 const ONLY_WEEKLY_DISCARD = "Only weekly rosters can be discarded.";
 const ONLY_DRAFT_DISCARD = "Only drafts can be discarded.";
 const NO_REQUIREMENTS = "No approved requests cover this week.";
+const NO_OPEN_DAILY = "No open daily requests to fill this week.";
 const DRAFT_EXISTS = "Draft already exists";
 const NOT_FOUND = "Roster not found.";
 const ALREADY_PUBLISHED = "Roster is already published";
@@ -1168,4 +1171,104 @@ export async function fillDailyRequest(
   revalidatePath("/dashboard/roster");
   revalidatePath("/dashboard/requests");
   return { ok: true };
+}
+
+export interface AutoFillDailyInput {
+  weekStart: string;
+  // Superadmin-only affordance; an admin's binding overrides it.
+  siteLocationId?: string;
+}
+
+// Fills the week's open daily requests one worker at a time: the top
+// suggestion for each empty slot goes through fillDailyRequest, so every fill
+// is admitted by the same validator, lock and audit as a manual one. A slot
+// with no clean candidate is skipped and counted, never forced.
+export async function autoFillDailyRequests(
+  input: AutoFillDailyInput,
+): Promise<ActionState> {
+  const actor = await requireUser();
+
+  if (actor.role === "ho") {
+    return { ok: false, message: HO_FILL_MESSAGE };
+  }
+  if (!isDate(input.weekStart)) {
+    return { ok: false, fieldErrors: { weekStart: "Week is required" } };
+  }
+  const weekStart = mondayOf(input.weekStart);
+  const siteLocationId = effectiveSiteLocationId(actor, input.siteLocationId);
+  if (!siteLocationId) {
+    return { ok: false, fieldErrors: { siteLocationId: "Location is required" } };
+  }
+
+  const week = weekDates(weekStart);
+  const [lines, dailyRows, fulfilledLines] = await Promise.all([
+    loadDailyRequirements(siteLocationId, week[0], week[6]),
+    loadDailyAssignmentsInRange(siteLocationId, week[0], week[6]),
+    loadFulfilledDailyLines(siteLocationId, week[0], week[6]),
+  ]);
+
+  // Fills already standing in a slot count toward its demand, the way the
+  // requirements panel counts them; assignments carry no position, so the
+  // count is per (area, shift, date) and is spent line by line.
+  const slotKey = (l: { workAreaId: string; shiftDefId: string; date: string }) =>
+    `${l.workAreaId}|${l.shiftDefId}|${l.date}`;
+  const standing = new Map<string, number>();
+  for (const a of withoutFulfilledDailyFills(dailyRows, fulfilledLines)) {
+    standing.set(slotKey(a), (standing.get(slotKey(a)) ?? 0) + 1);
+  }
+
+  let applied = 0;
+  let blocked = 0;
+  for (const line of lines) {
+    const have = standing.get(slotKey(line)) ?? 0;
+    const covered = Math.min(have, line.headcount);
+    standing.set(slotKey(line), have - covered);
+    const need = line.headcount - covered;
+
+    for (let i = 0; i < need; i++) {
+      const suggested = await suggestReplacementsAction({
+        workAreaId: line.workAreaId,
+        shiftDefId: line.shiftDefId,
+        date: line.date,
+        positionId: line.positionId,
+        siteLocationId,
+      });
+      const pick = "data" in suggested ? suggested.data[0] : undefined;
+      const filled = pick
+        ? await fillDailyRequest({
+            requestId: line.requestId,
+            workAreaId: line.workAreaId,
+            shiftDefId: line.shiftDefId,
+            date: line.date,
+            positionId: line.positionId,
+            workerId: pick.workerId,
+            siteLocationId,
+          })
+        : undefined;
+      if (filled?.ok) {
+        applied += 1;
+        continue;
+      }
+      // The next suggestion would meet the same wall: skip the rest of the line.
+      blocked += need - i;
+      break;
+    }
+  }
+
+  if (applied + blocked === 0) {
+    return { ok: false, message: NO_OPEN_DAILY };
+  }
+  const skipped = `${blocked} skipped (no clean candidate).`;
+  if (applied === 0) {
+    return { ok: false, message: `No daily slot filled. ${skipped}`, applied, blocked };
+  }
+  return {
+    ok: true,
+    message:
+      blocked === 0
+        ? `Filled ${applied} daily slot${applied === 1 ? "" : "s"}.`
+        : `Filled ${applied} of ${applied + blocked} daily slots. ${skipped}`,
+    applied,
+    blocked,
+  };
 }

@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { TriangleAlertIcon } from "lucide-react";
 
-import { DailySlotMenu } from "@/app/dashboard/roster/daily-requests";
+import {
+  AutoFillDailyButton,
+  DailySlotMenu,
+} from "@/app/dashboard/roster/daily-requests";
 import { Badge } from "@/components/ui/badge";
 import type { CoverageRow } from "@/lib/engine/coverage";
 import { cn } from "@/lib/utils";
@@ -23,6 +26,8 @@ export type RequirementsPanelProps = {
   onSelectWorkArea: (id: string) => void;
   canFill: boolean;
   siteLocationId: string;
+  // The displayed week's Monday: what Auto-fill daily fills.
+  week: string;
 };
 
 export function RequirementsPanel({
@@ -34,6 +39,7 @@ export function RequirementsPanel({
   onSelectWorkArea,
   canFill,
   siteLocationId,
+  week,
 }: RequirementsPanelProps) {
   if (rows.length === 0) {
     return (
@@ -52,7 +58,12 @@ export function RequirementsPanel({
   }
 
   return (
-    <section aria-label="Requirements" className="min-w-0">
+    <section aria-label="Requirements" className="flex min-w-0 flex-col gap-2">
+      {canFill && rows.some((r) => r.source === "daily" && r.filled < r.required) ? (
+        <div>
+          <AutoFillDailyButton week={week} siteLocationId={siteLocationId} />
+        </div>
+      ) : null}
       <ul className="flex flex-col gap-1">
         {rows.map((row) => {
           const title = `${areaNames[row.workAreaId] ?? "Work area"} · ${
