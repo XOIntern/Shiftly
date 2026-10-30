@@ -698,3 +698,44 @@ export async function loadRequestedDays(
 
   return rows.flatMap((row) => (row.requestDate ? [row.requestDate] : []));
 }
+
+// Read-only lookup behind the daily calendars' informational marker: the dates
+// in [from, to] (inclusive) on which the location holds a fulfilled daily
+// request and no open one, ascending. A fulfilled request no longer holds the
+// one-per-date slot, so such a day stays pickable; an open or approved request
+// on the same date blocks it and is marked by loadRequestedDays instead.
+// Scoped and guarded exactly like loadRequestedDays.
+export async function loadFulfilledDays(
+  siteLocationId: string,
+  from: string,
+  to: string,
+): Promise<string[]> {
+  const actor = await requireUser();
+
+  if (!isCalendarWindow(siteLocationId, from, to)) return [];
+
+  const rows = await db
+    .select({ requestDate: mpRequest.requestDate, status: mpRequest.status })
+    .from(mpRequest)
+    .where(
+      and(
+        mpRequestListWhere(actor),
+        eq(mpRequest.siteLocationId, siteLocationId),
+        eq(mpRequest.type, "daily"),
+        inArray(mpRequest.status, ["open", "approved", "fulfilled"]),
+        gte(mpRequest.requestDate, from),
+        lte(mpRequest.requestDate, to),
+      ),
+    )
+    .orderBy(asc(mpRequest.requestDate));
+
+  const blocked = new Set(
+    rows.filter((row) => row.status !== "fulfilled").map((row) => row.requestDate),
+  );
+  const fulfilled = rows.flatMap((row) =>
+    row.status === "fulfilled" && row.requestDate && !blocked.has(row.requestDate)
+      ? [row.requestDate]
+      : [],
+  );
+  return [...new Set(fulfilled)];
+}

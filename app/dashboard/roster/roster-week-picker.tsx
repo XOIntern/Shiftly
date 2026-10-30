@@ -40,8 +40,15 @@ export function RosterWeekPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => toLocalDate(week));
-  const { weekMarks, dailyDates, takenDays, fulfilledDays, dailyDays } =
-    useRequestMarks(locationId, true, month);
+  const {
+    weekMarks,
+    dailyDates,
+    takenDays,
+    fulfilledDays,
+    dailyDays,
+    fulfilledDailyDates,
+    fulfilledDailyDays,
+  } = useRequestMarks(locationId, true, month);
 
   const text = formatDay(week);
 
@@ -85,6 +92,7 @@ export function RosterWeekPicker({
             taken: takenDays,
             fulfilled: fulfilledDays,
             daily: dailyDays,
+            dailyFulfilled: fulfilledDailyDays,
           }}
           modifiersClassNames={MODIFIER_CLASS_NAMES}
           labels={{
@@ -93,6 +101,7 @@ export function RosterWeekPicker({
               return calendarDayAriaLabel(date, {
                 weekMark: weekMarks.get(mondayOf(iso)),
                 hasDaily: dailyDates.has(iso),
+                hasFulfilledDaily: fulfilledDailyDates.has(iso),
                 blocks: null,
               });
             },

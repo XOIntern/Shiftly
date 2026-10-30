@@ -2284,6 +2284,97 @@ describe("request actions: loadRequestedWeeks", () => {
   });
 });
 
+describe("request actions: loadFulfilledDays", () => {
+  const FROM = "2026-10-05";
+  const TO = "2026-11-08";
+
+  test("returns the dates holding a fulfilled daily request ascending, leaves out dates that also hold an open one, other statuses and weekly requests, both range ends inclusive", async () => {
+    const fx = await seedGlobalData();
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+    fixtureCleanup.defer(async () => {
+      await dropAll({ userIds: [actor.id], ...fx });
+    });
+    const { loadFulfilledDays } = await import("./actions");
+    const daily = (requestDate: string, status: "open" | "approved" | "fulfilled" | "rejected" | "withdrawn") =>
+      seedRequest({
+        siteId: fx.siteA,
+        siteLocationId: fx.locA1,
+        createdBy: actor.id,
+        type: "daily",
+        requestDate,
+        status,
+      });
+
+    // Seeded out of order so insertion order cannot decide the answer.
+    await daily("2026-10-21", "fulfilled");
+    await daily("2026-10-05", "fulfilled");
+    await daily("2026-11-08", "fulfilled");
+    // A date already fulfilled may take a new open request (the DB slot is
+    // free): the open one blocks the day, so it is not listed as fulfilled.
+    await daily("2026-10-12", "fulfilled");
+    await daily("2026-10-12", "open");
+    await daily("2026-10-13", "open");
+    await daily("2026-10-14", "rejected");
+    await daily("2026-10-15", "withdrawn");
+    await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: actor.id,
+      type: "weekly",
+      weekStart: "2026-10-19",
+      status: "fulfilled",
+    });
+
+    expect(await loadFulfilledDays(fx.locA1, FROM, TO)).toEqual([
+      "2026-10-05",
+      "2026-10-21",
+      "2026-11-08",
+    ]);
+    expect(await loadFulfilledDays(fx.locA1, "2026-10-06", "2026-11-07")).toEqual([
+      "2026-10-21",
+    ]);
+  });
+
+  test("an admin never sees another location's fulfilled days, an ho only sees their own site, and malformed input returns nothing", async () => {
+    const fx = await seedGlobalData();
+    const admin = makeActor("admin", null, fx.locA1);
+    const ho = makeActor("ho", fx.siteA, null);
+    const creator = makeActor("admin", null, fx.locA1);
+    await seedUser(creator);
+    fixtureCleanup.defer(async () => {
+      await dropAll({ userIds: [creator.id], ...fx });
+    });
+    const { loadFulfilledDays } = await import("./actions");
+
+    await seedRequest({
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+      createdBy: creator.id,
+      type: "daily",
+      requestDate: "2026-10-12",
+      status: "fulfilled",
+    });
+    await seedRequest({
+      siteId: fx.siteB,
+      siteLocationId: fx.locB,
+      createdBy: creator.id,
+      type: "daily",
+      requestDate: "2026-10-14",
+      status: "fulfilled",
+    });
+
+    actor = admin;
+    expect(await loadFulfilledDays(fx.locA1, FROM, TO)).toEqual(["2026-10-12"]);
+    expect(await loadFulfilledDays(fx.locB, FROM, TO)).toEqual([]);
+    actor = ho;
+    expect(await loadFulfilledDays(fx.locA1, FROM, TO)).toEqual(["2026-10-12"]);
+    expect(await loadFulfilledDays(fx.locB, FROM, TO)).toEqual([]);
+    expect(await loadFulfilledDays("not-a-uuid", FROM, TO)).toEqual([]);
+    expect(await loadFulfilledDays(fx.locA1, TO, FROM)).toEqual([]);
+  });
+});
+
 describe("request actions: loadRequestedDays", () => {
   const FROM = "2026-10-05";
   const TO = "2026-11-08";

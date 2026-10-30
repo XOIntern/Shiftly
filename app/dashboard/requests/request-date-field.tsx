@@ -25,7 +25,9 @@ import {
 // the days the chosen location already has an open daily request for (those
 // cannot take a second one, the DB slot, so they are disabled) and, for
 // context, the weeks holding a weekly request (a daily request is an exception
-// on top of a weekly plan, so those days stay pickable). Markers come from
+// on top of a weekly plan, so those days stay pickable) and the days holding
+// only a fulfilled daily request (informational: the DB slot is free, so they
+// stay pickable too). Markers come from
 // useRequestMarks, fetched per visible month and keyed by location.
 export function RequestDateField({
   id,
@@ -49,8 +51,15 @@ export function RequestDateField({
     value ? toLocalDate(value) : new Date(),
   );
   const active = !disabled && locationId !== null;
-  const { weekMarks, dailyDates, takenDays, fulfilledDays, dailyDays } =
-    useRequestMarks(locationId, !disabled, month);
+  const {
+    weekMarks,
+    dailyDates,
+    takenDays,
+    fulfilledDays,
+    dailyDays,
+    fulfilledDailyDates,
+    fulfilledDailyDays,
+  } = useRequestMarks(locationId, !disabled, month);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -88,6 +97,7 @@ export function RequestDateField({
             taken: takenDays,
             fulfilled: fulfilledDays,
             daily: dailyDays,
+            dailyFulfilled: fulfilledDailyDays,
           }}
           modifiersClassNames={MODIFIER_CLASS_NAMES}
           classNames={{ disabled: "text-muted-foreground" }}
@@ -97,6 +107,7 @@ export function RequestDateField({
               return calendarDayAriaLabel(date, {
                 weekMark: weekMarks.get(mondayOf(iso)),
                 hasDaily: dailyDates.has(iso),
+                hasFulfilledDaily: fulfilledDailyDates.has(iso),
                 blocks: "day",
               });
             },
