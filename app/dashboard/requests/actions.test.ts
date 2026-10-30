@@ -458,7 +458,7 @@ describe("request actions: createRequest", () => {
     expect(rows.length).toBe(0);
   });
 
-  test("duplicate open request for the same week: friendly message", async () => {
+  test("duplicate weekly request for the same week: friendly message", async () => {
     const fx = await seedGlobalData();
     const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
     const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
@@ -497,11 +497,59 @@ describe("request actions: createRequest", () => {
 
     const second = await createRequest(input);
     expect(second.ok).toBe(false);
-    expect(second.message).toBe(
-      "An open request for this week/date already exists",
-    );
+    expect(second.message).toBe("A request for this week/date already exists");
 
     // The refusal wrote nothing: exactly one request for the week.
+    const rows = await db
+      .select({ id: mpRequest.id })
+      .from(mpRequest)
+      .where(eq(mpRequest.siteLocationId, fx.locA1));
+    expect(rows.length).toBe(1);
+  });
+
+  test("duplicate daily request for the same date: friendly message", async () => {
+    const fx = await seedGlobalData();
+    const waA1 = await seedWorkArea({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const shiftA1 = await seedShift({ siteId: fx.siteA, siteLocationId: fx.locA1 });
+    const posA1 = await seedPosition({ siteId: fx.siteA });
+    await seedPivot({
+      workAreaId: waA1,
+      positionId: posA1,
+      siteId: fx.siteA,
+      siteLocationId: fx.locA1,
+    });
+    actor = makeActor("admin", null, fx.locA1);
+    await seedUser(actor);
+
+    fixtureCleanup.defer(async () => {
+      await dropAll({
+        userIds: [actor.id],
+        workAreaIds: [waA1],
+        shiftIds: [shiftA1],
+        positionIds: [posA1],
+        ...fx,
+      });
+    });
+    const { createRequest } = await import("./actions");
+    const input = {
+      type: "daily" as const,
+      requestDate: "2026-03-04",
+      lines: [
+        {
+          workAreaId: waA1,
+          shiftDefinitionId: shiftA1,
+          positionId: posA1,
+          date: "2026-03-04",
+          headcount: 1,
+        },
+      ],
+    };
+    expect((await createRequest(input)).ok).toBe(true);
+
+    const second = await createRequest(input);
+    expect(second.ok).toBe(false);
+    expect(second.message).toBe("A request for this week/date already exists");
+
     const rows = await db
       .select({ id: mpRequest.id })
       .from(mpRequest)

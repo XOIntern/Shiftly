@@ -52,8 +52,7 @@ class ActionAbort extends Error {
 
 // Messages the tests assert verbatim.
 const HO_CREATE_MESSAGE = "Only admins enter requests";
-const DUPLICATE_OPEN_SLOT =
-  "An open request for this week/date already exists";
+const DUPLICATE_SLOT = "A request for this week/date already exists";
 const NOT_EDITABLE = "This request can no longer be edited.";
 const WEEK_HAS_ROSTER =
   "This week already has a roster. Discard the draft roster first.";
@@ -119,7 +118,7 @@ function requestResult(err: unknown): ActionState {
     ) {
       return { ok: false, fieldErrors: { lines: LINE_DUPLICATE } };
     }
-    return { ok: false, message: DUPLICATE_OPEN_SLOT };
+    return { ok: false, message: DUPLICATE_SLOT };
   }
   if (code === "23503" || code === "23001") {
     return { ok: false, message: REFERENCE_FK };
