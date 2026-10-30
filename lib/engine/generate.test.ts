@@ -420,4 +420,47 @@ describe("generateDraft (roster-engine task 2)", () => {
       },
     ]);
   });
+
+  // #250: a history row that already breaks a rule (e.g. a daily fill kept
+  // after the location tightened C1) must not keep its worker out of days the
+  // violation has nothing to do with; only a candidate that ADDS a violation
+  // is refused.
+  describe("a worker whose history already breaks a rule (#250)", () => {
+    // Mon-Wed worked under C1 = 2: the third day is already a C1 violation.
+    const overLimit = [
+      assign("w1", "2026-01-05"),
+      assign("w1", "2026-01-06"),
+      assign("w1", "2026-01-07"),
+    ];
+    const input = (date: string) => ({
+      requirements: [line(date, "s0", "wa-a", 1)],
+      workers: [mkWorker("w1", "wa-a", ["pos-a"])],
+      shiftOrder: mkShift(3),
+      areaRequirements: {},
+      priorAssignments: overLimit,
+      rules: rules({ c1: 2 }),
+    });
+
+    test("is still scheduled on a day outside the violating week", () => {
+      const result = generateDraft(input("2026-01-12"));
+
+      expect(result.assignments.map((a) => a.workerId)).toEqual(["w1"]);
+      expect(result.deficits).toEqual([]);
+    });
+
+    test("is still refused on a day that adds to the violation", () => {
+      const result = generateDraft(input("2026-01-08"));
+
+      expect(result.assignments).toEqual([]);
+      expect(result.deficits).toEqual([
+        {
+          workAreaId: "wa-a",
+          shiftDefId: "s0",
+          date: "2026-01-08",
+          missing: 1,
+          reason: "all_rule_limited",
+        },
+      ]);
+    });
+  });
 });

@@ -1745,6 +1745,63 @@ describe("roster actions: fillDailyRequest", () => {
   });
 });
 
+// #250: daily fills are fixed history for the generator. When one already
+// breaks a rule, the worker is scheduled only on days that add nothing to it,
+// and the generate result says so instead of leaving a silent shortfall.
+describe("roster actions: generate explains workers held back by daily fills (#250)", () => {
+  const WED = "2026-01-07";
+
+  async function seedWeek(tag: string, dailyDates: string[]) {
+    const fx = await createBase(`t250-${tag}-${randomUUID()}`, tag);
+    const pos = await createPosition(fx, "p");
+    const area = await createWorkArea(fx, "a");
+    await requireAreaPosition(fx, area, pos);
+    const shift = await createShift(fx, 1);
+    await createShift(fx, 2); // keeps C4 neutral
+    const w = await createWorker(fx, "w");
+    await giveWorkerPosition(fx, w, pos);
+    const [{ employeeId }] = await db
+      .select({ employeeId: worker.employeeId })
+      .from(worker)
+      .where(eq(worker.id, w));
+    await seedWeeklyDemand(fx, [
+      { workAreaId: area, shiftDefinitionId: shift, date: MON, headcount: 1, positionId: pos },
+    ]);
+    await tightenRule(fx, "C1", 1);
+    for (const date of dailyDates) {
+      await seedDailyRow(fx, { workerId: w, workAreaId: area, shiftDefId: shift, date });
+    }
+    actor = makeActor("admin", null, fx.locationId);
+    await seedUser(actor);
+    return { fx, w, employeeId };
+  }
+
+  test("names the worker and the broken rule when a daily fill already violates", async () => {
+    const s = await seedWeek("note", [TUE, WED]);
+
+    const { generateRoster } = await import("./actions");
+    const result = await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId });
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain(s.employeeId);
+    expect(result.message).toContain("max is 1");
+    const [plan] = await db
+      .select()
+      .from(rosterPlan)
+      .where(and(eq(rosterPlan.siteLocationId, s.fx.locationId), eq(rosterPlan.kind, "weekly")));
+    expect(await readPlanRows(plan.id)).toEqual([]);
+  });
+
+  test("adds no note when the daily fills are clean", async () => {
+    const s = await seedWeek("clean", [TUE]);
+
+    const { generateRoster } = await import("./actions");
+    const result = await generateRoster({ weekStart: MON, siteLocationId: s.fx.locationId });
+
+    expect(result).toEqual({ ok: true });
+  });
+});
+
 // #249: a fill and a publish of the same location validate against each
 // other's rows, so they take one per-location lock and validate under it. The
 // tests hold that lock from outside, so the action under test is provably

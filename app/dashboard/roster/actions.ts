@@ -218,19 +218,54 @@ export async function generateRoster(
   }
 
   const week = weekDates(weekStart);
-  const [shiftOrder, areaRequirements, rules, history, dailyRows, workers] =
-    await Promise.all([
-      loadShiftOrder(siteLocationId),
-      loadAreaRequirements(siteLocationId),
-      loadEffectiveRules(siteLocationId),
-      loadPriorAssignments(siteLocationId, week[0]),
-      loadDailyAssignmentsInRange(siteLocationId, week[0], week[6]),
-      loadWorkerProfiles(siteLocationId, input.workAreaId),
-    ]);
+  const [
+    shiftOrder,
+    shiftLabels,
+    areaNames,
+    areaRequirements,
+    rules,
+    history,
+    dailyRows,
+    workers,
+  ] = await Promise.all([
+    loadShiftOrder(siteLocationId),
+    loadShiftLabels(siteLocationId),
+    loadAreaNames(siteLocationId),
+    loadAreaRequirements(siteLocationId),
+    loadEffectiveRules(siteLocationId),
+    loadPriorAssignments(siteLocationId, week[0]),
+    loadDailyAssignmentsInRange(siteLocationId, week[0], week[6]),
+    loadWorkerProfiles(siteLocationId, input.workAreaId),
+  ]);
   // The week's daily fills are fixed history for the generator: a worker
   // already filled for a date is never drafted onto it again, and the fills
   // count toward C1/C3/C4 like any other assigned day.
   const prior = [...history, ...dailyRows];
+
+  // A daily fill that already breaks a rule (e.g. after the location tightened
+  // C1) cannot be removed, so the generator only schedules its worker on days
+  // that add nothing to the violation. Say so: otherwise the worker's missing
+  // shifts show up as an unexplained shortfall.
+  const employeeOf = new Map(workers.map((w) => [w.id, w.employeeId]));
+  const filledWorkers = new Set(dailyRows.map((r) => r.workerId));
+  const heldBack = validateRoster(
+    prior,
+    buildWorkersRecord(workers),
+    rules,
+    shiftOrder,
+    areaRequirements,
+    shiftLabels,
+    areaNames,
+  )
+    .filter(
+      (v) =>
+        filledWorkers.has(v.workerId) &&
+        employeeOf.has(v.workerId) &&
+        v.date !== undefined &&
+        v.date >= week[0] &&
+        v.date <= week[6],
+    )
+    .map((v) => ({ ...v, message: `${employeeOf.get(v.workerId)}: ${v.message}` }));
 
   try {
     await db.transaction(async (tx) => {
@@ -364,6 +399,12 @@ export async function generateRoster(
 
   revalidatePath("/dashboard/roster");
   revalidatePath("/dashboard/requests");
+  if (heldBack.length > 0) {
+    return {
+      ok: true,
+      message: `Daily fills already break a rule, so these workers only get days that do not add to it: ${violationMessage(heldBack)}`,
+    };
+  }
   return { ok: true };
 }
 
