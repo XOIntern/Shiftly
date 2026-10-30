@@ -96,7 +96,7 @@ export function RequirementsPanel({
           return (
             <li key={row.key} className="flex flex-col gap-2 rounded-lg px-3 py-2">
               {body}
-              {canFill ? (
+              {canFill && row.filled < row.required ? (
                 <div>
                   <DailySlotMenu
                     row={row}

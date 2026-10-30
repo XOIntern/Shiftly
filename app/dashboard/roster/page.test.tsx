@@ -2,7 +2,7 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -738,6 +738,54 @@ describe("roster page SSR (roster-engine Task 7)", () => {
     expect(text(html)).toContain("Draft v1");
     expect(text(html)).not.toContain("Publish the weekly roster first");
     expect(suggestTrigger(html)).not.toContain('disabled=""');
+  });
+
+  describe("a week without a weekly plan", () => {
+    const withoutWeeklyPlans = async () => {
+      const fx = await seedRosterFixtures();
+      fixtureCleanup.defer(async () => {
+        await fx.cleanup();
+      });
+      await db
+        .delete(rosterPlan)
+        .where(inArray(rosterPlan.id, [fx.ids.draftL1, fx.ids.publishedL1]));
+      actor = makeActor("admin", null, fx.ids.locL1);
+      return fx;
+    };
+
+    test("lists the daily fills (date, worker) instead of an empty box", async () => {
+      const fx = await withoutWeeklyPlans();
+
+      const html = await renderRoster({ week: fx.MONDAY });
+      const shown = text(html);
+
+      expect(shown).toContain("2026-01-07");
+      expect(shown).toContain(fx.employeeId(2));
+      expect(shown).toContain(fx.employeeId(3));
+      expect(shown).not.toContain("Generate a draft once a request is approved");
+    });
+
+    test("an ho sees the same daily fills read-only", async () => {
+      const fx = await withoutWeeklyPlans();
+      actor = makeActor("ho", fx.ids.siteS, null);
+
+      const shown = text(
+        await renderRoster({ week: fx.MONDAY, locationId: fx.ids.locL1 }),
+      );
+
+      expect(shown).toContain(fx.employeeId(2));
+    });
+
+    test("daily requests without any fill point at the requirements panel", async () => {
+      const fx = await withoutWeeklyPlans();
+      await db.delete(rosterPlan).where(eq(rosterPlan.id, fx.ids.dailyPlan));
+
+      const shown = text(await renderRoster({ week: fx.MONDAY }));
+
+      expect(shown).toContain("No weekly roster for this week.");
+      expect(shown).toContain("Fill daily requests from the requirements panel.");
+      expect(shown).not.toContain("Generate a draft once a request is approved");
+    });
   });
 
   test("a daily fill shows as a read-only Daily cell in the worker's row, for an admin and an ho", async () => {

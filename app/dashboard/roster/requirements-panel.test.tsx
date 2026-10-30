@@ -140,4 +140,10 @@ describe("RequirementsPanel", () => {
     expect(suggestTrigger(html)).not.toContain('disabled=""');
     expect(text(html)).not.toContain("Publish the weekly roster first");
   });
+
+  test("a fully filled daily row offers no suggestions, a short one does", () => {
+    const full = { ...daily, filled: daily.required };
+    expect(text(render({ rows: [full] }))).not.toContain("Suggest replacements");
+    expect(text(render({ rows: [daily] }))).toContain("Suggest replacements");
+  });
 });

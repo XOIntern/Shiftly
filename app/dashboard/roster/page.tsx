@@ -46,6 +46,7 @@ import type {
   GridPlanView,
   RosterPlanOption,
 } from "@/app/dashboard/roster/roster-week-view";
+import type { DailyFillView } from "@/app/dashboard/roster/daily-fills-list";
 import type { SiteLocationOption, SiteOption } from "@/types/site";
 
 // Deliberate block: the page queries roster data behind the session check,
@@ -354,6 +355,36 @@ export default async function RosterPage({
     };
   }
 
+  // Without a weekly plan there is no grid to carry the daily fills, so the
+  // page lists them (read-only) where the grid would be.
+  let dailyFills: DailyFillView[] = [];
+  if (!planView && dailyAssignments.length > 0) {
+    const fillWorkers = await db
+      .select({ id: worker.id, employeeId: worker.employeeId, name: worker.name })
+      .from(worker)
+      .where(inArray(worker.id, [...new Set(dailyAssignments.map((a) => a.workerId))]));
+    const workerById = new Map(fillWorkers.map((w) => [w.id, w]));
+    dailyFills = dailyAssignments
+      .map((a) => ({
+        shiftIndex: shiftOrder.get(a.shiftDefId) ?? 0,
+        fill: {
+          date: a.date,
+          workAreaName: areaNames[a.workAreaId] ?? "Work area",
+          shiftLabel: shiftLabels[a.shiftDefId] ?? "Shift",
+          employeeId: workerById.get(a.workerId)?.employeeId ?? "",
+          name: workerById.get(a.workerId)?.name ?? "",
+        },
+      }))
+      .sort(
+        (a, b) =>
+          a.fill.date.localeCompare(b.fill.date) ||
+          a.fill.workAreaName.localeCompare(b.fill.workAreaName) ||
+          a.shiftIndex - b.shiftIndex ||
+          a.fill.employeeId.localeCompare(b.fill.employeeId),
+      )
+      .map((entry) => entry.fill);
+  }
+
   const plans: RosterPlanOption[] = planRows.map((row) => ({
     id: row.id,
     status: row.status,
@@ -376,6 +407,7 @@ export default async function RosterPage({
       plans={plans}
       selectedPlanId={chosen?.id ?? null}
       plan={planView}
+      dailyFills={dailyFills}
       gate={gate}
       totals={weeklyRows.length > 0 ? coverageTotals(weeklyRows) : null}
       violationHead={violations
